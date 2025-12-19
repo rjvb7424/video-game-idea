@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Dict, List, Optional, Set, Tuple, Iterable
+from typing import Dict, List, Optional, Set
 from uuid import uuid4
 
 
@@ -62,32 +62,6 @@ class Trait:
 
 
 @dataclass
-class Skills:
-    diplomacy: int = 0
-    martial: int = 0
-    stewardship: int = 0
-    intrigue: int = 0
-    learning: int = 0
-    prowess: int = 0
-
-    def get(self, skill: SkillName) -> int:
-        return int(getattr(self, skill.value))
-
-    def add(self, skill: SkillName, delta: int) -> None:
-        setattr(self, skill.value, self.get(skill) + int(delta))
-
-    def as_dict(self) -> Dict[str, int]:
-        return {
-            "diplomacy": self.diplomacy,
-            "martial": self.martial,
-            "stewardship": self.stewardship,
-            "intrigue": self.intrigue,
-            "learning": self.learning,
-            "prowess": self.prowess,
-        }
-
-
-@dataclass
 class Relationship:
     other_id: str
     kind: RelationType
@@ -115,32 +89,53 @@ class Hook:
     target_id: str
     strength: int = 1   # 1 weak, 2 strong
 
+@dataclass
+class Skills:
+    diplomacy: int = 0
+    martial: int = 0
+    stewardship: int = 0
+    intrigue: int = 0
+    learning: int = 0
+    prowess: int = 0
 
-# ---------- Character ----------
+    def get(self, skill: SkillName) -> int:
+        return int(getattr(self, skill.value))
+
+    def add(self, skill: SkillName, delta: int) -> None:
+        setattr(self, skill.value, self.get(skill) + int(delta))
+
+    def as_dict(self) -> Dict[str, int]:
+        return {
+            "diplomacy": self.diplomacy,
+            "martial": self.martial,
+            "stewardship": self.stewardship,
+            "intrigue": self.intrigue,
+            "learning": self.learning,
+            "prowess": self.prowess,
+        }
 
 class Character:
+    """A character in the game world."""
     def __init__(self, fname: str, lname: str, age: int):
+        # unique identifier
         self.id: str = uuid4().hex
-
-        # Identity
+        # basic identity
         self.fname = fname
         self.lname = lname
-        self.age = int(age)
-
-        # “World” identity tags (expand later into objects)
-        self.dynasty: Optional[str] = None
-        self.culture: Optional[str] = None
-        self.faith: Optional[str] = None
-
-        # Stats
+        self.age = age
+        # extended identity
+        self.dynasty = None
+        self.culture = None
+        self.faith = None
+        # skills & traits
         self.base_skills = Skills()
         self.traits: List[Trait] = []
 
         # Character state
-        self.health: float = 5.0         # simple scale; CK3 uses health mechanics
-        self.fertility: float = 0.5      # 0.0..1.0 baseline
-        self.stress: float = 0.0         # grows with events; thresholds cause breaks
-        self.dread: float = 0.0          # intimidation
+        self.health: float = 5.0
+        self.fertility: float = 0.5
+        self.stress: float = 0.0
+        self.dread: float = 0.0
 
         # Economy / meta currencies
         self.gold: float = 0.0
