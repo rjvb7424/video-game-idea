@@ -77,20 +77,6 @@ class Title:
     rank: TitleRank
     # Optional: de jure / de facto structures later
 
-
-@dataclass(frozen=True)
-class Secret:
-    name: str
-    severity: int = 1   # 1..5
-    # Optional: type/category, targets, discovery chance, etc.
-
-
-@dataclass
-class Hook:
-    owner_id: str
-    target_id: str
-    strength: int = 1   # 1 weak, 2 strong
-
 class Skills:
     """A class which holds the main skills of a character. Also contains methods to manipulate them."""
     def __init__(self, diplomacy: int = None, martial: int = None, stewardship: int = None, intrigue: int = None, learning: int = None, prowess: int = None):
@@ -160,10 +146,6 @@ class Character:
         self.titles: List[Title] = []
         self.claims: List[Title] = []
         self.primary_title: Optional[Title] = None
-
-        # Secrets / hooks
-        self.secrets: List[Secret] = []
-        self.hooks: List[Hook] = []
 
         # Lifestyle / perks (placeholders)
         self.lifestyle: Optional[str] = None
@@ -259,16 +241,6 @@ class Character:
 
     def add_claim(self, title: Title) -> None:
         self.claims.append(title)
-
-    # ---------- Secrets & hooks ----------
-
-    def add_secret(self, secret: Secret) -> None:
-        self.secrets.append(secret)
-
-    def add_hook_on(self, target: Character, strength: int = 1) -> None:
-        self.hooks.append(Hook(owner_id=self.id, target_id=target.id, strength=int(strength)))
-
-    # ---------- Time progression (very simple) ----------
 
     def year_tick(self) -> None:
         """
