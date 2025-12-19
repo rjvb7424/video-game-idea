@@ -29,19 +29,19 @@ class Skills:
 
 class Character:
     """A character in the game world."""
-    def __init__(self, fname: str, lname: str, age: int):
+    def __init__(self, fname: str, lname: str, age: int, skills: Skills | None = None):
         # unique identifier
         self.id: str = uuid4().hex
         # basic identity
         self.fname: str = fname
         self.lname: str = lname
         self.age: int = age
+        # skills
+        self.skills = skills if skills is not None else Skills()
         # extended identity
         self.dynasty: str = None
         self.culture: str = None
         self.faith: str = None
-        # skills
-        self.skills = Skills()
         # character states
         self.health: float = 1.0
         self.fertility: float = 0.5
