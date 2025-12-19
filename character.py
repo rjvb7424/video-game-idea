@@ -33,23 +33,21 @@ class Character:
         # unique identifier
         self.id: str = uuid4().hex
         # basic identity
-        self.fname = fname
-        self.lname = lname
-        self.age = age
+        self.fname: str = fname
+        self.lname: str = lname
+        self.age: int = age
         # extended identity
-        self.dynasty = None
-        self.culture = None
-        self.faith = None
-        # skills & traits
+        self.dynasty: str = None
+        self.culture: str = None
+        self.faith: str = None
+        # skills
         self.skills = Skills()
-
-        # Character state
-        self.health: float = 5.0
+        # character states
+        self.health: float = 1.0
         self.fertility: float = 0.5
         self.stress: float = 0.0
         self.dread: float = 0.0
-
         # currencies
-        self.gold: float = 0.0
-        self.prestige: float = 0.0
-        self.piety: float = 0.0
+        self.gold: int = 0
+        self.prestige: int = 0
+        self.piety: int = 0
