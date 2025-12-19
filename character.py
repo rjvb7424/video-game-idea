@@ -5,6 +5,8 @@ from enum import Enum, auto
 from typing import Dict, List, Optional, Set
 from uuid import uuid4
 
+import random
+
 
 # ---------- Enums ----------
 
@@ -89,30 +91,35 @@ class Hook:
     target_id: str
     strength: int = 1   # 1 weak, 2 strong
 
-@dataclass
 class Skills:
-    diplomacy: int = 0
-    martial: int = 0
-    stewardship: int = 0
-    intrigue: int = 0
-    learning: int = 0
-    prowess: int = 0
+    """A class which holds the main skills of a character. Also contains methods to manipulate them."""
+    def __init__(self, diplomacy: int = None, martial: int = None, stewardship: int = None, intrigue: int = None, learning: int = None, prowess: int = None):
+        if diplomacy is None: self.diplomacy = self._generate_skill_value()
+        else: self.diplomacy = diplomacy
+        if martial is None: self.martial = self._generate_skill_value()
+        else: self.martial = martial
+        if stewardship is None: self.stewardship = self._generate_skill_value()
+        else: self.stewardship = stewardship
+        if intrigue is None: self.intrigue = self._generate_skill_value()
+        else: self.intrigue = intrigue
+        if learning is None: self.learning = self._generate_skill_value()
+        else: self.learning = learning
+        if prowess is None: self.prowess = self._generate_skill_value()
+        else: self.prowess = prowess
 
-    def get(self, skill: SkillName) -> int:
-        return int(getattr(self, skill.value))
+    @staticmethod
+    def _generate_skill_value() -> int:
+        """Returns a skill value based on a Gaussian distribution."""
+        value = random.gauss(5, 3)
+        value = round(value)
+        value = max(0, min(20, value))
+        return int(value)
+    
+    def get(self, name: str) -> int:
+        return getattr(self, name)
 
-    def add(self, skill: SkillName, delta: int) -> None:
-        setattr(self, skill.value, self.get(skill) + int(delta))
-
-    def as_dict(self) -> Dict[str, int]:
-        return {
-            "diplomacy": self.diplomacy,
-            "martial": self.martial,
-            "stewardship": self.stewardship,
-            "intrigue": self.intrigue,
-            "learning": self.learning,
-            "prowess": self.prowess,
-        }
+    def set(self, name: str, value: int) -> None:
+        setattr(self, name, value)
 
 class Character:
     """A character in the game world."""
