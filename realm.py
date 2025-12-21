@@ -6,9 +6,8 @@ from enum import Enum
 from typing import Optional, List, Dict, Set, TYPE_CHECKING
 from uuid import uuid4
 
-if TYPE_CHECKING:
-    # Import your Character type for type-checking only (avoids circular imports at runtime)
-    from character import Character
+# internal imports
+from character import Character
 
 @dataclass
 class Faith:
@@ -24,19 +23,17 @@ class County:
     # local country identity
     faith: Faith = field(default_factory=Faith())
     # modifiers
-    owner: Optional["Character"] = None
-    if owner is not None:
-        development: int = 1
-        control: int = 100
-    # Optional: which realm it belongs to politically
-    realm_id: Optional[str] = None
+    development: int = 1
+    control: int = 100
+    # ownership
+    owner: Character
+    # TODO: expand with counties not needing an owner (e.g, unclaimed land)
 
-    def set_holder(self, new_holder: Optional["Character"]) -> None:
+    def set_holder(self, new_holder: Character) -> None:
         self.holder = new_holder
 
-    def clamp(self) -> None:
-        self.development = max(0, int(self.development))
-        self.control = max(0.0, min(100.0, float(self.control)))
+    def get_holder(self) -> Character:
+        return self.holder
 
 
 @dataclass(slots=True)
