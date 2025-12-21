@@ -10,25 +10,6 @@ if TYPE_CHECKING:
     # Import your Character type for type-checking only (avoids circular imports at runtime)
     from character import Character
 
-
-def new_id() -> str:
-    return uuid4().hex
-
-
-class GovernmentType(str, Enum):
-    FEUDAL = "feudal"
-    CLAN = "clan"
-    TRIBAL = "tribal"
-    REPUBLIC = "republic"
-    THEOCRACY = "theocracy"
-
-
-class SuccessionType(str, Enum):
-    PARTITION = "partition"
-    CONFEDERATE_PARTITION = "confederate_partition"
-    PRIMOGENITURE = "primogeniture"
-    ELECTIVE = "elective"
-
 @dataclass
 class Faith:
     id: str = uuid4().hex
@@ -61,7 +42,6 @@ class County:
 @dataclass(slots=True)
 class RealmLaws:
     # Keep it flexible: you can later expand to richer structures.
-    succession: SuccessionType = SuccessionType.PARTITION
     crown_authority: int = 1  # 0..4
     vassal_contracts_enabled: bool = True
 
@@ -76,11 +56,6 @@ class Realm:
       - RULE it (legal holder / top liege)
       - CONTROL it (actual decision-maker; could be same as ruler, or a regent, or an occupier)
     """
-
-    id: str = field(default_factory=new_id)
-    name: str = "Unnamed Realm"
-
-    government: GovernmentType = GovernmentType.FEUDAL
     laws: RealmLaws = field(default_factory=RealmLaws)
 
     # “Realm identity” (often matches ruler, but not always)
