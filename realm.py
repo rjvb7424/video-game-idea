@@ -29,29 +29,24 @@ class SuccessionType(str, Enum):
     PRIMOGENITURE = "primogeniture"
     ELECTIVE = "elective"
 
-@dataclass(slots=True)
+@dataclass
 class Faith:
     id: str = uuid4().hex
     name: str
     description: str
     # TODO: expand with virtues and sins
 
-@dataclass(slots=True)
+@dataclass
 class County:
-    id: str = field(default_factory=new_id)
-    name: str = "Unnamed County"
-
-    # “Local” county identity (can differ from realm)
-    culture: Culture = field(default_factory=Culture)
-    faith: Faith = field(default_factory=Faith)
-
-    # CK3-like stats
-    development: int = 1          # economic/tech proxy
-    control: float = 100.0        # 0..100 (popular order / admin reach)
-
-    # Who *owns* the county (domain holder). In CK3 terms: county holder / title holder.
-    holder: Optional["Character"] = None
-
+    id: str = uuid4().hex
+    name: str
+    # local country identity
+    faith: Faith = field(default_factory=Faith())
+    # modifiers
+    owner: Optional["Character"] = None
+    if owner is not None:
+        development: int = 1
+        control: int = 100
     # Optional: which realm it belongs to politically
     realm_id: Optional[str] = None
 
@@ -90,7 +85,6 @@ class Realm:
 
     # “Realm identity” (often matches ruler, but not always)
     faith: Faith = field(default_factory=Faith)
-    culture: Culture = field(default_factory=Culture)
 
     # Core geography
     counties: List[County] = field(default_factory=list)
@@ -215,7 +209,3 @@ class Realm:
     def convert_realm_faith(self, new_faith: Faith) -> None:
         """Realm-level faith change (doesn't instantly convert counties)."""
         self.faith = new_faith
-
-    def adopt_realm_culture(self, new_culture: Culture) -> None:
-        """Realm-level culture change (doesn't instantly convert counties)."""
-        self.culture = new_culture
