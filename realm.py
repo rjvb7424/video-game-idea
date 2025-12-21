@@ -29,32 +29,12 @@ class SuccessionType(str, Enum):
     PRIMOGENITURE = "primogeniture"
     ELECTIVE = "elective"
 
-
 @dataclass(slots=True)
 class Faith:
-    id: str = field(default_factory=new_id)
-    name: str = "No Faith"
-    tenets: List[str] = field(default_factory=list)
-    doctrines: Dict[str, str] = field(default_factory=dict)
-
-    def is_hostile_to(self, other: "Faith") -> bool:
-        # Placeholder rule: different faith names => hostile
-        # Replace with real doctrine comparison logic later.
-        return self.name != other.name
-
-
-@dataclass(slots=True)
-class Culture:
-    id: str = field(default_factory=new_id)
-    name: str = "No Culture"
-    ethos: str = "neutral"
-    traditions: List[str] = field(default_factory=list)
-    language: str = "common"
-    innovations: Set[str] = field(default_factory=set)
-
-    def has_tradition(self, tradition: str) -> bool:
-        return tradition in self.traditions
-
+    id: str = uuid4().hex
+    name: str
+    description: str
+    # TODO: expand with virtues and sins
 
 @dataclass(slots=True)
 class County:
