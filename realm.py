@@ -12,6 +12,12 @@ class Faith:
     description: str
     # TODO: expand with virtues and sins
 
+class Culture:
+    id: str = uuid4().hex
+    name: str
+    description: str
+    # TODO: expand with modifiers, traditions
+
 @dataclass
 class County:
     id: str = uuid4().hex
