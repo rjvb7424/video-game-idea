@@ -1,0 +1,16 @@
+{
+    "brave": {
+        "name": "Brave",
+        "group": "personality",
+        "opposites": ["craven"],
+        "description": "This character faces danger head-on, showing courage in the face of adversity.",
+        "icon": "trait_icons/brave_icon.png"
+  },
+    "craven": {
+        "name": "Craven",
+        "group": "personality",
+        "opposites": ["brave"],
+        "description": "This character tends to avoid danger and is often fearful in challenging situations.",
+        "icon": "trait_icons/craven_icon.png"
+  }
+}
