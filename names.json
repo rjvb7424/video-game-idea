@@ -1,0 +1,25 @@
+{
+    "cultures": {
+        "nordfolken": {
+            "given_names": {
+                "male": ["Erik", "Olav", "Harald", "Leif", "Bjorn", "Magnus", "Ivar", "Hakon", "Einar", "Torstein", "Sigurd", "Ragnvald", "Asbjorn", "Ketil", "Vidar", "Stian", "Anders", "Lars", "Johan", "Rune", "Knut", "Sverre", "Trygve", "Finn", "Arne", "Henrik", "Paal", "Odd", "Sindre", "Mikkel", "Kristian", "Torbjorn", "Jorgen", "Oskar", "Martin", "Jon", "Simen", "Egil", "Bjarne", "Hallvard"],
+                "female": ["Astrid", "Ingrid", "Sigrid", "Liv", "Hilda", "Ragnhild", "Solveig", "Kari", "Tove", "Hanne", "Maja", "Nora", "Ida", "Kristin", "Helga", "Runa", "Eira", "Aase", "Gunhild", "Silje", "Elise", "Mari", "Linnea", "Sanna", "Eline", "Malin", "Thea", "Amalie", "Frida", "Anja", "Tonje", "Synne", "Oda", "Birgit", "Rikke", "Vilde", "Selma", "Embla", "Alva", "Tuva"]
+            },
+        "dynasty_names": ["Hansen", "Johansen", "Olsen", "Larsen", "Nilsen", "Andersen", "Pedersen", "Eriksen", "Berg", "Haugen", "Dahl", "Solberg", "Moen", "Lie", "Hagen", "Kristiansen", "Svendsen", "Bakke", "Myhre", "Viken", "Tarnheim", "Himmelsgard", "Skylid", "Arksen", "Solsverd", "Jernport", "Havnholm", "Staalbjorn", "Frostgard", "Skyggevik"]
+        },
+        "matherians": {
+            "given_names": {
+                "male": ["Conor", "Ciaran", "Sean", "Finn", "Fionn", "Diarmuid", "Niall", "Eamon", "Aidan", "Cormac", "Donal", "Eoghan", "Liam", "Padraig", "Ruairi", "Cathal", "Tadhg", "Brian", "Oisin", "Declan", "Colm", "Fergal", "Seamus", "Brendan", "Ronan", "Cillian", "Malachy", "Darragh", "Keiran", "Dylan", "Tiernan", "Lorcan", "Daithi", "Shane", "Phelan", "Fintan", "Dermot", "Kian", "Cian", "Eanna"],
+                "female": ["Aoife", "Niamh", "Siobhan", "Saoirse", "Orla", "Maeve", "Grainne", "Brigid", "Deirdre", "Aisling", "Fiona", "Sinead", "Caitlin", "Roisin", "Eileen", "Ciara", "Muirenn", "Sorcha", "Clodagh", "Una", "Tara", "Emer", "Etain", "Mairead", "Alannah", "Keira", "Oona", "Nuala", "Aine", "Moira", "Sile", "Fionnuala", "Riona", "Bebhinn", "Liadan", "Meabh", "Ruth", "Nessa", "Maebh", "Ailis"]
+            },
+      "dynasty_names": ["O'Neill", "O'Brien", "O'Connor", "O'Donnell", "O'Sullivan", "Byrne", "Ryan", "Walsh", "Fitzgerald", "Murphy", "Kelly", "Gallagher", "Doherty", "Kennedy", "Lynch", "Nolan", "O'Rourke", "McMahon", "MacCarthy", "O'Keefe", "MacAodha", "O'Flaherty", "O'Carroll", "O'Farrell", "O'Byrne", "MacRuaidhri", "O'Cathasaigh", "O'Mathuna", "Skyward", "Arkborne"]
+        },
+        "kocerstani": {
+            "given_names": {
+                "male": ["Azad", "Baran", "Rojhat", "Servan", "Botan", "Karwan", "Dara", "Hozan", "Zana", "Aram", "Dilshad", "Ferhad", "Soran", "Kawa", "Hemen", "Renas", "Roni", "Shiyar", "Jiyan", "Berzan", "Sherko", "Hiwa", "Hawar", "Delal", "Saman", "Ciger", "Nawzad", "Sipan", "Siyar", "Rabar", "Hardi", "Rebaz", "Bawer", "Dler", "Salah", "Yadgar", "Peshraw", "Kamiran", "Sardam", "Alan"],
+                "female": ["Ava", "Rojin", "Berfin", "Gulistan", "Nalin", "Ronahi", "Helin", "Dilan", "Dilara", "Naze", "Zerin", "Jinda", "Shirin", "Hevi", "Roja", "Nermin", "Zozan", "Zilan", "Simin", "Lavin", "Jiyan", "Arjin", "Bahar", "Binevsh", "Gulbahar", "Ruken", "Evin", "Rohat", "Sarya", "Zana", "Hasti", "Yekta", "Narmin", "Hana", "Newroz", "Rojda", "Avin", "Sema", "Perwin", "Hewar"]
+            },
+      "dynasty_names": ["Barzani", "Talabani", "Hewrami", "Soranî", "Botanî", "Ciziri", "Mukri", "Doski", "Herki", "Jaf", "Zebari", "Baban", "Goran", "Amedi", "Hakkari", "Badinan", "Ziraki", "Boti", "Surchi", "Pinyani", "Rekani", "Miran", "Hawraman", "Slemani", "Rojheli", "Koyî", "Kani", "Qadirî", "Skyweaver", "Towerborn"]
+        }
+    }
+}
