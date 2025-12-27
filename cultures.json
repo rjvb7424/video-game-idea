@@ -1,5 +1,11 @@
 {
-    "nordfolken": {},
-    "matherians": {},
-    "kocerstani": {}
+    "nordfolken": {
+        "id": "nordfolken"
+    },
+    "matherian": {
+        "id": "matherian"
+    },
+    "koçerstani": {
+        "id": "koçerstani"
+    }
 }
