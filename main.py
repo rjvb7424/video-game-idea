@@ -2,7 +2,6 @@
 import pygame
 import random
 
-# NEW: event popup system (make sure you created event_ui.py from earlier)
 from event_ui import EventUIManager, EventData, EventOption
 
 # ----------------------------
@@ -54,10 +53,7 @@ class GameDate:
         return f"{self.year:04d}-{self.month:02d}-{self.day:02d}"
 
 class GameTime:
-    """
-    Converts real dt to in-game days. Your simulation runs on day ticks.
-    """
-    SPEEDS = [0.0, 1.0, 2.0, 4.0, 8.0]  # index 0 paused
+    SPEEDS = [0.0, 1.0, 2.0, 4.0, 8.0]
 
     def __init__(self, seconds_per_day_at_speed1=0.5):
         self.seconds_per_day_at_speed1 = seconds_per_day_at_speed1
@@ -101,8 +97,6 @@ class GameTime:
 
 # ----------------------------
 # Tiny domain model (example)
-# Replace later with your real
-# Character / Realm classes.
 # ----------------------------
 class Character:
     def __init__(self, fname, lname, age):
@@ -124,115 +118,283 @@ class Realm:
         self.gold = 120.0
         self.prestige = 80
         self.piety = 35
-        self.development = 12  # placeholder “total dev”
+        self.development = 12
 
     def daily_income(self) -> float:
-        # Placeholder income model: dev drives daily income
         return 0.05 * self.development
 
 
 # ----------------------------
-# “Checks” / Systems hub
-# (the place you asked for)
+# Systems / Ticks
 # ----------------------------
 class GameSystems:
     def __init__(self, seed=42):
         self.rng = random.Random(seed)
 
-    # Example event function you mentioned
-    def character_gets_cat(self, character: Character):
-        if "Cat 🐈" not in character.inventory:
-            character.inventory.append("Cat 🐈")
-
     def on_day(self, realm: Realm, characters: list[Character], date: GameDate):
-        # 1) Daily economy tick
         realm.gold += realm.daily_income()
-
-        # 2) Daily drip XP / gold to characters (example)
         for ch in characters:
             ch.xp += 1
             ch.gold += 0.02
 
     def on_year(self, realm: Realm, characters: list[Character], date: GameDate):
-        # Example yearly tick
         for ch in characters:
             ch.age += 1
 
 
 # ----------------------------
-# Event creation helpers
+# Event Builders (many!)
+# (kept in main for easy testing)
 # ----------------------------
-def push_cat_event(event_ui: EventUIManager, systems: GameSystems, realm: Realm, status_ref: dict):
-    """
-    Queues a CK3-like event popup with multiple choices.
-    status_ref is a dict so callbacks can edit status text.
-    """
-    ctx = {"realm": realm, "ruler": realm.ruler, "systems": systems, "status": status_ref}
+def build_event_stray_cat(systems: GameSystems, realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref, "systems": systems}
 
-    def adopt_cat(ctx):
-        ctx["systems"].character_gets_cat(ctx["ruler"])
-        ctx["status"]["text"] = "You adopted a cat 🐈"
+    def adopt(c):
+        r = c["ruler"]
+        if "Cat 🐈" not in r.inventory:
+            r.inventory.append("Cat 🐈")
+        c["status"]["text"] = "You adopted a cat 🐈"
 
-    def shoo_cat(ctx):
-        # small gold gain (flavor)
-        ctx["realm"].gold += 10
-        ctx["status"]["text"] = "You shooed the cat away (+10 gold?)"
+    def buy_food(c):
+        c["realm"].gold -= 10
+        c["status"]["text"] = "You buy food for the cat. (-10 gold)"
 
-    def ignore(ctx):
-        ctx["status"]["text"] = "You ignored the strange visitor."
+    def ignore(c):
+        c["status"]["text"] = "You ignore the strange visitor."
 
-    def can_adopt(ctx):
-        return "Cat 🐈" not in ctx["ruler"].inventory
+    def can_adopt(c):
+        return "Cat 🐈" not in c["ruler"].inventory
 
-    event_ui.push(
-        EventData(
-            title="A Stray Cat Appears",
-            subtitle="A Curious Visitor",
-            body=lambda c: (
-                f"A small cat follows {c['ruler'].fname} through the halls, "
-                "watching every step. The servants whisper it may be an omen."
-            ),
-            options=[
-                EventOption("Adopt the cat 🐈", on_choose=adopt_cat, enabled=can_adopt),
-                EventOption("Feed it, then send it away (+10 gold)", on_choose=shoo_cat),
-                EventOption("Ignore it.", on_choose=ignore),
-            ],
-            event_id="stray_cat_001",
-        ),
-        ctx
+    def can_buy_food(c):
+        return c["realm"].gold >= 10
+
+    ev = EventData(
+        title="A Stray Cat Appears",
+        subtitle="A Curious Visitor",
+        body=lambda c: f"A small cat follows {c['ruler'].fname} through the halls. The servants whisper it may be an omen.",
+        options=[
+            EventOption("Adopt the cat 🐈", on_choose=adopt, enabled=can_adopt),
+            EventOption("Buy food for it (-10 gold)", on_choose=buy_food, enabled=can_buy_food),
+            EventOption("Ignore it.", on_choose=ignore),
+        ],
+        event_id="stray_cat_001",
+        allow_close=False,      # NO X / NO ESC
+        allow_esc_close=False,
     )
+    return ev, ctx
 
-def push_training_event(event_ui: EventUIManager, realm: Realm, status_ref: dict):
+
+def build_event_wandering_merchant(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
     ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
 
-    def study(ctx):
-        ctx["ruler"].xp += 75
-        ctx["status"]["text"] = "You spend the evening studying. (+75 XP)"
+    def buy_relic(c):
+        c["realm"].gold -= 30
+        c["ruler"].inventory.append("Curious Relic ✨")
+        c["status"]["text"] = "You bought a relic. (-30 gold)"
 
-    def feast(ctx):
-        ctx["realm"].gold -= 15
-        ctx["status"]["text"] = "You hold a small feast. (-15 gold, +prestige vibe)"
+    def haggle(c):
+        c["ruler"].xp += 30
+        c["status"]["text"] = "You haggle and learn. (+30 XP)"
 
-    def can_feast(ctx):
-        return ctx["realm"].gold >= 15
+    def dismiss(c):
+        c["status"]["text"] = "You dismiss the merchant."
 
-    event_ui.push(
-        EventData(
-            title="An Evening Decision",
-            subtitle="Time is a resource",
-            body=lambda c: (
-                f"The day ends in {c['realm'].name}. "
-                "How will you spend your evening?"
-            ),
-            options=[
-                EventOption("Study statecraft (+75 XP)", on_choose=study),
-                EventOption("Hold a feast (-15 gold)", on_choose=feast, enabled=can_feast),
-                EventOption("Sleep early.", on_choose=lambda c: c["status"].update(text="You rest.")),
-            ],
-            event_id="evening_decision_001",
-        ),
-        ctx
+    ev = EventData(
+        title="A Wandering Merchant",
+        subtitle="Opportunity knocks",
+        body="A merchant arrives with odd trinkets and bold promises. One item catches your eye.",
+        options=[
+            EventOption("Buy the relic (-30 gold)", on_choose=buy_relic, enabled=lambda c: c["realm"].gold >= 30),
+            EventOption("Haggle (+30 XP)", on_choose=haggle),
+            EventOption("Dismiss them.", on_choose=dismiss),
+        ],
+        event_id="merchant_001",
+        allow_close=False,
     )
+    return ev, ctx
+
+
+def build_event_bad_omens(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def prayers(c):
+        c["realm"].piety += 10
+        c["status"]["text"] = "You hold prayers. (+10 piety)"
+
+    def blame(c):
+        c["realm"].prestige += 5
+        c["status"]["text"] = "You blame a rival. (+5 prestige)"
+
+    def ignore(c):
+        c["status"]["text"] = "You ignore the omens."
+
+    ev = EventData(
+        title="Bad Omens",
+        subtitle="Whispers spread",
+        body=lambda c: f"Unusual signs are reported across {c['realm'].name}. The court watches your reaction.",
+        options=[
+            EventOption("Hold prayers (+10 piety)", on_choose=prayers),
+            EventOption("Blame a rival (+5 prestige)", on_choose=blame),
+            EventOption("Ignore it.", on_choose=ignore),
+        ],
+        event_id="omens_001",
+        allow_close=False,
+    )
+    return ev, ctx
+
+
+def build_event_bandit_problem(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def pay_guard(c):
+        c["realm"].gold -= 20
+        c["realm"].prestige += 2
+        c["status"]["text"] = "You hire guards. (-20 gold, +2 prestige)"
+
+    def ignore(c):
+        c["realm"].prestige -= 3
+        c["status"]["text"] = "You do nothing. (-3 prestige)"
+
+    def lead_patrol(c):
+        c["ruler"].xp += 60
+        c["status"]["text"] = "You lead a patrol. (+60 XP)"
+
+    ev = EventData(
+        title="Bandits on the Road",
+        subtitle="Safety and reputation",
+        body="Merchants report raids along the main road. The people demand action.",
+        options=[
+            EventOption("Hire extra guards (-20 gold)", on_choose=pay_guard, enabled=lambda c: c["realm"].gold >= 20),
+            EventOption("Personally lead a patrol (+60 XP)", on_choose=lead_patrol),
+            EventOption("Do nothing (-3 prestige)", on_choose=ignore),
+        ],
+        event_id="bandits_001",
+        allow_close=False,
+    )
+    return ev, ctx
+
+
+def build_event_rare_book(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def buy(c):
+        c["realm"].gold -= 25
+        c["ruler"].xp += 120
+        c["ruler"].inventory.append("Rare Book 📜")
+        c["status"]["text"] = "You buy a rare book. (-25 gold, +120 XP)"
+
+    def borrow(c):
+        c["ruler"].xp += 40
+        c["status"]["text"] = "You borrow it briefly. (+40 XP)"
+
+    def burn(c):
+        c["realm"].piety += 5
+        c["status"]["text"] = "You denounce it as heresy. (+5 piety)"
+
+    ev = EventData(
+        title="A Rare Book",
+        subtitle="Knowledge has a price",
+        body="A scholar offers a rare manuscript—dangerous ideas, or priceless wisdom?",
+        options=[
+            EventOption("Buy it (-25 gold, +120 XP)", on_choose=buy, enabled=lambda c: c["realm"].gold >= 25),
+            EventOption("Borrow it (+40 XP)", on_choose=borrow),
+            EventOption("Denounce it (+5 piety)", on_choose=burn),
+        ],
+        event_id="book_001",
+        allow_close=False,
+    )
+    return ev, ctx
+
+
+def build_event_harvest(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def invest(c):
+        c["realm"].gold -= 18
+        c["realm"].prestige += 4
+        c["status"]["text"] = "You invest in tools and storage. (-18 gold, +4 prestige)"
+
+    def tax_more(c):
+        c["realm"].gold += 22
+        c["realm"].prestige -= 4
+        c["status"]["text"] = "You squeeze the peasants. (+22 gold, -4 prestige)"
+
+    def celebrate(c):
+        c["realm"].prestige += 2
+        c["status"]["text"] = "You celebrate with the people. (+2 prestige)"
+
+    ev = EventData(
+        title="The Harvest",
+        subtitle="A season turns",
+        body="The harvest comes in. Some say it is plentiful—others warn of hard months ahead.",
+        options=[
+            EventOption("Invest in storage (-18 gold, +4 prestige)", on_choose=invest, enabled=lambda c: c["realm"].gold >= 18),
+            EventOption("Raise taxes (+22 gold, -4 prestige)", on_choose=tax_more),
+            EventOption("Hold celebrations (+2 prestige)", on_choose=celebrate),
+        ],
+        event_id="harvest_001",
+        allow_close=False,
+    )
+    return ev, ctx
+
+
+def build_event_mystic(realm: Realm, status_ref: dict) -> tuple[EventData, dict]:
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def pay(c):
+        c["realm"].gold -= 12
+        c["ruler"].xp += 35
+        c["status"]["text"] = "You pay the mystic. (-12 gold, +35 XP)"
+
+    def arrest(c):
+        c["realm"].prestige += 3
+        c["status"]["text"] = "You arrest the mystic. (+3 prestige)"
+
+    def listen(c):
+        c["ruler"].xp += 10
+        c["status"]["text"] = "You listen politely. (+10 XP)"
+
+    ev = EventData(
+        title="A Mystic Arrives",
+        subtitle="Truth or trickery?",
+        body="A mystic claims to foresee your future. The court watches, amused and wary.",
+        options=[
+            EventOption("Pay for a reading (-12 gold, +35 XP)", on_choose=pay, enabled=lambda c: c["realm"].gold >= 12),
+            EventOption("Arrest them (+3 prestige)", on_choose=arrest),
+            EventOption("Listen politely (+10 XP)", on_choose=listen),
+        ],
+        event_id="mystic_001",
+        allow_close=False,
+    )
+    return ev, ctx
+
+
+# Event list for random rolling
+def roll_random_event(event_ui: EventUIManager, systems: GameSystems, realm: Realm, status_ref: dict, rng: random.Random):
+    builders = [
+        lambda: build_event_stray_cat(systems, realm, status_ref),
+        lambda: build_event_wandering_merchant(realm, status_ref),
+        lambda: build_event_bad_omens(realm, status_ref),
+        lambda: build_event_bandit_problem(realm, status_ref),
+        lambda: build_event_rare_book(realm, status_ref),
+        lambda: build_event_harvest(realm, status_ref),
+        lambda: build_event_mystic(realm, status_ref),
+    ]
+
+    # weighted-ish via duplication (simple for testing)
+    weighted = (
+        [builders[0]] * 5 +  # stray cat
+        [builders[1]] * 3 +  # merchant
+        [builders[2]] * 4 +  # omens
+        [builders[3]] * 4 +  # bandits
+        [builders[4]] * 3 +  # rare book
+        [builders[5]] * 4 +  # harvest
+        [builders[6]] * 3    # mystic
+    )
+
+    pick = rng.choice(weighted)
+    ev, ctx = pick()
+    event_ui.push(ev, ctx)
 
 
 # ----------------------------
@@ -248,33 +410,30 @@ def main():
     font = pygame.font.SysFont("consolas", 18)
     font_small = pygame.font.SysFont("consolas", 16)
 
-    # Create your core objects
+    # Core objects
     ruler = Character("Julio", "Oliveira", 19)
     regent = Character("Ana", "Regent", 45)
     realm = Realm("Kingdom of Westvale", ruler)
     characters = [ruler, regent]
 
-    # Time + Systems
     time = GameTime(seconds_per_day_at_speed1=0.5)
     systems = GameSystems(seed=42)
 
     # NEW: Event UI manager
     event_ui = EventUIManager()
 
-    # UI state stored in a dict so event callbacks can mutate it
     status_ref = {"text": "SPACE pause. 1/2/3/4 speeds. E forces event. Esc quits."}
     running = True
 
-    # Random event tuning (feel free to change)
-    daily_event_chance = 0.006  # ~0.6% per day tick (with speedups, it will happen fairly often)
+    # Random events tuning
+    daily_event_chance = 0.010  # 1% per day tick (fast testing)
     rng = random.Random(123)
 
     while running:
         real_dt = clock.tick(60) / 1000.0
 
-        # Handle events
         for event in pygame.event.get():
-            # If popup is open, it consumes input first (modal)
+            # Modal popup consumes input first
             if event_ui.handle_event(event):
                 continue
 
@@ -313,36 +472,29 @@ def main():
                     status_ref["text"] = "Speed x8"
 
                 elif event.key == pygame.K_e:
-                    # Force an event right now (for testing)
-                    push_cat_event(event_ui, systems, realm, status_ref)
-                    status_ref["text"] = "Forced event popup: Stray Cat 🐈"
+                    # Force random event popup now
+                    roll_random_event(event_ui, systems, realm, status_ref, rng)
+                    status_ref["text"] = "Forced random event popup 🎲"
 
-        # Update time + run checks (but don't advance simulation while a popup is open)
-        # CK3 style: time stops while modal event is open
-        if not event_ui.popup.is_open():
+        # Stop time while event popup is open (CK3 feel)
+        if not event_ui.is_open():
             time.update(real_dt)
             days_advanced = time.pop_day_ticks()
 
             for _ in range(days_advanced):
                 systems.on_day(realm, characters, time.date)
 
-                # Random events happen on day ticks (only when no popup is open)
+                # random events on daily tick
                 if rng.random() < daily_event_chance:
-                    # pick an event type
-                    if rng.random() < 0.55:
-                        push_cat_event(event_ui, systems, realm, status_ref)
-                    else:
-                        push_training_event(event_ui, realm, status_ref)
+                    roll_random_event(event_ui, systems, realm, status_ref, rng)
 
                 if time.date.is_first_day_of_year():
                     systems.on_year(realm, characters, time.date)
 
-        # Let the event UI open queued events
+        # Open queued events if any
         event_ui.update()
 
-        # -----------------
         # Draw
-        # -----------------
         w, h = screen.get_size()
         screen.fill(BG_COLOR)
 
@@ -366,7 +518,7 @@ def main():
         y = draw_text(screen, "Controls:", x, y, font, ACCENT)
         y = draw_text(screen, "SPACE = Pause/Play", x, y, font_small, MUTED_COLOR)
         y = draw_text(screen, "1 = x1, 2 = x2, 3 = x4, 4 = x8", x, y, font_small, MUTED_COLOR)
-        y = draw_text(screen, "E = Force event popup", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, "E = Force random event popup", x, y, font_small, MUTED_COLOR)
         y = draw_text(screen, "ESC = Quit", x, y, font_small, MUTED_COLOR)
 
         # Right panel: Realm + Characters
@@ -384,7 +536,7 @@ def main():
             y2 = draw_text(screen, f"- {ch.name} (Age {ch.age})", x2, y2, font)
             y2 = draw_text(screen, f"   Gold: {ch.gold:.2f} | XP: {ch.xp} | Inv: {inv}", x2, y2, font_small, MUTED_COLOR)
 
-        # Draw popup last (on top)
+        # Draw popup last
         event_ui.draw(screen)
 
         pygame.display.flip()
