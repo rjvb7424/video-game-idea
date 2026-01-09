@@ -6,74 +6,68 @@ from typing import Callable, Optional, Any, List, Dict, Tuple
 import pygame
 
 from ui_elements import (
-    TITLE_FONT, HEADER_FONT, BODY_FONT,
+    BODY_FONT,
     draw_title_text, draw_header_text, draw_body_text,
     draw_primary_button, draw_secondary_button,
-    BG_COLOR, COLOR
 )
 
 # ----------------------------
 # Data structures (changeable)
 # ----------------------------
 
-# Called when an option is clicked
 EventCallback = Callable[[Any], None]
-# Called to check if option is enabled
 EnabledFn = Callable[[Any], bool]
-# Called to render dynamic label text
 TextFn = Callable[[Any], str]
 
 
 @dataclass
 class EventOption:
-    """
-    A single choice in an event popup.
-    """
     label: str | TextFn
     on_choose: EventCallback
+
+    # If False, button is disabled and CANNOT be clicked
     enabled: bool | EnabledFn = True
+
+    # Usually True (CK3 closes after choosing)
     close_on_choose: bool = True
-    hint: Optional[str] = None  # optional tooltip text for later
+
+    # Optional (tooltips later)
+    hint: Optional[str] = None
 
 
 @dataclass
 class EventData:
-    """
-    Full event popup specification.
-    """
     title: str | TextFn
     body: str | TextFn
     options: List[EventOption] = field(default_factory=list)
 
-    # Optional: small flavor header (e.g. "A Strange Visitor")
     subtitle: Optional[str | TextFn] = None
-
-    # Optional: tag/metadata
     event_id: Optional[str] = None
-
-    # Optional: audio hooks, etc. (unused for now)
     meta: Dict[str, Any] = field(default_factory=dict)
 
+    # NEW: control closing behavior
+    # If False -> no X button and ESC will not close. Player must choose an option.
+    allow_close: bool = False
+
+    # If True -> allow ESC to close (only matters when allow_close=True)
+    allow_esc_close: bool = False
+
+    # If True -> allow clicking outside to close (only matters when allow_close=True)
+    allow_outside_click_close: bool = False
+
 
 # ----------------------------
-# Small helpers
+# Helpers
 # ----------------------------
 def _resolve_text(value: str | TextFn, ctx: Any) -> str:
-    if callable(value):
-        return value(ctx)
-    return value
+    return value(ctx) if callable(value) else value
 
 
 def _resolve_bool(value: bool | EnabledFn, ctx: Any) -> bool:
-    if callable(value):
-        return bool(value(ctx))
-    return bool(value)
+    return bool(value(ctx)) if callable(value) else bool(value)
 
 
 def _wrap_text(text: str, font: pygame.font.Font, max_width: int) -> List[str]:
-    """
-    Simple word-wrap. Returns a list of lines that fit in max_width.
-    """
     if not text:
         return [""]
 
@@ -97,33 +91,30 @@ def _wrap_text(text: str, font: pygame.font.Font, max_width: int) -> List[str]:
 
 
 # ----------------------------
-# The Event Popup UI
+# Popup UI
 # ----------------------------
 class EventPopup:
-    """
-    Renders a CK3-like event pop-up centered on the screen with options.
-    """
     def __init__(self):
         self.active: bool = False
         self.event: Optional[EventData] = None
         self.ctx: Any = None
 
-        # for click handling
         self._option_rects: List[Tuple[pygame.Rect, EventOption, bool]] = []
         self._close_rect: Optional[pygame.Rect] = None
+        self._popup_rect: Optional[pygame.Rect] = None
 
-        # layout tuning (change freely)
-        self.max_width_ratio = 0.62     # popup width vs screen width
-        self.max_height_ratio = 0.78    # popup height vs screen height
+        # layout
+        self.max_width_ratio = 0.62
+        self.max_height_ratio = 0.78
         self.padding = 26
         self.button_h = 42
         self.button_gap = 10
         self.corner_radius = 10
 
-        # colors (change freely)
-        self.overlay_color = (0, 0, 0, 160)   # semi-transparent overlay
-        self.panel_color = (34, 34, 38)       # popup background
-        self.panel_border = (90, 90, 100)     # border
+        # colors
+        self.overlay_color = (0, 0, 0, 160)
+        self.panel_color = (34, 34, 38)
+        self.panel_border = (90, 90, 100)
         self.close_color = (170, 170, 180)
         self.close_hover = (230, 230, 240)
 
@@ -138,47 +129,72 @@ class EventPopup:
         self.ctx = None
         self._option_rects.clear()
         self._close_rect = None
+        self._popup_rect = None
 
     def is_open(self) -> bool:
         return self.active and self.event is not None
 
+    def _clicked_outside_popup(self, mx: int, my: int) -> bool:
+        if not self._popup_rect:
+            return False
+        return not self._popup_rect.collidepoint(mx, my)
+
     def handle_event(self, pg_event: pygame.event.Event) -> bool:
         """
-        Returns True if the popup consumed the input (so your main UI doesn't also act).
+        While open, treat as modal. It consumes input.
+        Disabled options do nothing.
+        Closing only possible if event.allow_close is True.
         """
         if not self.is_open():
             return False
 
+        assert self.event is not None
+
+        # ESC close only if explicitly allowed
         if pg_event.type == pygame.KEYDOWN:
-            if pg_event.key == pygame.K_ESCAPE:
+            if pg_event.key == pygame.K_ESCAPE and self.event.allow_close and self.event.allow_esc_close:
                 self.close()
                 return True
+            return True  # modal: consume key presses
 
         if pg_event.type == pygame.MOUSEBUTTONDOWN and pg_event.button == 1:
             mx, my = pg_event.pos
 
-            # Close button (X)
-            if self._close_rect and self._close_rect.collidepoint(mx, my):
+            # Outside click close only if allowed
+            if self.event.allow_close and self.event.allow_outside_click_close and self._clicked_outside_popup(mx, my):
                 self.close()
                 return True
 
-            # Option buttons
+            # X close only if allowed (and exists)
+            if self.event.allow_close and self._close_rect and self._close_rect.collidepoint(mx, my):
+                self.close()
+                return True
+
+            # Option buttons: only enabled can trigger
             for rect, opt, enabled in self._option_rects:
-                if enabled and rect.collidepoint(mx, my):
+                if rect.collidepoint(mx, my):
+                    if not enabled:
+                        # Disabled: do nothing (and still consume click)
+                        return True
+
                     opt.on_choose(self.ctx)
                     if opt.close_on_choose:
                         self.close()
                     return True
 
-            # Click outside popup? (optional behavior)
-            # For CK3 feel, you often *don't* close on outside click.
             return True
 
-        return True  # while open, consume input by default (CK3 modal)
+        # Any mouse move etc is consumed while modal
+        if pg_event.type in (pygame.MOUSEMOTION, pygame.MOUSEWHEEL):
+            return True
+
+        return True
 
     def draw(self, screen: pygame.Surface):
         if not self.is_open():
             return
+
+        assert self.event is not None
 
         w, h = screen.get_size()
 
@@ -187,36 +203,41 @@ class EventPopup:
         overlay.fill(self.overlay_color)
         screen.blit(overlay, (0, 0))
 
-        # popup rect sizing
+        # popup rect
         popup_w = int(w * self.max_width_ratio)
         popup_h = int(h * self.max_height_ratio)
         popup_x = (w - popup_w) // 2
         popup_y = (h - popup_h) // 2
         popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        self._popup_rect = popup_rect
 
-        # panel background + border
+        # panel
         pygame.draw.rect(screen, self.panel_color, popup_rect, border_radius=self.corner_radius)
         pygame.draw.rect(screen, self.panel_border, popup_rect, width=2, border_radius=self.corner_radius)
 
-        # content bounds
+        # content
         x = popup_rect.x + self.padding
         y = popup_rect.y + self.padding
         content_w = popup_rect.w - self.padding * 2
 
-        # close "X"
-        close_size = 24
-        close_rect = pygame.Rect(popup_rect.right - self.padding - close_size, popup_rect.y + self.padding - 2, close_size, close_size)
-        self._close_rect = close_rect
+        # Close "X" ONLY if allowed
+        self._close_rect = None
+        if self.event.allow_close:
+            close_size = 24
+            close_rect = pygame.Rect(
+                popup_rect.right - self.padding - close_size,
+                popup_rect.y + self.padding - 2,
+                close_size,
+                close_size
+            )
+            self._close_rect = close_rect
 
-        mx, my = pygame.mouse.get_pos()
-        close_col = self.close_hover if close_rect.collidepoint(mx, my) else self.close_color
-        pygame.draw.rect(screen, (0, 0, 0, 0), close_rect, border_radius=6)
-        # draw X
-        pygame.draw.line(screen, close_col, close_rect.topleft, close_rect.bottomright, 2)
-        pygame.draw.line(screen, close_col, close_rect.topright, close_rect.bottomleft, 2)
+            mx, my = pygame.mouse.get_pos()
+            close_col = self.close_hover if close_rect.collidepoint(mx, my) else self.close_color
+            pygame.draw.line(screen, close_col, close_rect.topleft, close_rect.bottomright, 2)
+            pygame.draw.line(screen, close_col, close_rect.topright, close_rect.bottomleft, 2)
 
         # resolve text
-        assert self.event is not None
         title = _resolve_text(self.event.title, self.ctx)
         subtitle = _resolve_text(self.event.subtitle, self.ctx) if self.event.subtitle else None
         body = _resolve_text(self.event.body, self.ctx)
@@ -225,41 +246,33 @@ class EventPopup:
         y = draw_title_text(screen, title, x, y)
         if subtitle:
             y = draw_header_text(screen, subtitle, x, y, color=(200, 200, 210))
-
         y += 6
 
         # Body wrapped
-        body_lines = _wrap_text(body, BODY_FONT, content_w)
-        for line in body_lines:
+        for line in _wrap_text(body, BODY_FONT, content_w):
             y = draw_body_text(screen, line, x, y, color=(230, 230, 235))
 
-        # Option buttons near bottom
+        # Buttons
         self._option_rects.clear()
 
-        # Reserve bottom area for buttons
-        bottom_pad = 20
         buttons_area_bottom = popup_rect.bottom - self.padding
-        buttons_area_top = max(y + 18, buttons_area_bottom - (len(self.event.options) * (self.button_h + self.button_gap)))
+        buttons_needed_h = len(self.event.options) * self.button_h + max(0, len(self.event.options) - 1) * self.button_gap
+        buttons_area_top = max(y + 18, buttons_area_bottom - buttons_needed_h)
         by = buttons_area_top
 
-        for i, opt in enumerate(self.event.options):
+        for opt in self.event.options:
             enabled = _resolve_bool(opt.enabled, self.ctx)
             label = _resolve_text(opt.label, self.ctx)
 
-            # Button rect full-width (CK3-like)
-            rect_x = x
-            rect_y = by
-            rect_w = content_w
-            rect_h = self.button_h
+            rect_x, rect_y = x, by
+            rect_w, rect_h = content_w, self.button_h
 
-            # Draw disabled state by switching to secondary style + dim text
             if enabled:
                 btn_rect = draw_primary_button(screen, label, rect_x, rect_y, rect_w, rect_h)
             else:
                 btn_rect = draw_secondary_button(screen, label, rect_x, rect_y, rect_w, rect_h)
-                # dim overlay to make it look disabled
                 dim = pygame.Surface((rect_w, rect_h), pygame.SRCALPHA)
-                dim.fill((0, 0, 0, 90))
+                dim.fill((0, 0, 0, 110))
                 screen.blit(dim, (rect_x, rect_y))
 
             self._option_rects.append((btn_rect, opt, enabled))
@@ -270,35 +283,26 @@ class EventPopup:
 # Event Manager (queue)
 # ----------------------------
 class EventUIManager:
-    """
-    Holds a queue of events. Shows one at a time.
-    """
     def __init__(self):
         self.popup = EventPopup()
         self.queue: List[Tuple[EventData, Any]] = []
 
     def push(self, event: EventData, ctx: Any):
-        """
-        Add an event to queue. If none active, opens immediately.
-        """
         if not self.popup.is_open():
             self.popup.open(event, ctx)
         else:
             self.queue.append((event, ctx))
 
     def update(self):
-        """
-        Call each frame. If popup closed and queue has events, open next.
-        """
         if not self.popup.is_open() and self.queue:
             ev, ctx = self.queue.pop(0)
             self.popup.open(ev, ctx)
 
     def handle_event(self, pg_event: pygame.event.Event) -> bool:
-        """
-        Returns True if consumed.
-        """
         return self.popup.handle_event(pg_event) if self.popup.is_open() else False
 
     def draw(self, screen: pygame.Surface):
         self.popup.draw(screen)
+
+    def is_open(self) -> bool:
+        return self.popup.is_open()
