@@ -2,6 +2,9 @@
 import pygame
 import random
 
+# NEW: event popup system (make sure you created event_ui.py from earlier)
+from event_ui import EventUIManager, EventData, EventOption
+
 # ----------------------------
 # Minimal UI helpers (no deps)
 # ----------------------------
@@ -150,44 +153,86 @@ class GameSystems:
             ch.xp += 1
             ch.gold += 0.02
 
-        # 3) Very small daily random event chance
-        # (Do heavier RNG monthly if you want)
-        if self.rng.random() < 0.002 and realm.ruler:
-            self.character_gets_cat(realm.ruler)
-
-    def on_month(self, realm: Realm, characters: list[Character], date: GameDate):
-        # Monthly random event (weighted)
-        ruler = realm.ruler
-        if not ruler:
-            return
-
-        candidates = []
-        if "Cat 🐈" not in ruler.inventory:
-            candidates.append(("cat_event", 3))
-        candidates.append(("gold_windfall", 5))
-        candidates.append(("training", 7))
-
-        total = sum(w for _, w in candidates)
-        pick = self.rng.uniform(0, total)
-        upto = 0.0
-        chosen = None
-        for name, w in candidates:
-            upto += w
-            if pick <= upto:
-                chosen = name
-                break
-
-        if chosen == "cat_event":
-            self.character_gets_cat(ruler)
-        elif chosen == "gold_windfall":
-            realm.gold += 15
-        elif chosen == "training":
-            ruler.xp += 50
-
     def on_year(self, realm: Realm, characters: list[Character], date: GameDate):
         # Example yearly tick
         for ch in characters:
             ch.age += 1
+
+
+# ----------------------------
+# Event creation helpers
+# ----------------------------
+def push_cat_event(event_ui: EventUIManager, systems: GameSystems, realm: Realm, status_ref: dict):
+    """
+    Queues a CK3-like event popup with multiple choices.
+    status_ref is a dict so callbacks can edit status text.
+    """
+    ctx = {"realm": realm, "ruler": realm.ruler, "systems": systems, "status": status_ref}
+
+    def adopt_cat(ctx):
+        ctx["systems"].character_gets_cat(ctx["ruler"])
+        ctx["status"]["text"] = "You adopted a cat 🐈"
+
+    def shoo_cat(ctx):
+        # small gold gain (flavor)
+        ctx["realm"].gold += 10
+        ctx["status"]["text"] = "You shooed the cat away (+10 gold?)"
+
+    def ignore(ctx):
+        ctx["status"]["text"] = "You ignored the strange visitor."
+
+    def can_adopt(ctx):
+        return "Cat 🐈" not in ctx["ruler"].inventory
+
+    event_ui.push(
+        EventData(
+            title="A Stray Cat Appears",
+            subtitle="A Curious Visitor",
+            body=lambda c: (
+                f"A small cat follows {c['ruler'].fname} through the halls, "
+                "watching every step. The servants whisper it may be an omen."
+            ),
+            options=[
+                EventOption("Adopt the cat 🐈", on_choose=adopt_cat, enabled=can_adopt),
+                EventOption("Feed it, then send it away (+10 gold)", on_choose=shoo_cat),
+                EventOption("Ignore it.", on_choose=ignore),
+            ],
+            event_id="stray_cat_001",
+        ),
+        ctx
+    )
+
+def push_training_event(event_ui: EventUIManager, realm: Realm, status_ref: dict):
+    ctx = {"realm": realm, "ruler": realm.ruler, "status": status_ref}
+
+    def study(ctx):
+        ctx["ruler"].xp += 75
+        ctx["status"]["text"] = "You spend the evening studying. (+75 XP)"
+
+    def feast(ctx):
+        ctx["realm"].gold -= 15
+        ctx["status"]["text"] = "You hold a small feast. (-15 gold, +prestige vibe)"
+
+    def can_feast(ctx):
+        return ctx["realm"].gold >= 15
+
+    event_ui.push(
+        EventData(
+            title="An Evening Decision",
+            subtitle="Time is a resource",
+            body=lambda c: (
+                f"The day ends in {c['realm'].name}. "
+                "How will you spend your evening?"
+            ),
+            options=[
+                EventOption("Study statecraft (+75 XP)", on_choose=study),
+                EventOption("Hold a feast (-15 gold)", on_choose=feast, enabled=can_feast),
+                EventOption("Sleep early.", on_choose=lambda c: c["status"].update(text="You rest.")),
+            ],
+            event_id="evening_decision_001",
+        ),
+        ctx
+    )
 
 
 # ----------------------------
@@ -196,7 +241,7 @@ class GameSystems:
 def main():
     pygame.init()
     screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE | pygame.SCALED, vsync=1)
-    pygame.display.set_caption("CK3-Inspired Time System Demo")
+    pygame.display.set_caption("CK3-Inspired Time + Events Demo")
     clock = pygame.time.Clock()
 
     font_title = pygame.font.SysFont("consolas", 26, bold=True)
@@ -207,23 +252,32 @@ def main():
     ruler = Character("Julio", "Oliveira", 19)
     regent = Character("Ana", "Regent", 45)
     realm = Realm("Kingdom of Westvale", ruler)
-
     characters = [ruler, regent]
 
     # Time + Systems
-    time = GameTime(seconds_per_day_at_speed1=0.5)  # tune feel (lower = faster calendar)
+    time = GameTime(seconds_per_day_at_speed1=0.5)
     systems = GameSystems(seed=42)
 
-    # UI state
-    status = "SPACE pause. 1/2/3/4 set speeds. E force event. Esc quits."
+    # NEW: Event UI manager
+    event_ui = EventUIManager()
+
+    # UI state stored in a dict so event callbacks can mutate it
+    status_ref = {"text": "SPACE pause. 1/2/3/4 speeds. E forces event. Esc quits."}
     running = True
 
+    # Random event tuning (feel free to change)
+    daily_event_chance = 0.006  # ~0.6% per day tick (with speedups, it will happen fairly often)
+    rng = random.Random(123)
+
     while running:
-        # Real dt
         real_dt = clock.tick(60) / 1000.0
 
         # Handle events
         for event in pygame.event.get():
+            # If popup is open, it consumes input first (modal)
+            if event_ui.handle_event(event):
+                continue
+
             if event.type == pygame.QUIT:
                 running = False
 
@@ -240,42 +294,51 @@ def main():
 
                 elif event.key == pygame.K_SPACE:
                     time.toggle_pause()
-                    status = "Paused ⏸️" if time.paused else f"Playing ▶️ (x{time.speed_multiplier:g})"
+                    status_ref["text"] = "Paused ⏸️" if time.paused else f"Playing ▶️ (x{time.speed_multiplier:g})"
 
                 elif event.key == pygame.K_1:
                     time.set_speed_index(1)
-                    status = "Speed x1"
+                    status_ref["text"] = "Speed x1"
 
                 elif event.key == pygame.K_2:
                     time.set_speed_index(2)
-                    status = "Speed x2"
+                    status_ref["text"] = "Speed x2"
 
                 elif event.key == pygame.K_3:
                     time.set_speed_index(3)
-                    status = "Speed x4"
+                    status_ref["text"] = "Speed x4"
 
                 elif event.key == pygame.K_4:
                     time.set_speed_index(4)
-                    status = "Speed x8"
+                    status_ref["text"] = "Speed x8"
 
                 elif event.key == pygame.K_e:
                     # Force an event right now (for testing)
-                    systems.character_gets_cat(realm.ruler)
-                    status = "Forced event: character_gets_cat() 🐈"
+                    push_cat_event(event_ui, systems, realm, status_ref)
+                    status_ref["text"] = "Forced event popup: Stray Cat 🐈"
 
-        # Update time
-        time.update(real_dt)
-        days_advanced = time.pop_day_ticks()
+        # Update time + run checks (but don't advance simulation while a popup is open)
+        # CK3 style: time stops while modal event is open
+        if not event_ui.popup.is_open():
+            time.update(real_dt)
+            days_advanced = time.pop_day_ticks()
 
-        # Run checks for each day advanced
-        for _ in range(days_advanced):
-            systems.on_day(realm, characters, time.date)
+            for _ in range(days_advanced):
+                systems.on_day(realm, characters, time.date)
 
-            if time.date.is_first_day_of_month():
-                systems.on_month(realm, characters, time.date)
+                # Random events happen on day ticks (only when no popup is open)
+                if rng.random() < daily_event_chance:
+                    # pick an event type
+                    if rng.random() < 0.55:
+                        push_cat_event(event_ui, systems, realm, status_ref)
+                    else:
+                        push_training_event(event_ui, realm, status_ref)
 
-            if time.date.is_first_day_of_year():
-                systems.on_year(realm, characters, time.date)
+                if time.date.is_first_day_of_year():
+                    systems.on_year(realm, characters, time.date)
+
+        # Let the event UI open queued events
+        event_ui.update()
 
         # -----------------
         # Draw
@@ -297,13 +360,14 @@ def main():
         y = draw_text(screen, f"Date: {time.date}", x, y, font)
         y = draw_text(screen, f"Speed: x{time.speed_multiplier:g}  ({'Paused' if time.paused else 'Running'})", x, y, font)
         y += 6
-        y = draw_text(screen, f"Status: {status}", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, f"Status: {status_ref['text']}", x, y, font_small, MUTED_COLOR)
 
         y += 14
         y = draw_text(screen, "Controls:", x, y, font, ACCENT)
         y = draw_text(screen, "SPACE = Pause/Play", x, y, font_small, MUTED_COLOR)
         y = draw_text(screen, "1 = x1, 2 = x2, 3 = x4, 4 = x8", x, y, font_small, MUTED_COLOR)
-        y = draw_text(screen, "E = Force character_gets_cat()", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, "E = Force event popup", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, "ESC = Quit", x, y, font_small, MUTED_COLOR)
 
         # Right panel: Realm + Characters
         y2 = right.y + 18
@@ -319,6 +383,9 @@ def main():
             inv = ", ".join(ch.inventory) if ch.inventory else "—"
             y2 = draw_text(screen, f"- {ch.name} (Age {ch.age})", x2, y2, font)
             y2 = draw_text(screen, f"   Gold: {ch.gold:.2f} | XP: {ch.xp} | Inv: {inv}", x2, y2, font_small, MUTED_COLOR)
+
+        # Draw popup last (on top)
+        event_ui.draw(screen)
 
         pygame.display.flip()
 
