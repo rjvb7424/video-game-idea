@@ -115,7 +115,7 @@ class Realm:
     def __init__(self, name, ruler: Character):
         self.name = name
         self.ruler = ruler
-        self.gold = 120.0
+        self.gold = 0.0
         self.prestige = 80
         self.piety = 35
         self.development = 12
