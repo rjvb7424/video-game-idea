@@ -8,20 +8,6 @@ import math
 from character import Character
 
 @dataclass
-class Faith:
-    id: str = uuid4().hex
-    name: str
-    description: str
-    # TODO: expand with virtues and sins
-
-@dataclass
-class Culture:
-    id: str = uuid4().hex
-    name: str
-    description: str
-    # TODO: expand with modifiers, traditions
-
-@dataclass
 class Population:
     population_type = Literal["children", "adults", "elders"]
 
@@ -168,8 +154,6 @@ class Population:
 class County:
     id: str = uuid4().hex
     name: str
-    # local country identity
-    faith: Faith = field(default_factory=Faith())
     # modifiers
     development: int = 1
     control: int = 100
