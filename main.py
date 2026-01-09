@@ -1,105 +1,226 @@
-# external imports
+# main.py
 import pygame
+import random
 
-# internal imports
-from ui_elements import (
-    draw_title_text, draw_header_text, draw_body_text,
-    draw_accept_button, draw_deny_button, BG_COLOR
-)
+# ----------------------------
+# Minimal UI helpers (no deps)
+# ----------------------------
+BG_COLOR = (18, 18, 22)
+PANEL_COLOR = (28, 28, 34)
+TEXT_COLOR = (230, 230, 235)
+MUTED_COLOR = (170, 170, 180)
+ACCENT = (90, 160, 255)
 
-# import your Character / Skills
-from character import Character, Skills
+def draw_text(surface, text, x, y, font, color=TEXT_COLOR):
+    img = font.render(text, True, color)
+    surface.blit(img, (x, y))
+    return y + img.get_height() + 6
 
-# NEW: import your Realm stuff
-from realm import Realm, County, Faith, Culture, GovernmentType
+def draw_panel(surface, rect):
+    pygame.draw.rect(surface, PANEL_COLOR, rect, border_radius=10)
 
 
+# ----------------------------
+# Game Time (pause/speeds/date)
+# ----------------------------
+DAYS_IN_MONTH = 30
+MONTHS_IN_YEAR = 12
+DAYS_IN_YEAR = DAYS_IN_MONTH * MONTHS_IN_YEAR
+
+class GameDate:
+    def __init__(self, year=1066, month=1, day=1):
+        self.year = year
+        self.month = month
+        self.day = day
+
+    def add_days(self, n: int):
+        total = (self.year * DAYS_IN_YEAR) + ((self.month - 1) * DAYS_IN_MONTH) + (self.day - 1)
+        total += n
+        self.year = total // DAYS_IN_YEAR
+        rem = total % DAYS_IN_YEAR
+        self.month = (rem // DAYS_IN_MONTH) + 1
+        self.day = (rem % DAYS_IN_MONTH) + 1
+
+    def is_first_day_of_month(self) -> bool:
+        return self.day == 1
+
+    def is_first_day_of_year(self) -> bool:
+        return self.month == 1 and self.day == 1
+
+    def __str__(self):
+        return f"{self.year:04d}-{self.month:02d}-{self.day:02d}"
+
+class GameTime:
+    """
+    Converts real dt to in-game days. Your simulation runs on day ticks.
+    """
+    SPEEDS = [0.0, 1.0, 2.0, 4.0, 8.0]  # index 0 paused
+
+    def __init__(self, seconds_per_day_at_speed1=0.5):
+        self.seconds_per_day_at_speed1 = seconds_per_day_at_speed1
+        self.speed_index = 1
+        self.date = GameDate()
+        self._accum_days = 0.0
+        self._popped_days = 0
+
+    @property
+    def paused(self):
+        return self.speed_index == 0
+
+    @property
+    def speed_multiplier(self):
+        return self.SPEEDS[self.speed_index]
+
+    def toggle_pause(self):
+        self.speed_index = 1 if self.speed_index == 0 else 0
+
+    def set_speed_index(self, idx: int):
+        self.speed_index = max(0, min(idx, len(self.SPEEDS) - 1))
+
+    def update(self, real_dt_seconds: float):
+        self._popped_days = 0
+        mult = self.speed_multiplier
+        if mult <= 0.0:
+            return
+
+        days_per_second = mult / self.seconds_per_day_at_speed1
+        self._accum_days += real_dt_seconds * days_per_second
+
+        whole_days = int(self._accum_days)
+        if whole_days > 0:
+            self._accum_days -= whole_days
+            self._popped_days = whole_days
+            self.date.add_days(whole_days)
+
+    def pop_day_ticks(self) -> int:
+        return self._popped_days
+
+
+# ----------------------------
+# Tiny domain model (example)
+# Replace later with your real
+# Character / Realm classes.
+# ----------------------------
+class Character:
+    def __init__(self, fname, lname, age):
+        self.fname = fname
+        self.lname = lname
+        self.age = age
+        self.gold = 0.0
+        self.xp = 0
+        self.inventory = []
+
+    @property
+    def name(self):
+        return f"{self.fname} {self.lname}"
+
+class Realm:
+    def __init__(self, name, ruler: Character):
+        self.name = name
+        self.ruler = ruler
+        self.gold = 120.0
+        self.prestige = 80
+        self.piety = 35
+        self.development = 12  # placeholder “total dev”
+
+    def daily_income(self) -> float:
+        # Placeholder income model: dev drives daily income
+        return 0.05 * self.development
+
+
+# ----------------------------
+# “Checks” / Systems hub
+# (the place you asked for)
+# ----------------------------
+class GameSystems:
+    def __init__(self, seed=42):
+        self.rng = random.Random(seed)
+
+    # Example event function you mentioned
+    def character_gets_cat(self, character: Character):
+        if "Cat 🐈" not in character.inventory:
+            character.inventory.append("Cat 🐈")
+
+    def on_day(self, realm: Realm, characters: list[Character], date: GameDate):
+        # 1) Daily economy tick
+        realm.gold += realm.daily_income()
+
+        # 2) Daily drip XP / gold to characters (example)
+        for ch in characters:
+            ch.xp += 1
+            ch.gold += 0.02
+
+        # 3) Very small daily random event chance
+        # (Do heavier RNG monthly if you want)
+        if self.rng.random() < 0.002 and realm.ruler:
+            self.character_gets_cat(realm.ruler)
+
+    def on_month(self, realm: Realm, characters: list[Character], date: GameDate):
+        # Monthly random event (weighted)
+        ruler = realm.ruler
+        if not ruler:
+            return
+
+        candidates = []
+        if "Cat 🐈" not in ruler.inventory:
+            candidates.append(("cat_event", 3))
+        candidates.append(("gold_windfall", 5))
+        candidates.append(("training", 7))
+
+        total = sum(w for _, w in candidates)
+        pick = self.rng.uniform(0, total)
+        upto = 0.0
+        chosen = None
+        for name, w in candidates:
+            upto += w
+            if pick <= upto:
+                chosen = name
+                break
+
+        if chosen == "cat_event":
+            self.character_gets_cat(ruler)
+        elif chosen == "gold_windfall":
+            realm.gold += 15
+        elif chosen == "training":
+            ruler.xp += 50
+
+    def on_year(self, realm: Realm, characters: list[Character], date: GameDate):
+        # Example yearly tick
+        for ch in characters:
+            ch.age += 1
+
+
+# ----------------------------
+# Main
+# ----------------------------
 def main():
     pygame.init()
-
-    # Create initial window
-    screen = pygame.display.set_mode(
-        (1280, 720),
-        pygame.RESIZABLE | pygame.SCALED,
-        vsync=1
-    )
-    pygame.display.set_caption("Video Game Idea")
+    screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE | pygame.SCALED, vsync=1)
+    pygame.display.set_caption("CK3-Inspired Time System Demo")
     clock = pygame.time.Clock()
 
-    # Always track the actual screen size from pygame (important for resizable)
-    WIDTH, HEIGHT = screen.get_size()
+    font_title = pygame.font.SysFont("consolas", 26, bold=True)
+    font = pygame.font.SysFont("consolas", 18)
+    font_small = pygame.font.SysFont("consolas", 16)
 
-    # Create a character to test skill generation
-    c = Character("Julio", "Oliveira", 19)
-
-    # Create a regent character to test "controller != ruler"
+    # Create your core objects
+    ruler = Character("Julio", "Oliveira", 19)
     regent = Character("Ana", "Regent", 45)
+    realm = Realm("Kingdom of Westvale", ruler)
 
-    # --- REALM TEST SETUP ---
-    catholic = Faith(name="Catholic", tenets=["Communion", "Monasticism"])
-    orthodox = Faith(name="Orthodox", tenets=["Icons", "Monasticism"])
+    characters = [ruler, regent]
 
-    frankish = Culture(name="Frankish", ethos="stoic", traditions=["Chivalry"], language="frankish")
-    iberian = Culture(name="Iberian", ethos="egalitarian", traditions=["Conciliation"], language="iberian")
+    # Time + Systems
+    time = GameTime(seconds_per_day_at_speed1=0.5)  # tune feel (lower = faster calendar)
+    systems = GameSystems(seed=42)
 
-    realm = Realm(
-        name="Kingdom of Westvale",
-        government=GovernmentType.FEUDAL,
-        faith=catholic,
-        culture=frankish,
-        gold=120,
-        prestige=80,
-        piety=35,
-    )
-    realm.set_ruler(c)  # ruler also becomes controller by default
-
-    # Counties
-    county1 = County(
-        name="Dunford",
-        faith=catholic,
-        culture=frankish,
-        development=8,
-        control=72.5,
-        holder=c
-    )
-    county2 = County(
-        name="Stonebridge",
-        faith=catholic,
-        culture=iberian,
-        development=4,
-        control=61.0,
-        holder=c
-    )
-
-    realm.add_county(county1, make_capital=True)
-    realm.add_county(county2)
-
-    # --- UI STATE ---
-    status_text = "Accept rerolls skills. Deny sets values. Keys: R=Regency, A=Add County, F=Swap Faith."
+    # UI state
+    status = "SPACE pause. 1/2/3/4 set speeds. E force event. Esc quits."
     running = True
-    skill_names = ["diplomacy", "martial", "stewardship", "intrigue", "learning", "prowess"]
-
-    # Helper: make unique county names
-    county_counter = 3
 
     while running:
-        screen.fill(BG_COLOR)
-
-        padding = 40
-
-        # Two-column layout
-        left_x = padding
-        right_x = max(padding, WIDTH // 2 + padding // 2)
-
-        y_left = padding
-        y_right = padding
-
-        # Buttons near the bottom-left
-        btn_w, btn_h = 180, 40
-        btn_y = HEIGHT - padding - btn_h
-
-        accept_rect = pygame.Rect(padding, btn_y, btn_w, btn_h)
-        deny_rect = pygame.Rect(padding + btn_w + 12, btn_y, btn_w, btn_h)
+        # Real dt
+        real_dt = clock.tick(60) / 1000.0
 
         # Handle events
         for event in pygame.event.get():
@@ -107,119 +228,99 @@ def main():
                 running = False
 
             elif event.type == pygame.VIDEORESIZE:
-                WIDTH, HEIGHT = event.w, event.h
                 screen = pygame.display.set_mode(
-                    (WIDTH, HEIGHT),
+                    (event.w, event.h),
                     pygame.RESIZABLE | pygame.SCALED,
                     vsync=1
                 )
 
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:
-                    # Toggle regency (controller)
-                    if realm.controller is regent:
-                        realm.set_controller(realm.ruler)  # back to ruler
-                        status_text = "Controller set back to ruler ✅"
-                    else:
-                        realm.set_controller(regent)
-                        status_text = "Regency active: controller is Ana Regent 👑"
+                if event.key == pygame.K_ESCAPE:
+                    running = False
 
-                elif event.key == pygame.K_a:
-                    # Add a new county
-                    county_name = f"New County {county_counter}"
-                    county_counter += 1
+                elif event.key == pygame.K_SPACE:
+                    time.toggle_pause()
+                    status = "Paused ⏸️" if time.paused else f"Playing ▶️ (x{time.speed_multiplier:g})"
 
-                    new_county = County(
-                        name=county_name,
-                        faith=realm.faith,
-                        culture=realm.culture,
-                        development=2,
-                        control=55.0,
-                        holder=realm.ruler
-                    )
-                    realm.add_county(new_county)
-                    status_text = f"Added county: {county_name} 🏰"
+                elif event.key == pygame.K_1:
+                    time.set_speed_index(1)
+                    status = "Speed x1"
 
-                elif event.key == pygame.K_f:
-                    # Swap realm faith
-                    realm.convert_realm_faith(orthodox if realm.faith.name == "Catholic" else catholic)
-                    status_text = f"Realm faith changed to: {realm.faith.name} ✝️"
+                elif event.key == pygame.K_2:
+                    time.set_speed_index(2)
+                    status = "Speed x2"
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mx, my = event.pos
+                elif event.key == pygame.K_3:
+                    time.set_speed_index(3)
+                    status = "Speed x4"
 
-                if accept_rect.collidepoint(mx, my):
-                    # Reroll all skills
-                    c.skills = Skills()
-                    status_text = "Rerolled skills 🎲"
+                elif event.key == pygame.K_4:
+                    time.set_speed_index(4)
+                    status = "Speed x8"
 
-                elif deny_rect.collidepoint(mx, my):
-                    # Set some skills manually (tests set/get)
-                    c.skills.set("diplomacy", 20)
-                    c.skills.set("martial", 0)
-                    c.skills.set("learning", 15)
-                    status_text = "Set diplomacy=20, martial=0, learning=15 ✅"
+                elif event.key == pygame.K_e:
+                    # Force an event right now (for testing)
+                    systems.character_gets_cat(realm.ruler)
+                    status = "Forced event: character_gets_cat() 🐈"
 
-        # ---------------- LEFT PANEL: Skills ----------------
-        y_left = draw_title_text(screen, "Video Game Idea", left_x, y_left)
-        y_left = draw_header_text(screen, "Skill Generation Test", left_x, y_left)
-        y_left = draw_body_text(screen, f"Character: {c.fname} {c.lname} (Age {c.age})", left_x, y_left)
-        y_left = draw_body_text(screen, f"Status: {status_text}", left_x, y_left)
-        y_left += 10
+        # Update time
+        time.update(real_dt)
+        days_advanced = time.pop_day_ticks()
 
-        for name in skill_names:
-            val = c.skills.get(name)
-            y_left = draw_body_text(screen, f"{name.title():<12}: {val}", left_x, y_left)
+        # Run checks for each day advanced
+        for _ in range(days_advanced):
+            systems.on_day(realm, characters, time.date)
 
-        # Buttons
-        _ = draw_accept_button(screen, "Reroll Skills", padding, btn_y, btn_w, btn_h)
-        _ = draw_deny_button(screen, "Set Some Values", padding + btn_w + 12, btn_y, btn_w, btn_h)
+            if time.date.is_first_day_of_month():
+                systems.on_month(realm, characters, time.date)
 
-        # ---------------- RIGHT PANEL: Realm ----------------
-        y_right = draw_header_text(screen, "Realm Test", right_x, y_right)
+            if time.date.is_first_day_of_year():
+                systems.on_year(realm, characters, time.date)
 
-        ruler_name = f"{realm.ruler.fname} {realm.ruler.lname}" if realm.ruler else "None"
-        controller_name = (
-            f"{realm.controller.fname} {realm.controller.lname}" if realm.controller else "None"
-        )
+        # -----------------
+        # Draw
+        # -----------------
+        w, h = screen.get_size()
+        screen.fill(BG_COLOR)
 
-        cap = realm.get_capital()
-        cap_name = cap.name if cap else "None"
+        pad = 22
+        left = pygame.Rect(pad, pad, (w - pad * 3) // 2, h - pad * 2)
+        right = pygame.Rect(left.right + pad, pad, (w - pad * 3) // 2, h - pad * 2)
 
-        y_right = draw_body_text(screen, f"Realm: {realm.name}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Government: {realm.government.value}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Ruler: {ruler_name}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Controller: {controller_name}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Capital: {cap_name}", right_x, y_right)
+        draw_panel(screen, left)
+        draw_panel(screen, right)
 
-        y_right += 8
-        y_right = draw_body_text(screen, f"Realm Faith: {realm.faith.name}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Realm Culture: {realm.culture.name}", right_x, y_right)
+        # Left panel: Time & controls
+        y = left.y + 18
+        x = left.x + 18
+        y = draw_text(screen, "Time System", x, y, font_title, ACCENT)
+        y = draw_text(screen, f"Date: {time.date}", x, y, font)
+        y = draw_text(screen, f"Speed: x{time.speed_multiplier:g}  ({'Paused' if time.paused else 'Running'})", x, y, font)
+        y += 6
+        y = draw_text(screen, f"Status: {status}", x, y, font_small, MUTED_COLOR)
 
-        y_right += 8
-        y_right = draw_body_text(screen, f"Gold: {realm.gold}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Prestige: {realm.prestige}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Piety: {realm.piety}", right_x, y_right)
+        y += 14
+        y = draw_text(screen, "Controls:", x, y, font, ACCENT)
+        y = draw_text(screen, "SPACE = Pause/Play", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, "1 = x1, 2 = x2, 3 = x4, 4 = x8", x, y, font_small, MUTED_COLOR)
+        y = draw_text(screen, "E = Force character_gets_cat()", x, y, font_small, MUTED_COLOR)
 
-        y_right += 8
-        y_right = draw_body_text(screen, f"Counties: {len(realm.counties)}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Total Dev: {realm.total_development(include_vassals=False)}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Avg Control: {realm.average_control(include_vassals=False):.1f}", right_x, y_right)
-        y_right = draw_body_text(screen, f"Stability: {realm.realm_stability_score():.1f}", right_x, y_right)
+        # Right panel: Realm + Characters
+        y2 = right.y + 18
+        x2 = right.x + 18
+        y2 = draw_text(screen, "Simulation State", x2, y2, font_title, ACCENT)
+        y2 = draw_text(screen, f"Realm: {realm.name}", x2, y2, font)
+        y2 = draw_text(screen, f"Realm Gold: {realm.gold:.2f}", x2, y2, font)
+        y2 = draw_text(screen, f"Prestige: {realm.prestige}  |  Piety: {realm.piety}", x2, y2, font_small, MUTED_COLOR)
 
-        y_right += 12
-        y_right = draw_header_text(screen, "Counties (Demesne)", right_x, y_right)
-        for ct in realm.counties[:10]:  # cap draw to avoid overflow
-            holder = f"{ct.holder.fname} {ct.holder.lname}" if ct.holder else "None"
-            y_right = draw_body_text(
-                screen,
-                f"- {ct.name} | dev {ct.development} | ctrl {ct.control:.0f} | {ct.culture.name}/{ct.faith.name} | holder {holder}",
-                right_x,
-                y_right
-            )
+        y2 += 12
+        y2 = draw_text(screen, "Characters:", x2, y2, font, ACCENT)
+        for ch in characters:
+            inv = ", ".join(ch.inventory) if ch.inventory else "—"
+            y2 = draw_text(screen, f"- {ch.name} (Age {ch.age})", x2, y2, font)
+            y2 = draw_text(screen, f"   Gold: {ch.gold:.2f} | XP: {ch.xp} | Inv: {inv}", x2, y2, font_small, MUTED_COLOR)
 
         pygame.display.flip()
-        clock.tick(60)
 
     pygame.quit()
 
