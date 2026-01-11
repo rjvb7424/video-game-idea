@@ -38,7 +38,13 @@ class GameApp:
         self.status_ref = {"text": "SPACE pause. 1/2/3/4 speeds. E forces event. Esc quits."}
 
         # Map
-        self.map_view = MapView(self.world["counties"], self.world["grid_size"])
+        self.map_view = MapView(
+            self.world["counties"],
+            self.world["grid_size"],
+            self.player_realm,
+            self.world.get("river_points", [])
+        )
+
 
         self.running = True
 
