@@ -16,3 +16,24 @@ COUNTY_BORDER_SELECTED = (230, 230, 250)
 
 def draw_panel(surface: pygame.Surface, rect: pygame.Rect):
     pygame.draw.rect(surface, PANEL_COLOR, rect, border_radius=10)
+
+# config.py additions
+
+# Terrain palette (tuned for dark UI)
+BIOME_COLORS = {
+    "plains":   (52, 56, 48),
+    "forest":   (34, 52, 38),
+    "hills":    (60, 58, 48),
+    "mountain": (58, 58, 64),
+    "desert":   (74, 64, 44),
+    "water":    (28, 44, 62),
+    "swamp":    (34, 46, 44),
+}
+
+RIVER_COLOR = (55, 110, 170)
+
+FOG_UNDISCOVERED = (0, 0, 0, 180)   # darker
+FOG_DISCOVERED   = (0, 0, 0, 95)    # lighter
+
+BORDER_THICK = 4
+BORDER_THIN = 2
