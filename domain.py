@@ -10,10 +10,9 @@ class Character:
     xp: int = 0
     inventory: list[str] = field(default_factory=list)
 
-    # CK-ish stats used by your events
-    loyalty: int = 50              # 0..100
-    opinion_of_player: int = 0     # -100..100
-    intrigue: int = 10             # 0..30-ish
+    loyalty: int = 50
+    opinion_of_player: int = 0
+    intrigue: int = 10
     role: str = "Courtier"
 
     @property
@@ -36,9 +35,11 @@ class Realm:
 
 @dataclass
 class County:
-    """A single map province (rectangle for now)."""
     id: str
     name: str
     realm: Realm
     grid_x: int
     grid_y: int
+
+    biome: str = "plains"      # plains, forest, mountain, water, hills, desert...
+    discovered: bool = False   # fog-of-war support
