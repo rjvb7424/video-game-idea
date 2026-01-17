@@ -1109,47 +1109,40 @@ class MapWorld:
         self.border_surface.blit(thin_ink, (0, 0))
 
     def _render_labels_and_markers(self):
-        overlay = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        # Store draw items (rendered later in screen-space so no pixelation on zoom)
+        self.label_items = []
+        self.shield_items = []
+        self.army_markers = []
 
-        # draw realm shields on visible provinces
+        # realm shields on visible provinces
         for prov in self.provinces:
             vis = self.visibility_by_prov.get(prov.id, 0.45)
             if vis < 0.75:
                 continue
             if prov.cell_count < 220:
                 continue
+            self.shield_items.append(prov.id)
 
-            cx, cy = int(prov.center.x), int(prov.center.y)
-            sp = shield_points((cx, cy), 26)
-            base = self.realm_colors[prov.realm_id]
-            a = 210 if vis > 0.95 else 150
-            pygame.draw.polygon(overlay, (base[0], base[1], base[2], a), sp)
-            pygame.draw.polygon(overlay, (235, 228, 210, 140), sp, 1)
-
-        # labels only for seen + border provinces (no labels in deep fog)
+        # labels only for seen + border provinces
         for prov in self.provinces:
             vis = self.visibility_by_prov.get(prov.id, 0.45)
             if vis < 0.78:
                 continue
             if prov.cell_count < 280:
                 continue
+            self.label_items.append(prov.id)
 
-            label = FOOTER_FONT.render(prov.name, True, (225, 218, 200))
-            label.set_alpha(135 if vis > 0.95 else 95)
-            r = label.get_rect(center=(int(prov.center.x), int(prov.center.y)))
-            overlay.blit(label, r)
-
-        # a few "army" markers on player/adjacent provinces
+        # a few army markers on player/adjacent provinces
         candidates = [p for p in self.provinces if self.visibility_by_prov.get(p.id, 0.45) >= 0.78 and p.cell_count > 220]
         for i in range(min(9, len(candidates))):
             p = self.rnd.choice(candidates)
             x = int(p.center.x + self.rnd.randint(-32, 32))
             y = int(p.center.y + self.rnd.randint(-32, 32))
-            self._draw_army(overlay, (x, y), color=(200, 200, 210, 210))
+            self.army_markers.append((x, y))
 
+        # IMPORTANT: only bake terrain + borders (no labels/markers)
         self.surface = self.base_surface.copy()
         self.surface.blit(self.border_surface, (0, 0))
-        self.surface.blit(overlay, (0, 0))
 
     def _draw_army(self, surf, pos, color=(200, 200, 210, 200)):
         x, y = pos
@@ -1722,7 +1715,12 @@ class GameApp:
                 scaled = subs
             else:
                 # smoothscale for polish
-                scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                # Supersample when zooming in to reduce visible pixel steps
+                if z > 1.02:
+                    big = pygame.transform.smoothscale(subs, (scaled_w * 2, scaled_h * 2))
+                    scaled = pygame.transform.smoothscale(big, (scaled_w, scaled_h))
+                else:
+                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
 
             dx = int(round((inter.left - vrect.left) * z))
             dy = int(round((inter.top - vrect.top) * z))
@@ -1740,6 +1738,44 @@ class GameApp:
             draw_body_text(view, tip, plate.left + 12, plate.top + 8, color=(235, 228, 210))
 
         surface.blit(view, map_rect.topleft)
+
+        # --------------------------
+        # Screen-space overlays (CRISP at any zoom)
+        # --------------------------
+        # Labels
+        for pid in getattr(self.world, "label_items", []):
+            prov = self.world.provinces[pid]
+            vis = self.world.visibility_by_prov.get(pid, 0.45)
+            sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
+            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
+                continue
+
+            label = FOOTER_FONT.render(prov.name, True, (225, 218, 200))
+            label.set_alpha(170 if vis > 0.95 else 120)
+            r = label.get_rect(center=(int(sp.x), int(sp.y)))
+            surface.blit(label, r)
+
+        # Shields (drawn as vector polygons each frame)
+        for pid in getattr(self.world, "shield_items", []):
+            prov = self.world.provinces[pid]
+            vis = self.world.visibility_by_prov.get(pid, 0.45)
+            sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
+            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
+                continue
+
+            base = self.world.realm_colors[prov.realm_id]
+            a = 210 if vis > 0.95 else 150
+
+            pts = shield_points((int(sp.x), int(sp.y)), 26)
+            pygame.draw.polygon(surface, (base[0], base[1], base[2], a), pts)
+            pygame.draw.polygon(surface, (235, 228, 210, 160), pts, 1)
+
+        # Army markers (vector shapes, crisp)
+        for (wx, wy) in getattr(self.world, "army_markers", []):
+            sp = self.camera.world_to_screen((wx, wy), map_rect, use_target=False)
+            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
+                continue
+            self.world._draw_army(surface, (int(sp.x), int(sp.y)), color=(200, 200, 210, 210))
 
         # Map corner compass (purely aesthetic)
         cx, cy = map_rect.right - 46, map_rect.bottom - 46
