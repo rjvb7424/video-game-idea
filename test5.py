@@ -1,12 +1,11 @@
 import math
 import random
-import heapq
-import collections
-import pygame
+from collections import deque, defaultdict
+from array import array
 
-# =========================
-# Provided UI Toolkit (Mandatory Base) - DO NOT MODIFY
-# =========================
+# ============================================================
+# Provided UI Toolkit (MANDATORY BASE) - DO NOT MODIFY
+# ============================================================
 
 # external imports
 import pygame
@@ -52,1247 +51,1354 @@ DENY_BG_HOVER = (150, 60, 60)
 DENY_TEXT_COLOR = (255, 255, 255)
 DENY_BORDER_COLOR = (210, 140, 140)
 
-# text helpers
 def _draw_text(surface, text, x, y, font, color):
+    """Internal helper for drawing text and returning the new y position."""
     text_surf = font.render(text, True, color)
     surface.blit(text_surf, (x, y))
     return y + text_surf.get_height() + 4
 
 def draw_title_text(surface, text, x, y, color=COLOR):
+    """Draws title text on the given surface and returns the new y position."""
     return _draw_text(surface, text, x, y, TITLE_FONT, color)
 
 def draw_header_text(surface, text, x, y, color=COLOR):
+    """Draws header text on the given surface and returns the new y position."""
     return _draw_text(surface, text, x, y, HEADER_FONT, color)
 
 def draw_body_text(surface, text, x, y, color=COLOR):
+    """Draws body text on the given surface and returns the new y position."""
     return _draw_text(surface, text, x, y, BODY_FONT, color)
 
 def draw_footer_text(surface, text, x, y, color=COLOR):
+    """Draws footer text on the given surface and returns the new y position."""
     return _draw_text(surface, text, x, y, FOOTER_FONT, color)
 
-# button helpers
 def _draw_button(surface, text, x, y, width, height, bg_color, hover_color, text_color, border_color):
+    """Internal helper used by all button types."""
+    # draw button rectangle
     rect = pygame.Rect(x, y, width, height)
+    # detect hover
     mx, my = pygame.mouse.get_pos()
     is_hovered = rect.collidepoint(mx, my)
     current_bg = hover_color if is_hovered else bg_color
+    # draw button background
     pygame.draw.rect(surface, current_bg, rect, border_radius=BUTTON_BORDER_RADIUS)
+    # draw button border
     pygame.draw.rect(surface, border_color, rect, width=1, border_radius=BUTTON_BORDER_RADIUS)
+    # draw button text
     text_surf = BODY_FONT.render(text, True, text_color)
     text_rect = text_surf.get_rect(center=rect.center)
     surface.blit(text_surf, text_rect)
+    # return the button rectangle for event handling
     return rect
 
 def draw_primary_button(surface, text, x, y, width, height):
-    return _draw_button(surface, text, x, y, width, height, BUTTON_BG, BUTTON_BG_HOVER, BUTTON_TEXT_COLOR, BUTTON_BORDER_COLOR)
+    """Primary action button."""
+    return _draw_button(surface, text, x, y, width, height, BUTTON_BG, BUTTON_BG_HOVER, BUTTON_TEXT_COLOR, BUTTON_BORDER_COLOR,)
 
 def draw_secondary_button(surface, text, x, y, width, height):
-    return _draw_button(surface, text, x, y, width, height, SECONDARY_BG, SECONDARY_BG_HOVER, SECONDARY_TEXT_COLOR, SECONDARY_BORDER_COLOR)
+    """Secondary or neutral button."""
+    return _draw_button(surface, text, x, y, width, height, SECONDARY_BG, SECONDARY_BG_HOVER, SECONDARY_TEXT_COLOR, SECONDARY_BORDER_COLOR,)
 
 def draw_accept_button(surface, text, x, y, width, height):
-    return _draw_button(surface, text, x, y, width, height, ACCEPT_BG, ACCEPT_BG_HOVER, ACCEPT_TEXT_COLOR, ACCEPT_BORDER_COLOR)
+    """Confirm action button."""
+    return _draw_button(surface, text, x, y, width, height, ACCEPT_BG, ACCEPT_BG_HOVER, ACCEPT_TEXT_COLOR, ACCEPT_BORDER_COLOR,)
 
 def draw_deny_button(surface, text, x, y, width, height):
-    return _draw_button(surface, text, x, y, width, height, DENY_BG, DENY_BG_HOVER, DENY_TEXT_COLOR, DENY_BORDER_COLOR)
+    """Cancel action button."""
+    return _draw_button(surface, text, x, y, width, height, DENY_BG, DENY_BG_HOVER, DENY_TEXT_COLOR, DENY_BORDER_COLOR,)
 
+# ============================================================
+# Helpers
+# ============================================================
 
-# =========================
-# Helpers / Style
-# =========================
-
-UI_GUTTER = 10
-TOP_BAR_H = 60
-BOTTOM_BAR_H = 98
-SIDE_W_L = 310
-SIDE_W_R = 310
-
-PANEL_OUTER = (18, 18, 19)
-PANEL_INNER = (34, 34, 36)
-PANEL_INNER_2 = (41, 41, 43)
-BEVEL_LIGHT = (86, 86, 92)
-BEVEL_DARK = (10, 10, 10)
-INK = (222, 218, 206)
-
-SEA_DEEP = (14, 26, 44)
-SEA_SHALLOWS = (18, 38, 64)
-BORDER_RED = (132, 30, 30)
-
-def clamp(v, lo, hi):
-    return lo if v < lo else hi if v > hi else v
+def clamp(v, a, b):
+    return a if v < a else b if v > b else v
 
 def lerp(a, b, t):
     return a + (b - a) * t
 
-def exp_smooth_t(sharpness, dt):
-    return 1.0 - math.exp(-sharpness * dt)
+def exp_smooth(current, target, smoothing, dt):
+    # smoothing: 0..1-ish; dt: seconds
+    # Convert smoothing into a stable exponential blend factor.
+    # Larger dt increases catch-up.
+    k = 1.0 - math.pow(1.0 - smoothing, dt * 60.0)
+    return current + (target - current) * k
 
-def wrap_text(text, font, max_width):
-    words = text.split()
-    if not words:
-        return [""]
-    lines = []
-    cur = words[0]
-    for w in words[1:]:
-        test = cur + " " + w
-        if font.size(test)[0] <= max_width:
-            cur = test
-        else:
-            lines.append(cur)
-            cur = w
-    lines.append(cur)
-    return lines
+def hsl_to_rgb(h, s, l):
+    # h: 0..1, s: 0..1, l: 0..1
+    def hue2rgb(p, q, t):
+        if t < 0: t += 1
+        if t > 1: t -= 1
+        if t < 1/6: return p + (q - p) * 6 * t
+        if t < 1/2: return q
+        if t < 2/3: return p + (q - p) * (2/3 - t) * 6
+        return p
+    if s == 0:
+        r = g = b = l
+    else:
+        q = l * (1 + s) if l < 0.5 else l + s - l * s
+        p = 2 * l - q
+        r = hue2rgb(p, q, h + 1/3)
+        g = hue2rgb(p, q, h)
+        b = hue2rgb(p, q, h - 1/3)
+    return (int(r * 255), int(g * 255), int(b * 255))
 
-def make_noise_tile(size, base_rgb, variance=12, alpha=255, seed=1):
-    rnd = random.Random(seed)
-    surf = pygame.Surface(size, pygame.SRCALPHA)
-    w, h = size
-    br, bg, bb = base_rgb
-    for y in range(h):
-        for x in range(w):
-            dv = rnd.randint(-variance, variance)
-            r = clamp(br + dv, 0, 255)
-            g = clamp(bg + dv, 0, 255)
-            b = clamp(bb + dv, 0, 255)
-            surf.set_at((x, y), (r, g, b, alpha))
-    return surf
+def mul_color(rgb, m):
+    return (int(rgb[0] * m), int(rgb[1] * m), int(rgb[2] * m))
 
-def tile_fill(dst, rect, tile):
-    tw, th = tile.get_size()
-    for y in range(rect.top, rect.bottom, th):
-        for x in range(rect.left, rect.right, tw):
-            dst.blit(tile, (x, y))
+def add_color(rgb, a):
+    return (clamp(rgb[0] + a[0], 0, 255), clamp(rgb[1] + a[1], 0, 255), clamp(rgb[2] + a[2], 0, 255))
 
-def draw_drop_shadow(surface, rect, strength=110, inflate=6, radius=8):
-    shadow = pygame.Surface((rect.w + inflate * 2, rect.h + inflate * 2), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, strength), shadow.get_rect(), border_radius=radius)
-    surface.blit(shadow, (rect.x - inflate, rect.y - inflate))
+# ============================================================
+# Value Noise (fast enough for textures)
+# ============================================================
 
-def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
-    draw_drop_shadow(surface, rect, strength=120, inflate=7, radius=10)
-    pygame.draw.rect(surface, PANEL_OUTER, rect, border_radius=10)
+class ValueNoise2D:
+    def __init__(self, seed):
+        self.rng = random.Random(seed)
 
-    pygame.draw.rect(surface, BEVEL_DARK, rect, width=2, border_radius=10)
-    pygame.draw.line(surface, BEVEL_LIGHT, (rect.left+2, rect.top+2), (rect.right-3, rect.top+2))
-    pygame.draw.line(surface, BEVEL_LIGHT, (rect.left+2, rect.top+2), (rect.left+2, rect.bottom-3))
-    pygame.draw.line(surface, BEVEL_DARK, (rect.left+2, rect.bottom-3), (rect.right-3, rect.bottom-3))
-    pygame.draw.line(surface, BEVEL_DARK, (rect.right-3, rect.top+2), (rect.right-3, rect.bottom-3))
+    def make_grid(self, gw, gh):
+        # grid values 0..255 ints for speed
+        g = [[self.rng.randrange(0, 256) for _ in range(gw + 1)] for __ in range(gh + 1)]
+        return g
 
-    inner = rect.inflate(-14, -14)
-    pygame.draw.rect(surface, PANEL_INNER, inner, border_radius=8)
-    if tile is not None:
-        tile_fill(surface, inner, tile)
-        veil = pygame.Surface(inner.size, pygame.SRCALPHA)
-        veil.fill((0, 0, 0, 22))
-        surface.blit(veil, inner.topleft)
-    pygame.draw.rect(surface, (12, 12, 12), inner, width=1, border_radius=8)
+    @staticmethod
+    def _smoothstep(t):
+        return t * t * (3 - 2 * t)
 
-    content = inner
+    def sample_grid(self, grid, w, h, step, x, y):
+        # step: cell size in pixels
+        gx = x // step
+        gy = y // step
+        fx = (x - gx * step) / step
+        fy = (y - gy * step) / step
+        fx = self._smoothstep(fx)
+        fy = self._smoothstep(fy)
+
+        # safe indexing (grid built with +1)
+        v00 = grid[gy][gx]
+        v10 = grid[gy][gx + 1]
+        v01 = grid[gy + 1][gx]
+        v11 = grid[gy + 1][gx + 1]
+
+        vx0 = v00 + (v10 - v00) * fx
+        vx1 = v01 + (v11 - v01) * fx
+        v = vx0 + (vx1 - vx0) * fy
+        return v / 255.0
+
+    def fbm(self, grids_steps, x, y):
+        # grids_steps: list of (grid, step, amp)
+        s = 0.0
+        a = 0.0
+        for grid, step, amp in grids_steps:
+            s += self.sample_grid(grid, 0, 0, step, x, y) * amp
+            a += amp
+        return s / a if a > 0 else 0.0
+
+# ============================================================
+# Camera (weighty, damped)
+# ============================================================
+
+class Camera:
+    def __init__(self, world_w, world_h, viewport_rect):
+        self.world_w = world_w
+        self.world_h = world_h
+        self.viewport = viewport_rect
+
+        self.target_x = world_w * 0.5
+        self.target_y = world_h * 0.5
+        self.x = self.target_x
+        self.y = self.target_y
+
+        self.target_zoom = 0.85
+        self.zoom = self.target_zoom
+
+        self.min_zoom = 0.35
+        self.max_zoom = 2.25
+
+        self.dragging = False
+        self.drag_last = (0, 0)
+
+    def world_to_screen(self, wx, wy):
+        vx, vy, vw, vh = self.viewport
+        sx = vx + (wx - self.x) * self.zoom + vw * 0.5
+        sy = vy + (wy - self.y) * self.zoom + vh * 0.5
+        return sx, sy
+
+    def screen_to_world(self, sx, sy):
+        vx, vy, vw, vh = self.viewport
+        wx = self.x + (sx - (vx + vw * 0.5)) / self.zoom
+        wy = self.y + (sy - (vy + vh * 0.5)) / self.zoom
+        return wx, wy
+
+    def clamp_target(self):
+        # keep camera centered in bounds (loose, allows some ocean)
+        pad = 60
+        self.target_x = clamp(self.target_x, -pad, self.world_w + pad)
+        self.target_y = clamp(self.target_y, -pad, self.world_h + pad)
+
+    def update(self, dt):
+        self.clamp_target()
+        self.x = exp_smooth(self.x, self.target_x, 0.12, dt)
+        self.y = exp_smooth(self.y, self.target_y, 0.12, dt)
+        self.zoom = exp_smooth(self.zoom, self.target_zoom, 0.12, dt)
+
+    def start_drag(self, mouse_pos):
+        self.dragging = True
+        self.drag_last = mouse_pos
+
+    def end_drag(self):
+        self.dragging = False
+
+    def drag(self, mouse_pos):
+        if not self.dragging:
+            return
+        mx, my = mouse_pos
+        lx, ly = self.drag_last
+        dx = mx - lx
+        dy = my - ly
+        self.drag_last = mouse_pos
+
+        # weighty feel: drag moves target, not current; also scaled by zoom
+        self.target_x -= dx / self.zoom
+        self.target_y -= dy / self.zoom
+
+    def pan_keys(self, dt, speed):
+        keys = pygame.key.get_pressed()
+        vx = 0
+        vy = 0
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            vx -= 1
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            vx += 1
+        if keys[pygame.K_w] or keys[pygame.K_UP]:
+            vy -= 1
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            vy += 1
+        if vx != 0 or vy != 0:
+            # speed in world units per second
+            mag = math.sqrt(vx * vx + vy * vy)
+            vx /= mag
+            vy /= mag
+            # slower when zoomed in, faster when zoomed out (feels deliberate)
+            z_factor = 1.0 / max(0.6, self.zoom)
+            self.target_x += vx * speed * dt * z_factor
+            self.target_y += vy * speed * dt * z_factor
+
+    def zoom_at(self, mouse_pos, delta):
+        # delta: +1 zoom in, -1 zoom out
+        mx, my = mouse_pos
+        before = self.screen_to_world(mx, my)
+
+        z = self.target_zoom
+        # gentle mousewheel response
+        z *= (1.0 + 0.10 * delta)
+        z = clamp(z, self.min_zoom, self.max_zoom)
+        self.target_zoom = z
+
+        after = self.screen_to_world(mx, my)
+
+        # keep point under cursor stable by nudging target center
+        self.target_x += (before[0] - after[0])
+        self.target_y += (before[1] - after[1])
+
+# ============================================================
+# Map / World Generation
+# ============================================================
+
+class ProvinceCutout:
+    __slots__ = ("pid", "rect", "full", "seen", "fog", "kingdom")
+    def __init__(self, pid, rect, full, seen, fog, kingdom):
+        self.pid = pid
+        self.rect = rect
+        self.full = full
+        self.seen = seen
+        self.fog = fog
+        self.kingdom = kingdom
+
+class World:
+    def __init__(self, seed=1):
+        self.seed = seed
+        self.rng = random.Random(seed)
+
+        # World resolution (the actual political map texture)
+        self.W = 1400
+        self.H = 900
+
+        # counts
+        self.num_provinces = 120
+        self.num_kingdoms = 8
+
+        # main data
+        self.land = bytearray(self.W * self.H)         # 0 water, 1 land
+        self.pid_map = array('H', [0]) * (self.W * self.H)  # 0 water, 1..P province id
+
+        self.province_kingdom = [0] * (self.num_provinces + 1)  # pid -> kingdom
+        self.province_centroid = [(0.0, 0.0)] * (self.num_provinces + 1)
+        self.province_bounds = [(0, 0, -1, -1)] * (self.num_provinces + 1)
+        self.adj = [set() for _ in range(self.num_provinces + 1)]  # pid adjacency
+
+        # rendering surfaces
+        self.water_surface = None
+        self.borders_surface = None
+        self.visible_surface = None
+
+        # province cutouts
+        self.cutouts = {}  # pid -> ProvinceCutout
+
+        # player kingdom
+        self.player_kingdom = 0
+        self.selected_pid = 0
+        self.hover_pid = 0
+
+        self.kingdom_names = []
+        self.kingdom_colors = []
+        self.province_colors = [(0, 0, 0)] * (self.num_provinces + 1)
+
+        self.generate()
+
+    # -----------------------------
+    # Generation pipeline
+    # -----------------------------
+
+    def generate(self):
+        self.rng.seed(self.seed)
+
+        self._gen_continent_mask()
+        self._place_province_seeds_and_assign()
+        self._smooth_province_map(iterations=2)
+        self._build_province_stats_and_adjacency()
+        self._assign_kingdoms()
+        self._build_color_palettes()
+        self._render_water_and_borders()
+        self._build_province_cutouts()
+        self.player_kingdom = 0
+        self.selected_pid = 0
+        self.hover_pid = 0
+        self._rebuild_visibility_surface()
+
+    # -----------------------------
+    # 1) Single continent mask
+    # -----------------------------
+
+    def _gen_continent_mask(self):
+        W, H = self.W, self.H
+        self.land = bytearray(W * H)
+
+        vn = ValueNoise2D(self.seed ^ 0xA53)
+        # build a few grids for FBM
+        grids_steps = []
+        for step, amp in [(220, 1.00), (120, 0.75), (70, 0.55), (40, 0.40)]:
+            gw = W // step + 2
+            gh = H // step + 2
+            grid = vn.make_grid(gw, gh)
+            grids_steps.append((grid, step, amp))
+
+        cx = W * 0.52 + self.rng.uniform(-W * 0.05, W * 0.05)
+        cy = H * 0.50 + self.rng.uniform(-H * 0.05, H * 0.05)
+
+        # radial falloff ensures "continent surrounded by water"
+        maxr = min(W, H) * 0.52
+        inv_maxr = 1.0 / maxr
+
+        # threshold tuned for one big landmass; we’ll still keep largest component
+        thr = 0.54 + self.rng.uniform(-0.03, 0.03)
+
+        for y in range(H):
+            oy = y - cy
+            for x in range(W):
+                ox = x - cx
+                r = math.sqrt(ox * ox + oy * oy) * inv_maxr
+                falloff = clamp(1.0 - r, 0.0, 1.0)
+                # sculpt the edge a bit
+                edge = falloff * falloff * (1.1 - 0.25 * r)
+
+                n = vn.fbm(grids_steps, x, y)
+                # blend: more influence of falloff towards edges
+                e = (n * 0.75 + edge * 0.85)
+                # add slight coastal ragging
+                e += (vn.sample_grid(grids_steps[-1][0], 0, 0, grids_steps[-1][1], x, y) - 0.5) * 0.07
+
+                idx = y * W + x
+                self.land[idx] = 1 if e > thr else 0
+
+        # keep only largest connected land component (guarantees a single continent)
+        self._keep_largest_land_component()
+
+    def _keep_largest_land_component(self):
+        W, H = self.W, self.H
+        land = self.land
+        visited = bytearray(W * H)
+
+        best_start = -1
+        best_size = 0
+
+        for i in range(W * H):
+            if land[i] and not visited[i]:
+                # flood fill
+                q = [i]
+                visited[i] = 1
+                size = 0
+                while q:
+                    p = q.pop()
+                    size += 1
+                    x = p % W
+                    y = p // W
+                    # 4-neighbor
+                    if x > 0:
+                        n = p - 1
+                        if land[n] and not visited[n]:
+                            visited[n] = 1
+                            q.append(n)
+                    if x < W - 1:
+                        n = p + 1
+                        if land[n] and not visited[n]:
+                            visited[n] = 1
+                            q.append(n)
+                    if y > 0:
+                        n = p - W
+                        if land[n] and not visited[n]:
+                            visited[n] = 1
+                            q.append(n)
+                    if y < H - 1:
+                        n = p + W
+                        if land[n] and not visited[n]:
+                            visited[n] = 1
+                            q.append(n)
+                if size > best_size:
+                    best_size = size
+                    best_start = i
+
+        # if somehow no land, force a fallback blob
+        if best_start < 0:
+            cx = W // 2
+            cy = H // 2
+            for y in range(H):
+                for x in range(W):
+                    dx = x - cx
+                    dy = y - cy
+                    if dx * dx + dy * dy < (min(W, H) * 0.22) ** 2:
+                        land[y * W + x] = 1
+            return
+
+        # second flood fill to mark best component only
+        keep = bytearray(W * H)
+        q = [best_start]
+        keep[best_start] = 1
+        while q:
+            p = q.pop()
+            x = p % W
+            y = p // W
+            if x > 0:
+                n = p - 1
+                if land[n] and not keep[n]:
+                    keep[n] = 1
+                    q.append(n)
+            if x < W - 1:
+                n = p + 1
+                if land[n] and not keep[n]:
+                    keep[n] = 1
+                    q.append(n)
+            if y > 0:
+                n = p - W
+                if land[n] and not keep[n]:
+                    keep[n] = 1
+                    q.append(n)
+            if y < H - 1:
+                n = p + W
+                if land[n] and not keep[n]:
+                    keep[n] = 1
+                    q.append(n)
+
+        for i in range(W * H):
+            land[i] = 1 if keep[i] else 0
+
+    # -----------------------------
+    # 2) Provinces (organic, bordered)
+    # -----------------------------
+
+    def _place_province_seeds_and_assign(self):
+        W, H = self.W, self.H
+        land = self.land
+
+        # jitter noise field for boundary warping
+        vn = ValueNoise2D(self.seed ^ 0x51F00D)
+        step = 64
+        grid = vn.make_grid(W // step + 2, H // step + 2)
+
+        # Poisson-ish seed placement
+        seeds = []
+        min_dist2 = (min(W, H) * 0.055) ** 2  # tuned for ~120 provinces on this map
+        attempts = 0
+        max_attempts = 200000
+
+        # pre-sample some land indices for quicker selection
+        land_indices = [i for i in range(W * H) if land[i]]
+        if not land_indices:
+            land_indices = [W * (H // 2) + (W // 2)]
+
+        while len(seeds) < self.num_provinces and attempts < max_attempts:
+            attempts += 1
+            idx = land_indices[self.rng.randrange(0, len(land_indices))]
+            x = idx % W
+            y = idx // W
+            ok = True
+            for sx, sy in seeds:
+                dx = x - sx
+                dy = y - sy
+                if dx * dx + dy * dy < min_dist2:
+                    ok = False
+                    break
+            if ok:
+                seeds.append((x, y))
+
+        # if failed, pad with random land
+        while len(seeds) < self.num_provinces:
+            idx = land_indices[self.rng.randrange(0, len(land_indices))]
+            seeds.append((idx % W, idx // W))
+
+        # build spatial grid for fast nearest
+        cell = 80
+        grid_w = W // cell + 2
+        grid_h = H // cell + 2
+        buckets = [[[] for _ in range(grid_w)] for __ in range(grid_h)]
+        for i, (sx, sy) in enumerate(seeds):
+            cx = sx // cell
+            cy = sy // cell
+            buckets[cy][cx].append((i + 1, sx, sy))  # pid is 1..P
+
+        pid_map = array('H', [0]) * (W * H)
+        jitter_strength = 260.0  # higher -> more organic edges
+
+        for y in range(H):
+            cy = y // cell
+            for x in range(W):
+                idx = y * W + x
+                if not land[idx]:
+                    continue
+                cx = x // cell
+
+                # gather candidate seeds from neighboring buckets
+                candidates = []
+                for by in (cy - 1, cy, cy + 1):
+                    if 0 <= by < grid_h:
+                        row = buckets[by]
+                        for bx in (cx - 1, cx, cx + 1):
+                            if 0 <= bx < grid_w:
+                                candidates.extend(row[bx])
+
+                # fallback (shouldn't happen)
+                if not candidates:
+                    candidates = [(1, seeds[0][0], seeds[0][1])]
+
+                # noise-based jitter (0..1)
+                n = vn.sample_grid(grid, 0, 0, step, x, y)
+
+                best_pid = 1
+                best_d = 10**18
+                for pid, sx, sy in candidates:
+                    dx = x - sx
+                    dy = y - sy
+                    d = dx * dx + dy * dy
+                    # boundary warping with deterministic jitter
+                    d = d + jitter_strength * (n - 0.5)
+                    if d < best_d:
+                        best_d = d
+                        best_pid = pid
+
+                pid_map[idx] = best_pid
+
+        self.pid_map = pid_map
+
+    def _smooth_province_map(self, iterations=2):
+        # majority filter over 4-neighbors to remove jagged pixel teeth
+        W, H = self.W, self.H
+        land = self.land
+        pid = self.pid_map
+
+        for _ in range(iterations):
+            new_pid = array('H', pid)  # copy
+            for y in range(1, H - 1):
+                row = y * W
+                for x in range(1, W - 1):
+                    idx = row + x
+                    if not land[idx]:
+                        continue
+                    a = pid[idx]
+                    b = pid[idx - 1]
+                    c = pid[idx + 1]
+                    d = pid[idx - W]
+                    e = pid[idx + W]
+                    # count votes (small fixed set, manual)
+                    # prefer keeping current if tie
+                    if b == c == d or b == c == e or b == d == e or c == d == e:
+                        # pick the triple
+                        if b == c == d or b == c == e or b == d == e:
+                            new_pid[idx] = b
+                        else:
+                            new_pid[idx] = c
+                    else:
+                        # if any neighbor matches current, keep it
+                        if a == b or a == c or a == d or a == e:
+                            new_pid[idx] = a
+                        else:
+                            # otherwise choose a neighbor deterministically
+                            new_pid[idx] = b
+            pid = new_pid
+
+        self.pid_map = pid
+
+    # -----------------------------
+    # 3) Province stats + adjacency
+    # -----------------------------
+
+    def _build_province_stats_and_adjacency(self):
+        W, H = self.W, self.H
+        land = self.land
+        pid_map = self.pid_map
+
+        P = self.num_provinces
+
+        minx = [10**9] * (P + 1)
+        miny = [10**9] * (P + 1)
+        maxx = [-1] * (P + 1)
+        maxy = [-1] * (P + 1)
+
+        sx = [0] * (P + 1)
+        sy = [0] * (P + 1)
+        cnt = [0] * (P + 1)
+
+        adj = [set() for _ in range(P + 1)]
+
+        for y in range(H):
+            base = y * W
+            for x in range(W):
+                idx = base + x
+                if not land[idx]:
+                    continue
+                p = pid_map[idx]
+                if p == 0:
+                    continue
+                # bounds + centroid sums
+                if x < minx[p]: minx[p] = x
+                if y < miny[p]: miny[p] = y
+                if x > maxx[p]: maxx[p] = x
+                if y > maxy[p]: maxy[p] = y
+                sx[p] += x
+                sy[p] += y
+                cnt[p] += 1
+
+                # adjacency (right, down)
+                if x < W - 1:
+                    q = pid_map[idx + 1]
+                    if q != 0 and q != p:
+                        adj[p].add(q)
+                        adj[q].add(p)
+                if y < H - 1:
+                    q = pid_map[idx + W]
+                    if q != 0 and q != p:
+                        adj[p].add(q)
+                        adj[q].add(p)
+
+        bounds = [(0, 0, -1, -1)] * (P + 1)
+        centroids = [(0.0, 0.0)] * (P + 1)
+        for p in range(1, P + 1):
+            if cnt[p] <= 0:
+                bounds[p] = (0, 0, 0, 0)
+                centroids[p] = (W * 0.5, H * 0.5)
+            else:
+                bounds[p] = (minx[p], miny[p], maxx[p], maxy[p])
+                centroids[p] = (sx[p] / cnt[p], sy[p] / cnt[p])
+
+        self.province_bounds = bounds
+        self.province_centroid = centroids
+        self.adj = adj
+
+    # -----------------------------
+    # 4) Kingdom assignment (group provinces)
+    # -----------------------------
+
+    def _assign_kingdoms(self):
+        P = self.num_provinces
+        K = self.num_kingdoms
+
+        # names (CK1-ish vibe)
+        syll_a = ["Al", "Bar", "Cen", "Dor", "Eld", "Fjor", "Gal", "Har", "Ith", "Jar", "Kar", "Lor", "Mor", "Nor", "Or", "Pra", "Quel", "Rav", "Sar", "Tor", "Ul", "Var", "Wes", "Yor", "Zan"]
+        syll_b = ["dun", "mark", "fell", "heim", "ford", "gate", "mere", "hold", "crest", "ward", "strand", "keep", "shire", "brough", "land", "reach", "moor", "havn", "brook", "holm"]
+        self.kingdom_names = []
+        used = set()
+        for _ in range(K):
+            for __ in range(200):
+                name = f"{self.rng.choice(syll_a)}{self.rng.choice(syll_b)}"
+                if name not in used:
+                    used.add(name)
+                    self.kingdom_names.append(name)
+                    break
+            else:
+                self.kingdom_names.append(f"Realm{len(self.kingdom_names)+1}")
+
+        # choose capital provinces via farthest-point sampling
+        cent = self.province_centroid
+        start = self.rng.randrange(1, P + 1)
+        capitals = [start]
+        while len(capitals) < K:
+            best_p = 1
+            best_d = -1
+            for p in range(1, P + 1):
+                # distance to nearest existing capital
+                px, py = cent[p]
+                mind = 10**18
+                for c in capitals:
+                    cx, cy = cent[c]
+                    dx = px - cx
+                    dy = py - cy
+                    d = dx * dx + dy * dy
+                    if d < mind:
+                        mind = d
+                if mind > best_d:
+                    best_d = mind
+                    best_p = p
+            capitals.append(best_p)
+
+        # assign each province to nearest capital
+        province_kingdom = [0] * (P + 1)
+        for p in range(1, P + 1):
+            px, py = cent[p]
+            best_k = 0
+            best_d = 10**18
+            for k, c in enumerate(capitals):
+                cx, cy = cent[c]
+                dx = px - cx
+                dy = py - cy
+                d = dx * dx + dy * dy
+                if d < best_d:
+                    best_d = d
+                    best_k = k
+            province_kingdom[p] = best_k
+
+        # ensure each kingdom has multiple provinces (soft fix: reassign smallest to nearest non-small)
+        counts = [0] * K
+        for p in range(1, P + 1):
+            counts[province_kingdom[p]] += 1
+
+        # if any kingdom too small, steal nearest provinces from largest
+        for _ in range(6):
+            smallest = min(range(K), key=lambda k: counts[k])
+            largest = max(range(K), key=lambda k: counts[k])
+            if counts[smallest] >= max(6, P // (K * 2)):
+                break
+            # move one border-adjacent province from largest to smallest if close
+            moved = False
+            for p in range(1, P + 1):
+                if province_kingdom[p] != largest:
+                    continue
+                px, py = cent[p]
+                # choose if close to smallest capital centroid
+                sc = capitals[smallest]
+                sx, sy = cent[sc]
+                lx, ly = cent[capitals[largest]]
+                ds = (px - sx) ** 2 + (py - sy) ** 2
+                dl = (px - lx) ** 2 + (py - ly) ** 2
+                if ds < dl * 0.85:
+                    province_kingdom[p] = smallest
+                    counts[largest] -= 1
+                    counts[smallest] += 1
+                    moved = True
+                    break
+            if not moved:
+                break
+
+        self.province_kingdom = province_kingdom
+
+    # -----------------------------
+    # 5) Colors (muted medieval)
+    # -----------------------------
+
+    def _build_color_palettes(self):
+        K = self.num_kingdoms
+        P = self.num_provinces
+
+        # Muted medieval tones: low saturation, moderate lightness.
+        # Spread hues, but keep them subdued.
+        base_hues = []
+        h0 = self.rng.random()
+        for i in range(K):
+            base_hues.append((h0 + i / K + self.rng.uniform(-0.03, 0.03)) % 1.0)
+
+        kingdom_colors = []
+        for h in base_hues:
+            s = 0.32 + self.rng.uniform(-0.05, 0.05)
+            l = 0.42 + self.rng.uniform(-0.05, 0.05)
+            kingdom_colors.append(hsl_to_rgb(h, clamp(s, 0.18, 0.40), clamp(l, 0.33, 0.50)))
+
+        self.kingdom_colors = kingdom_colors
+
+        # Province colors: slight lightness variation but same family
+        province_colors = [(0, 0, 0)] * (P + 1)
+        for p in range(1, P + 1):
+            k = self.province_kingdom[p]
+            base = kingdom_colors[k]
+            # subtle per-province drift; keep kingdom cohesion
+            drift = self.rng.uniform(-0.08, 0.08)
+            m = clamp(1.0 + drift, 0.78, 1.10)
+            # a tiny warm tint for medieval parchment feel
+            warm = (4, 2, 0)
+            c = add_color(mul_color(base, m), warm)
+            province_colors[p] = c
+
+        self.province_colors = province_colors
+
+    # -----------------------------
+    # 6) Render water texture + borders
+    # -----------------------------
+
+    def _render_water_and_borders(self):
+        W, H = self.W, self.H
+        land = self.land
+        pid_map = self.pid_map
+
+        # water texture using fbm noise
+        vn = ValueNoise2D(self.seed ^ 0xBEE)
+        grids_steps = []
+        for step, amp in [(220, 1.0), (120, 0.7), (60, 0.45)]:
+            grid = vn.make_grid(W // step + 2, H // step + 2)
+            grids_steps.append((grid, step, amp))
+
+        # Create RGBA buffer for water base
+        buf = bytearray(W * H * 4)
+
+        # ocean base colors (dark, muted)
+        deep = (18, 28, 38)
+        mid = (26, 40, 52)
+
+        cx = W * 0.5
+        cy = H * 0.5
+        maxr = math.sqrt((W*0.55)**2 + (H*0.55)**2)
+
+        for y in range(H):
+            for x in range(W):
+                idx = y * W + x
+                n = vn.fbm(grids_steps, x, y)
+                # vignette for mood
+                dx = x - cx
+                dy = y - cy
+                r = math.sqrt(dx*dx + dy*dy) / maxr
+                v = clamp(1.0 - r * 0.55, 0.55, 1.0)
+
+                # mix deep->mid based on noise
+                t = clamp(n * 0.95, 0.0, 1.0)
+                rr = int(lerp(deep[0], mid[0], t) * v)
+                gg = int(lerp(deep[1], mid[1], t) * v)
+                bb = int(lerp(deep[2], mid[2], t) * v)
+
+                o = idx * 4
+                buf[o+0] = rr
+                buf[o+1] = gg
+                buf[o+2] = bb
+                buf[o+3] = 255
+
+        # Overlay land provinces onto a separate pass later (visibility surface),
+        # but we keep water as a stable base surface.
+        self.water_surface = pygame.image.frombuffer(bytes(buf), (W, H), "RGBA").convert_alpha()
+
+        # Borders surface (RGBA)
+        bbuf = bytearray(W * H * 4)
+        border_col = (14, 14, 14)
+        coast_col = (20, 20, 20)
+
+        for y in range(1, H - 1):
+            for x in range(1, W - 1):
+                idx = y * W + x
+                p = pid_map[idx]
+                if p == 0:
+                    continue
+
+                # province border if any neighbor is different province
+                # coastline if neighbor water
+                left = pid_map[idx - 1]
+                right = pid_map[idx + 1]
+                up = pid_map[idx - W]
+                down = pid_map[idx + W]
+
+                is_coast = (left == 0 or right == 0 or up == 0 or down == 0)
+                is_border = (left != 0 and left != p) or (right != 0 and right != p) or (up != 0 and up != p) or (down != 0 and down != p)
+
+                if is_border or is_coast:
+                    o = idx * 4
+                    if is_border:
+                        bbuf[o+0] = border_col[0]
+                        bbuf[o+1] = border_col[1]
+                        bbuf[o+2] = border_col[2]
+                        bbuf[o+3] = 255
+                    else:
+                        # coastline slightly softer
+                        bbuf[o+0] = coast_col[0]
+                        bbuf[o+1] = coast_col[1]
+                        bbuf[o+2] = coast_col[2]
+                        bbuf[o+3] = 170
+
+        self.borders_surface = pygame.image.frombuffer(bytes(bbuf), (W, H), "RGBA").convert_alpha()
+
+    # -----------------------------
+    # 7) Province cutouts (full/seen/fog)
+    # -----------------------------
+
+    def _build_province_cutouts(self):
+        W, H = self.W, self.H
+        land = self.land
+        pid_map = self.pid_map
+        colors = self.province_colors
+        bounds = self.province_bounds
+        prov_king = self.province_kingdom
+
+        self.cutouts = {}
+
+        # multipliers (adjacent slightly muted but readable, fog heavily dark)
+        seen_mult = (215, 215, 215, 255)  # ~0.84
+        fog_mult  = (70, 70, 70, 255)     # ~0.27
+
+        # For speed: precompute per province rect buffers in one scan line pass
+        for pid in range(1, self.num_provinces + 1):
+            x0, y0, x1, y1 = bounds[pid]
+            if x1 < x0 or y1 < y0:
+                continue
+            rw = x1 - x0 + 1
+            rh = y1 - y0 + 1
+            buf = bytearray(rw * rh * 4)
+
+            r, g, b = colors[pid]
+            for yy in range(y0, y1 + 1):
+                base = yy * W
+                out_row = (yy - y0) * rw
+                for xx in range(x0, x1 + 1):
+                    idx = base + xx
+                    if land[idx] and pid_map[idx] == pid:
+                        o = (out_row + (xx - x0)) * 4
+                        buf[o+0] = r
+                        buf[o+1] = g
+                        buf[o+2] = b
+                        buf[o+3] = 255
+
+            full = pygame.image.frombuffer(bytes(buf), (rw, rh), "RGBA").convert_alpha()
+
+            # seen and fog variants
+            seen = full.copy()
+            fog = full.copy()
+            seen.fill(seen_mult, special_flags=pygame.BLEND_RGBA_MULT)
+            fog.fill(fog_mult, special_flags=pygame.BLEND_RGBA_MULT)
+
+            rect = pygame.Rect(x0, y0, rw, rh)
+            self.cutouts[pid] = ProvinceCutout(pid, rect, full, seen, fog, prov_king[pid])
+
+    # -----------------------------
+    # 8) Fog of War compositing (rebuild on player change)
+    # -----------------------------
+
+    def _rebuild_visibility_surface(self):
+        # Compose: water base + each province in full/seen/fog + borders
+        W, H = self.W, self.H
+        base = self.water_surface.copy()
+
+        player_k = self.player_kingdom
+
+        owned = set()
+        for pid in range(1, self.num_provinces + 1):
+            if self.province_kingdom[pid] == player_k:
+                owned.add(pid)
+
+        revealed = set()
+        for pid in owned:
+            for nb in self.adj[pid]:
+                if nb not in owned:
+                    revealed.add(nb)
+
+        for pid, cut in self.cutouts.items():
+            if cut.kingdom == player_k:
+                base.blit(cut.full, cut.rect.topleft)
+            elif pid in revealed:
+                base.blit(cut.seen, cut.rect.topleft)
+            else:
+                base.blit(cut.fog, cut.rect.topleft)
+
+        # borders always on top (keeps province separation clear even under fog)
+        base.blit(self.borders_surface, (0, 0))
+        self.visible_surface = base
+
+    # ============================================================
+    # Interaction helpers
+    # ============================================================
+
+    def pid_at_world(self, wx, wy):
+        x = int(wx)
+        y = int(wy)
+        if x < 0 or y < 0 or x >= self.W or y >= self.H:
+            return 0
+        return self.pid_map[y * self.W + x]
+
+    def cycle_player(self):
+        self.player_kingdom = (self.player_kingdom + 1) % self.num_kingdoms
+        self._rebuild_visibility_surface()
+
+    def set_player(self, k):
+        self.player_kingdom = k % self.num_kingdoms
+        self._rebuild_visibility_surface()
+
+# ============================================================
+# UI framing (CK1-ish utilitarian)
+# ============================================================
+
+def draw_panel(surface, rect, fill=(32, 30, 28), border=(110, 104, 92), inner=(55, 52, 46), title=None):
+    pygame.draw.rect(surface, fill, rect, border_radius=6)
+    pygame.draw.rect(surface, border, rect, width=2, border_radius=6)
+    inset = rect.inflate(-8, -8)
+    pygame.draw.rect(surface, inner, inset, width=1, border_radius=4)
     if title:
-        strip_h = 28
-        strip = pygame.Rect(inner.left+6, inner.top+6, inner.w-12, strip_h)
-        pygame.draw.rect(surface, PANEL_INNER_2, strip, border_radius=6)
-        pygame.draw.rect(surface, (14, 14, 14), strip, width=1, border_radius=6)
-        draw_header_text(surface, title, strip.left + 8, strip.top + 4, color=title_color)
-        content = pygame.Rect(inner.left+8, strip.bottom+6, inner.w-16, inner.h - strip_h - 14)
-    return content
+        y = rect.y + 8
+        draw_header_text(surface, title, rect.x + 10, y, color=(235, 228, 210))
 
-def draw_vignette(surface, rect, strength=95):
-    overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
-    cx, cy = rect.w / 2, rect.h / 2
-    max_d = math.hypot(cx, cy)
-    step = 16
-    for r in range(0, int(max_d), step):
-        a = int(clamp((r / max_d) ** 1.8 * strength, 0, strength))
-        pygame.draw.circle(overlay, (0, 0, 0, a), (int(cx), int(cy)), r, width=step)
-    surface.blit(overlay, rect.topleft)
+def draw_divider(surface, x, y, w):
+    pygame.draw.line(surface, (90, 85, 76), (x, y), (x + w, y), 1)
 
-def brighten(rgb, factor):
-    r, g, b = rgb
-    return (clamp(int(r * factor), 0, 255), clamp(int(g * factor), 0, 255), clamp(int(b * factor), 0, 255))
+# ============================================================
+# Main App
+# ============================================================
 
-def fogged(rgb, factor=0.55):
-    r, g, b = rgb
-    r = int(r * factor)
-    g = int(g * factor)
-    b = int(b * factor)
-    return (clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255))
+class App:
+    def __init__(self):
+        pygame.init()
+        pygame.display.set_caption("Regnal Atlas (Procedural Political Map)")
+        self.screen = pygame.display.set_mode((1280, 720))
+        self.clock = pygame.time.Clock()
 
-def shield_points(center, size):
-    cx, cy = center
-    w = size
-    h = int(size * 1.25)
-    return [
-        (cx - w//2, cy - h//2),
-        (cx + w//2, cy - h//2),
-        (cx + int(w*0.45), cy + int(h*0.08)),
-        (cx, cy + h//2),
-        (cx - int(w*0.45), cy + int(h*0.08)),
-    ]
+        # layout
+        self.top_h = 56
+        self.left_w = 260
+        self.right_w = 260
+        self.bottom_h = 62
 
-# =========================
-# Game Date
-# =========================
+        self.map_rect = pygame.Rect(
+            self.left_w + 8,
+            self.top_h + 8,
+            self.screen.get_width() - self.left_w - self.right_w - 16,
+            self.screen.get_height() - self.top_h - self.bottom_h - 16
+        )
 
-class GameDate:
-    MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"]
-    MONTH_LEN = [31,28,31,30,31,30,31,31,30,31,30,31]
+        self.left_panel = pygame.Rect(8, self.top_h + 8, self.left_w - 16, self.screen.get_height() - self.top_h - self.bottom_h - 16)
+        self.right_panel = pygame.Rect(self.screen.get_width() - self.right_w + 8, self.top_h + 8, self.right_w - 16, self.screen.get_height() - self.top_h - self.bottom_h - 16)
 
-    def __init__(self, year=1067, month=1, day=21):
-        self.year = year
-        self.month = month
-        self.day = day
+        self.top_bar = pygame.Rect(0, 0, self.screen.get_width(), self.top_h)
+        self.bottom_bar = pygame.Rect(0, self.screen.get_height() - self.bottom_h, self.screen.get_width(), self.bottom_h)
 
-    def advance_days(self, n):
-        for _ in range(n):
+        self.seed = random.randrange(1, 10_000_000)
+        self.world = World(self.seed)
+
+        self.camera = Camera(self.world.W, self.world.H, self.map_rect)
+
+        # cached map render
+        self._cached_view = None
+        self._cached_params = None
+
+        # buttons
+        self.btn_cycle = None
+        self.btn_regen = None
+        self.btn_center = None
+        self.btn_quit = None
+
+        # in-world date for vibe
+        self.day = 1
+        self.month = 3
+        self.year = 1066
+        self.time_acc = 0.0
+
+    def regen_world(self):
+        self.seed = random.randrange(1, 10_000_000)
+        self.world = World(self.seed)
+        self.camera.world_w = self.world.W
+        self.camera.world_h = self.world.H
+        self.camera.target_x = self.world.W * 0.5
+        self.camera.target_y = self.world.H * 0.5
+        self.camera.x = self.camera.target_x
+        self.camera.y = self.camera.target_y
+        self.camera.target_zoom = 0.85
+        self.camera.zoom = self.camera.target_zoom
+        self._cached_view = None
+        self._cached_params = None
+
+    def center_camera(self):
+        self.camera.target_x = self.world.W * 0.5
+        self.camera.target_y = self.world.H * 0.5
+        self.camera.target_zoom = 0.85
+
+    def _advance_date(self, dt):
+        self.time_acc += dt
+        if self.time_acc > 1.1:
+            self.time_acc = 0.0
             self.day += 1
-            ml = self.MONTH_LEN[self.month-1]
-            if self.day > ml:
+            if self.day > 30:
                 self.day = 1
                 self.month += 1
                 if self.month > 12:
                     self.month = 1
                     self.year += 1
 
-    def __str__(self):
-        return f"{self.MONTHS[self.month-1]} {self.day}, {self.year}"
-
-# =========================
-# Camera (weighty pan/zoom)
-# =========================
-
-class Camera:
-    def __init__(self, world_size, viewport_size):
-        self.world_w, self.world_h = world_size
-        self.vp_w, self.vp_h = viewport_size
-        self.center = pygame.Vector2(self.world_w * 0.52, self.world_h * 0.52)
-        self.target_center = self.center.copy()
-
-        self.zoom = 1.0
-        self.target_zoom = 1.0
-        self.min_zoom = 0.60
-        self.max_zoom = 2.60
-
-        self._dragging = False
-        self._drag_anchor_mouse = pygame.Vector2(0, 0)
-        self._drag_anchor_target = self.target_center.copy()
-
-    def set_viewport(self, viewport_size):
-        self.vp_w, self.vp_h = viewport_size
-        self._clamp_target()
-
-    def begin_drag(self, mouse_pos):
-        self._dragging = True
-        self._drag_anchor_mouse = pygame.Vector2(mouse_pos)
-        self._drag_anchor_target = self.target_center.copy()
-
-    def end_drag(self):
-        self._dragging = False
-
-    def drag_to(self, mouse_pos):
-        if not self._dragging:
-            return
-        mp = pygame.Vector2(mouse_pos)
-        delta = mp - self._drag_anchor_mouse
-        self.target_center = self._drag_anchor_target - (delta / max(self.target_zoom, 0.001))
-        self._clamp_target()
-
-    def pan(self, dx, dy):
-        self.target_center.x += dx
-        self.target_center.y += dy
-        self._clamp_target()
-
-    def zoom_at(self, factor, mouse_in_map, map_rect):
-        mx, my = mouse_in_map
-        before = self.screen_to_world((mx, my), map_rect, use_target=True)
-        self.target_zoom = clamp(self.target_zoom * factor, self.min_zoom, self.max_zoom)
-        after = self.screen_to_world((mx, my), map_rect, use_target=True)
-        shift = before - after
-        self.target_center += shift
-        self._clamp_target()
-
-    def update(self, dt):
-        t = exp_smooth_t(10.5, dt)
-        self.center.x = lerp(self.center.x, self.target_center.x, t)
-        self.center.y = lerp(self.center.y, self.target_center.y, t)
-        self.zoom = lerp(self.zoom, self.target_zoom, t)
-        self._clamp_actual()
-
-    def view_rect(self, use_target=False):
-        z = self.target_zoom if use_target else self.zoom
-        cx, cy = (self.target_center if use_target else self.center)
-        view_w = self.vp_w / max(z, 0.001)
-        view_h = self.vp_h / max(z, 0.001)
-        x = int(round(cx - view_w / 2))
-        y = int(round(cy - view_h / 2))
-        w = int(math.ceil(view_w))
-        h = int(math.ceil(view_h))
-        return pygame.Rect(x, y, w, h)
-
-    def screen_to_world(self, mouse_pos, map_rect, use_target=False):
-        vx = self.view_rect(use_target=use_target)
-        z = self.target_zoom if use_target else self.zoom
-        sx, sy = mouse_pos
-        rx = sx - map_rect.left
-        ry = sy - map_rect.top
-        wx = vx.left + rx / max(z, 0.001)
-        wy = vx.top + ry / max(z, 0.001)
-        return pygame.Vector2(wx, wy)
-
-    def _clamp_target(self):
-        half_w = (self.vp_w / max(self.target_zoom, 0.001)) / 2
-        half_h = (self.vp_h / max(self.target_zoom, 0.001)) / 2
-        if self.world_w <= 2 * half_w:
-            self.target_center.x = self.world_w / 2
-        else:
-            self.target_center.x = clamp(self.target_center.x, half_w, self.world_w - half_w)
-        if self.world_h <= 2 * half_h:
-            self.target_center.y = self.world_h / 2
-        else:
-            self.target_center.y = clamp(self.target_center.y, half_h, self.world_h - half_h)
-
-    def _clamp_actual(self):
-        half_w = (self.vp_w / max(self.zoom, 0.001)) / 2
-        half_h = (self.vp_h / max(self.zoom, 0.001)) / 2
-        if self.world_w <= 2 * half_w:
-            self.center.x = self.world_w / 2
-        else:
-            self.center.x = clamp(self.center.x, half_w, self.world_w - half_w)
-        if self.world_h <= 2 * half_h:
-            self.center.y = self.world_h / 2
-        else:
-            self.center.y = clamp(self.center.y, half_h, self.world_h - half_h)
-
-# =========================
-# Province + World Map (THIS is the polished part)
-# =========================
-
-class Province:
-    def __init__(self, pid, name, kingdom_id, center_world, tiles_count):
-        self.id = pid
-        self.name = name
-        self.kingdom_id = kingdom_id
-        self.center = pygame.Vector2(center_world)
-        self.tiles_count = tiles_count
-        self.income = 1 + (pid % 6)
-        self.levy = 120 + (pid * 11) % 600
-        self.control = 55 + (pid * 3) % 45
-        self.culture = ["Frankish", "Occitan", "Iberian", "Germanic", "Slavic"][pid % 5]
-        self.faith = ["Catholic", "Orthodox", "Pagan", "Sunni", "Mozarabic"][pid % 5]
-
-class MapWorld:
-    def __init__(self, seed=7, world_size=(3200, 2200), tile_size=10):
-        self.seed = seed
-        self.rnd = random.Random(seed)
-        self.world_w, self.world_h = world_size
-        self.tile_size = tile_size
-
-        self.tw = self.world_w // self.tile_size
-        self.th = self.world_h // self.tile_size
-        self.world_w = self.tw * self.tile_size
-        self.world_h = self.th * self.tile_size
-
-        self.height = [[0.0 for _ in range(self.th)] for _ in range(self.tw)]
-        self.land = [[False for _ in range(self.th)] for _ in range(self.tw)]
-        self.prov_id = [[-1 for _ in range(self.th)] for _ in range(self.tw)]
-
-        self.provinces = []
-        self.adj = {}
-
-        # Kingdoms + colors (muted, CK-like)
-        self.kingdom_count = 8
-        self.kingdom_colors = [
-            (78, 98, 142),   # azure
-            (146, 86, 70),   # brick
-            (84, 132, 96),   # green
-            (168, 132, 72),  # ochre
-            (120, 96, 156),  # purple
-            (86, 138, 152),  # teal
-            (164, 84, 124),  # wine
-            (150, 120, 92),  # tan
-        ]
-
-        self.player_kingdom = 0
-        self.visible_provinces = set()
-        self.owned_provinces = set()
-
-        # Render layers
-        self.terrain_world = pygame.Surface((self.world_w, self.world_h)).convert()
-        self.province_world = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        self.border_world = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        self.ink_world = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        self.combined_world = pygame.Surface((self.world_w, self.world_h)).convert()
-
-        self.paper_tile = make_noise_tile((96, 96), (56, 56, 58), variance=10, alpha=255, seed=seed + 300)
-        self._label_cache = {}
-
-        self._generate()
-
-    # ---- continent (organic) ----
-    def _value_noise(self, grid_w, grid_h, scale):
-        base = [[self.rnd.random() for _ in range(grid_h)] for _ in range(grid_w)]
-        def sample(x, y):
-            x0 = int(x) % grid_w
-            y0 = int(y) % grid_h
-            x1 = (x0 + 1) % grid_w
-            y1 = (y0 + 1) % grid_h
-            tx = x - int(x)
-            ty = y - int(y)
-            a = lerp(base[x0][y0], base[x1][y0], tx)
-            b = lerp(base[x0][y1], base[x1][y1], tx)
-            return lerp(a, b, ty)
-
-        out = [[0.0 for _ in range(self.th)] for _ in range(self.tw)]
-        for x in range(self.tw):
-            for y in range(self.th):
-                fx = (x / scale)
-                fy = (y / scale)
-                out[x][y] = sample(fx, fy)
-        return out
-
-    def _generate_continent_height(self):
-        # layered value-noise + a strong radial falloff = single big continent
-        n1 = self._value_noise(64, 64, scale=22.0)
-        n2 = self._value_noise(64, 64, scale=45.0)
-        n3 = self._value_noise(64, 64, scale=90.0)
-
-        cx = (self.tw - 1) / 2.0
-        cy = (self.th - 1) / 2.0
-        maxd = math.hypot(cx, cy)
-
-        for x in range(self.tw):
-            for y in range(self.th):
-                d = math.hypot(x - cx, y - cy) / maxd
-                radial = max(0.0, 1.0 - (d ** 1.35))
-
-                v = (n1[x][y] * 0.55 + n2[x][y] * 0.30 + n3[x][y] * 0.15)
-                v = v * 0.85 + radial * 0.75
-
-                # carve a few bays / peninsulas with "negative blobs"
-                for _ in range(2):
-                    bx = self.tw * self.rnd.uniform(0.30, 0.70)
-                    by = self.th * self.rnd.uniform(0.32, 0.68)
-                    sig = self.tw * self.rnd.uniform(0.08, 0.16)
-                    dd = math.hypot(x - bx, y - by)
-                    v -= 0.12 * math.exp(-(dd * dd) / (2 * sig * sig))
-
-                self.height[x][y] = v
-
-    def _derive_landmask(self):
-        # choose threshold so land is ~30-38% of map
-        vals = [self.height[x][y] for x in range(self.tw) for y in range(self.th)]
-        vals.sort()
-        target = int(len(vals) * 0.66)
-        threshold = vals[target]
-        for x in range(self.tw):
-            for y in range(self.th):
-                self.land[x][y] = self.height[x][y] >= threshold
-
-    def _smooth_land(self, iterations=6):
-        for _ in range(iterations):
-            newm = [[False for _ in range(self.th)] for _ in range(self.tw)]
-            for x in range(self.tw):
-                for y in range(self.th):
-                    cnt = 0
-                    for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(-1,1),(1,-1),(-1,-1)):
-                        xx = x + dx
-                        yy = y + dy
-                        if 0 <= xx < self.tw and 0 <= yy < self.th and self.land[xx][yy]:
-                            cnt += 1
-                    if self.land[x][y]:
-                        newm[x][y] = cnt >= 3
-                    else:
-                        newm[x][y] = cnt >= 6
-            self.land = newm
-
-    def _keep_largest_landmass(self):
-        visited = [[False for _ in range(self.th)] for _ in range(self.tw)]
-        best = []
-        for x in range(self.tw):
-            for y in range(self.th):
-                if self.land[x][y] and not visited[x][y]:
-                    comp = []
-                    dq = collections.deque([(x, y)])
-                    visited[x][y] = True
-                    while dq:
-                        cx, cy = dq.popleft()
-                        comp.append((cx, cy))
-                        for dx, dy in ((1,0),(-1,0),(0,1),(0,-1)):
-                            nx, ny = cx + dx, cy + dy
-                            if 0 <= nx < self.tw and 0 <= ny < self.th and self.land[nx][ny] and not visited[nx][ny]:
-                                visited[nx][ny] = True
-                                dq.append((nx, ny))
-                    if len(comp) > len(best):
-                        best = comp
-
-        keep = set(best)
-        for x in range(self.tw):
-            for y in range(self.th):
-                if self.land[x][y] and (x, y) not in keep:
-                    self.land[x][y] = False
-
-    # ---- provinces ----
-    def _pick_province_seeds(self, n):
-        land_positions = [(x, y) for x in range(self.tw) for y in range(self.th) if self.land[x][y]]
-        self.rnd.shuffle(land_positions)
-
-        seeds = []
-        min_dist = 9  # controls province size regularity
-        for (x, y) in land_positions:
-            ok = True
-            for sx, sy in seeds:
-                if abs(x - sx) + abs(y - sy) < min_dist:
-                    ok = False
-                    break
-            if ok:
-                seeds.append((x, y))
-            if len(seeds) >= n:
-                break
-        while len(seeds) < n:
-            seeds.append(land_positions[len(seeds) % len(land_positions)])
-        return seeds
-
-    def _grow_provinces(self, seeds):
-        # Multi-source Dijkstra -> organic borders from weight noise
-        tile_noise = [[self.rnd.random() for _ in range(self.th)] for _ in range(self.tw)]
-        for x in range(self.tw):
-            for y in range(self.th):
-                self.prov_id[x][y] = -1
-
-        heap = []
-        for pid, (sx, sy) in enumerate(seeds):
-            self.prov_id[sx][sy] = pid
-            heapq.heappush(heap, (0.0, pid, sx, sy))
-
-        while heap:
-            cost, pid, x, y = heapq.heappop(heap)
-            if self.prov_id[x][y] != pid:
-                continue
-            for dx, dy in ((1,0),(-1,0),(0,1),(0,-1)):
-                nx, ny = x + dx, y + dy
-                if not (0 <= nx < self.tw and 0 <= ny < self.th):
-                    continue
-                if not self.land[nx][ny]:
-                    continue
-                if self.prov_id[nx][ny] != -1:
-                    continue
-                ridge = abs(self.height[nx][ny] - self.height[x][y]) * 0.9
-                ncost = cost + 1.0 + tile_noise[nx][ny] * 1.15 + ridge
-                self.prov_id[nx][ny] = pid
-                heapq.heappush(heap, (ncost, pid, nx, ny))
-
-    def _province_name(self):
-        a = ["AL","BEL","CAR","DOR","ER","FEN","GAR","HAL","ISH","JAR","KOR","LOR","MOR","NOR","OR","PRA","QUEL","ROS","SAN","TOR","UL","VAR"]
-        b = ["A","E","I","O","U","AE","IA","OA"]
-        c = ["DON","BAR","MONT","FORD","WICK","MERE","GARD","HEIM","HOLD","GRAD","PORT","CESTER","VALE","MARK","BURG","RIA","TARA"]
-        return self.rnd.choice(a) + self.rnd.choice(b) + self.rnd.choice(c)
-
-    def _build_province_objects(self, province_count):
-        prov_tiles = collections.defaultdict(list)
-        for x in range(self.tw):
-            for y in range(self.th):
-                pid = self.prov_id[x][y]
-                if pid >= 0:
-                    prov_tiles[pid].append((x, y))
-
-        # ensure we have 0..province_count-1
-        self.provinces = []
-        for pid in range(province_count):
-            tiles = prov_tiles.get(pid, [])
-            if not tiles:
-                # shouldn't happen (seeds on land) but safe
-                cx = self.world_w * 0.5
-                cy = self.world_h * 0.5
-                self.provinces.append(Province(pid, self._province_name(), 0, (cx, cy), 0))
-                continue
-            sx = sum(t[0] for t in tiles) / len(tiles)
-            sy = sum(t[1] for t in tiles) / len(tiles)
-            cx = (sx + 0.5) * self.tile_size
-            cy = (sy + 0.5) * self.tile_size
-            self.provinces.append(Province(pid, self._province_name(), 0, (cx, cy), len(tiles)))
-
-    def _build_adjacency(self):
-        self.adj = {p.id: set() for p in self.provinces}
-        for x in range(self.tw - 1):
-            for y in range(self.th - 1):
-                a = self.prov_id[x][y]
-                if a < 0:
-                    continue
-                r = self.prov_id[x+1][y]
-                d = self.prov_id[x][y+1]
-                if r >= 0 and r != a:
-                    self.adj[a].add(r)
-                    self.adj[r].add(a)
-                if d >= 0 and d != a:
-                    self.adj[a].add(d)
-                    self.adj[d].add(a)
-
-    def _assign_kingdoms_contiguous(self):
-        pids = [p.id for p in self.provinces if p.tiles_count > 0]
-        self.rnd.shuffle(pids)
-        capitals = pids[:self.kingdom_count]
-
-        kingdom_of = {pid: -1 for pid in pids}
-        q = collections.deque()
-        for k, cap in enumerate(capitals):
-            kingdom_of[cap] = k
-            q.append(cap)
-
-        # BFS spread (contiguous)
-        while q:
-            cur = q.popleft()
-            k = kingdom_of[cur]
-            nbs = list(self.adj.get(cur, []))
-            self.rnd.shuffle(nbs)
-            for nb in nbs:
-                if kingdom_of.get(nb, -1) == -1:
-                    kingdom_of[nb] = k
-                    q.append(nb)
-
-        # assign
-        for p in self.provinces:
-            if p.id in kingdom_of and kingdom_of[p.id] != -1:
-                p.kingdom_id = kingdom_of[p.id]
-            else:
-                p.kingdom_id = 0
-
-    def _pick_player_kingdom(self):
-        counts = [0 for _ in range(self.kingdom_count)]
-        for p in self.provinces:
-            if 0 <= p.kingdom_id < self.kingdom_count:
-                counts[p.kingdom_id] += 1
-        self.player_kingdom = max(range(self.kingdom_count), key=lambda i: counts[i])
-        self.owned_provinces = {p.id for p in self.provinces if p.kingdom_id == self.player_kingdom}
-
-    def _build_visibility(self):
-        vis = set(self.owned_provinces)
-        for pid in list(self.owned_provinces):
-            for nb in self.adj.get(pid, []):
-                vis.add(nb)
-        self.visible_provinces = vis
-
-    # ---- rendering (THIS is what fixes "no province colors") ----
-    def _render_terrain(self):
-        small = pygame.Surface((self.tw, self.th)).convert()
-        for x in range(self.tw):
-            for y in range(self.th):
-                if not self.land[x][y]:
-                    # shallow near land
-                    near = False
-                    for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(2,0),(-2,0),(0,2),(0,-2)):
-                        nx, ny = x + dx, y + dy
-                        if 0 <= nx < self.tw and 0 <= ny < self.th and self.land[nx][ny]:
-                            near = True
-                            break
-                    base = SEA_SHALLOWS if near else SEA_DEEP
-                    dv = int((self.height[x][y] - 0.6) * 10)
-                    col = (clamp(base[0] + dv, 0, 255), clamp(base[1] + dv, 0, 255), clamp(base[2] + dv, 0, 255))
-                    small.set_at((x, y), col)
-                else:
-                    h = self.height[x][y]
-                    if h > 1.45:
-                        base = (92, 92, 90)     # mountains
-                    elif h > 1.20:
-                        base = (74, 86, 60)     # uplands
-                    elif h > 1.00:
-                        base = (64, 82, 54)     # plains
-                    else:
-                        base = (92, 86, 60)     # dry
-
-                    # coast sand
-                    coast = False
-                    for dx, dy in ((1,0),(-1,0),(0,1),(0,-1)):
-                        nx, ny = x + dx, y + dy
-                        if 0 <= nx < self.tw and 0 <= ny < self.th and not self.land[nx][ny]:
-                            coast = True
-                            break
-                    if coast:
-                        base = (110, 104, 74)
-
-                    dv = int((self.rnd.random() - 0.5) * 10)
-                    small.set_at((x, y), (clamp(base[0] + dv, 0, 255), clamp(base[1] + dv, 0, 255), clamp(base[2] + dv, 0, 255)))
-
-        self.terrain_world = pygame.transform.smoothscale(small, (self.world_w, self.world_h))
-
-    def _render_provinces_and_fog(self):
-        # IMPORTANT: RGBA surface where sea alpha = 0, land alpha = 255
-        prov_small = pygame.Surface((self.tw, self.th), pygame.SRCALPHA)
-        prov_small.fill((0, 0, 0, 0))
-
-        # per-province tiny tint (keeps kingdoms coherent but avoids flat fills)
-        prov_tint = [0.92 + (hash((self.seed, p.id)) % 13) * 0.01 for p in self.provinces]
-
-        for x in range(self.tw):
-            for y in range(self.th):
-                pid = self.prov_id[x][y]
-                if pid < 0:
-                    continue
-
-                k = self.provinces[pid].kingdom_id % len(self.kingdom_colors)
-                base = self.kingdom_colors[k]
-
-                # fog tiers
-                if pid in self.owned_provinces:
-                    col = brighten(base, 1.30)
-                elif pid in self.visible_provinces:
-                    col = brighten(base, 1.08)
-                else:
-                    col = fogged(base, 0.55)
-
-                # subtle province-level variation (NOT random per-tile)
-                t = prov_tint[pid]
-                col = (clamp(int(col[0] * t), 0, 255), clamp(int(col[1] * t), 0, 255), clamp(int(col[2] * t), 0, 255))
-
-                prov_small.set_at((x, y), (*col, 255))
-
-        # scale up (nearest-neighbor keeps borders crisp)
-        self.province_world = pygame.transform.scale(prov_small, (self.world_w, self.world_h))
-
-    def _render_borders(self):
-        self.border_world.fill((0, 0, 0, 0))
-        ts = self.tile_size
-
-        for x in range(self.tw - 1):
-            for y in range(self.th - 1):
-                a = self.prov_id[x][y]
-                if a < 0:
-                    continue
-                r = self.prov_id[x+1][y]
-                d = self.prov_id[x][y+1]
-                wx = x * ts
-                wy = y * ts
-                if r >= 0 and r != a:
-                    xx = (x + 1) * ts
-                    pygame.draw.line(self.border_world, (*BORDER_RED, 235), (xx, wy), (xx, wy + ts), 2)
-                if d >= 0 and d != a:
-                    yy = (y + 1) * ts
-                    pygame.draw.line(self.border_world, (*BORDER_RED, 235), (wx, yy), (wx + ts, yy), 2)
-
-        # slightly darker shadow line under red for ink depth
-        shadow = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        shadow.blit(self.border_world, (1, 1))
-        shadow.fill((0, 0, 0, 80), special_flags=pygame.BLEND_RGBA_MULT)
-        self.border_world.blit(shadow, (0, 0))
-
-    def _render_ink(self):
-        self.ink_world.fill((0, 0, 0, 0))
-        tile_fill(self.ink_world, self.ink_world.get_rect(), self.paper_tile)
-        self.ink_world.fill((0, 0, 0, 18), special_flags=pygame.BLEND_RGBA_MULT)
-
-    def _compose_world(self):
-        self.combined_world.blit(self.terrain_world, (0, 0))
-
-        # province paint (THIS is the “kingdom colors on provinces” layer)
-        prov = self.province_world.copy()
-        prov.set_alpha(215)  # strong enough that you definitely SEE the kingdom colors
-        self.combined_world.blit(prov, (0, 0))
-
-        # borders on top
-        self.combined_world.blit(self.border_world, (0, 0))
-
-        # ink veil
-        self.combined_world.blit(self.ink_world, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
-
-        # subtle sea banding (old map vibe)
-        band = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        for y in range(0, self.world_h, 6):
-            a = 10 if (y // 6) % 2 == 0 else 0
-            pygame.draw.line(band, (0, 0, 0, a), (0, y), (self.world_w, y))
-        self.combined_world.blit(band, (0, 0))
-
-    def _generate(self):
-        self._generate_continent_height()
-        self._derive_landmask()
-        self._smooth_land(iterations=6)
-        self._keep_largest_landmass()
-
-        land_tiles = sum(1 for x in range(self.tw) for y in range(self.th) if self.land[x][y])
-        # province count tuned for "CK1-ish"
-        province_count = clamp(int(land_tiles / 520), 80, 160)
-
-        seeds = self._pick_province_seeds(province_count)
-        self._grow_provinces(seeds)
-        self._build_province_objects(province_count)
-        self._build_adjacency()
-        self._assign_kingdoms_contiguous()
-        self._pick_player_kingdom()
-        self._build_visibility()
-
-        # render (order matters)
-        self._render_terrain()
-        self._render_provinces_and_fog()
-        self._render_borders()
-        self._render_ink()
-        self._compose_world()
-
-    # interaction
-    def world_to_tile(self, wx, wy):
-        tx = int(wx // self.tile_size)
-        ty = int(wy // self.tile_size)
-        if 0 <= tx < self.tw and 0 <= ty < self.th:
-            return tx, ty
-        return None
-
-    def province_at_world(self, world_pos):
-        x, y = world_pos
-        t = self.world_to_tile(x, y)
-        if t is None:
-            return None
-        tx, ty = t
-        pid = self.prov_id[tx][ty]
-        if pid < 0:
-            return None
-        return self.provinces[pid]
-
-    def province_outline_overlay(self, pid, fill_alpha=45, border_alpha=220):
-        mask_small = pygame.Surface((self.tw, self.th), pygame.SRCALPHA)
-        for x in range(self.tw):
-            for y in range(self.th):
-                if self.prov_id[x][y] == pid:
-                    mask_small.set_at((x, y), (240, 232, 210, fill_alpha))
-        fill_world = pygame.transform.scale(mask_small, (self.world_w, self.world_h))
-
-        outline = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        ts = self.tile_size
-        for x in range(self.tw - 1):
-            for y in range(self.th - 1):
-                if self.prov_id[x][y] != pid:
-                    continue
-                wx = x * ts
-                wy = y * ts
-                if self.prov_id[x+1][y] != pid:
-                    xx = (x + 1) * ts
-                    pygame.draw.line(outline, (245, 238, 220, border_alpha), (xx, wy), (xx, wy + ts), 2)
-                if self.prov_id[x][y+1] != pid:
-                    yy = (y + 1) * ts
-                    pygame.draw.line(outline, (245, 238, 220, border_alpha), (wx, yy), (wx + ts, yy), 2)
-        return fill_world, outline
-
-    def province_label(self, pid):
-        if pid in self._label_cache:
-            return self._label_cache[pid]
-        p = self.provinces[pid]
-        surf = FOOTER_FONT.render(p.name, True, (220, 214, 198))
-        surf.set_alpha(170)
-        self._label_cache[pid] = surf
-        return surf
-
-# =========================
-# Layout + Modal + UI Manager
-# =========================
-
-class Layout:
-    def __init__(self, w, h):
-        self.w = w
-        self.h = h
-        self.top = pygame.Rect(0, 0, w, TOP_BAR_H)
-        self.bottom = pygame.Rect(0, h - BOTTOM_BAR_H, w, BOTTOM_BAR_H)
-        self.left = pygame.Rect(UI_GUTTER, TOP_BAR_H + UI_GUTTER, SIDE_W_L, h - TOP_BAR_H - BOTTOM_BAR_H - UI_GUTTER * 2)
-        self.right = pygame.Rect(w - SIDE_W_R - UI_GUTTER, TOP_BAR_H + UI_GUTTER, SIDE_W_R, h - TOP_BAR_H - BOTTOM_BAR_H - UI_GUTTER * 2)
-
-        mx = self.left.right + UI_GUTTER
-        my = TOP_BAR_H + UI_GUTTER
-        mw = self.right.left - UI_GUTTER - mx
-        mh = self.bottom.top - UI_GUTTER - my
-        self.map = pygame.Rect(mx, my, mw, mh)
-
-    def update(self, w, h):
-        self.__init__(w, h)
-
-class Modal:
-    def __init__(self):
-        self.open = False
-        self.title = "Menu"
-        self.lines = []
-        self.actions = []
-
-    def show(self, title, lines, actions):
-        self.open = True
-        self.title = title
-        self.lines = lines[:]
-        self.actions = actions[:]
-
-    def close(self):
-        self.open = False
-
-    def draw(self, surface, panel_tile):
-        if not self.open:
-            return []
-
-        w, h = surface.get_size()
-        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 160))
-        surface.blit(overlay, (0, 0))
-
-        rect = pygame.Rect(0, 0, 520, 300)
-        rect.center = (w // 2, h // 2)
-
-        content = draw_framed_panel(surface, rect, title=self.title, title_color=INK, tile=panel_tile)
-
-        y = content.top
-        for ln in self.lines:
-            for wrapped in wrap_text(ln, BODY_FONT, content.w - 10):
-                y = draw_body_text(surface, wrapped, content.left, y, color=(230, 225, 210))
-            y += 2
-
-        btns = []
-        btn_w = 140
-        btn_h = 36
-        gap = 10
-        total = len(self.actions) * btn_w + (len(self.actions) - 1) * gap
-        x = content.centerx - total // 2
-        yb = rect.bottom - 58
-
-        for label, kind, cb in self.actions:
-            if kind == "primary":
-                r = draw_primary_button(surface, label, x, yb, btn_w, btn_h)
-            elif kind == "secondary":
-                r = draw_secondary_button(surface, label, x, yb, btn_w, btn_h)
-            elif kind == "accept":
-                r = draw_accept_button(surface, label, x, yb, btn_w, btn_h)
-            else:
-                r = draw_deny_button(surface, label, x, yb, btn_w, btn_h)
-            btns.append((r, cb))
-            x += btn_w + gap
-
-        return btns
-
-class UIManager:
-    def __init__(self, seed=11):
-        self.panel_tile = make_noise_tile((96, 96), (44, 44, 46), variance=10, alpha=255, seed=seed)
-        self.top_tile = make_noise_tile((128, 64), (28, 28, 30), variance=10, alpha=255, seed=seed + 1)
-        self.bottom_tile = make_noise_tile((96, 96), (26, 26, 28), variance=10, alpha=255, seed=seed + 2)
-
-    def _draw_resource(self, surface, pos, label, value, icon_color):
-        x, y = pos
-        icon = pygame.Rect(x, y + 4, 18, 18)
-        pygame.draw.rect(surface, (22, 22, 22), pygame.Rect(x - 6, y - 6, 130, 34), border_radius=8)
-        pygame.draw.circle(surface, icon_color, icon.center, 7)
-        pygame.draw.circle(surface, (0, 0, 0), icon.center, 7, 1)
-        draw_body_text(surface, f"{value}", x + 24, y, color=(235, 228, 210))
-        draw_footer_text(surface, label, x + 24, y + 18, color=(165, 160, 150))
-
-    def draw_top_bar(self, surface, rect, state):
-        pygame.draw.rect(surface, (16, 16, 16), rect)
-        tile_fill(surface, rect, self.top_tile)
-        pygame.draw.line(surface, (90, 86, 78), (rect.left, rect.bottom - 1), (rect.right, rect.bottom - 1))
-        pygame.draw.line(surface, (0, 0, 0), (rect.left, rect.bottom - 2), (rect.right, rect.bottom - 2))
-
-        plaque = pygame.Rect(rect.left + UI_GUTTER, rect.top + 10, 360, rect.h - 20)
-        pygame.draw.rect(surface, (22, 22, 22), plaque, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), plaque, 2, border_radius=8)
-
-        draw_title_text(surface, "DOMINION: GRAND STRATEGY", plaque.left + 12, plaque.top + 6, color=(235, 228, 210))
-        draw_footer_text(surface, "CK1-inspired provinces + kingdoms + fog of war", plaque.left + 12, plaque.top + 32, color=(170, 165, 155))
-
-        date_block = pygame.Rect(plaque.right + 10, plaque.top, 240, plaque.h)
-        pygame.draw.rect(surface, (22, 22, 22), date_block, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
-        draw_header_text(surface, str(state["date"]), date_block.left + 12, date_block.top + 10, color=(230, 224, 208))
-
-        rx = date_block.right + 14
-        ry = rect.top + 18
-        res = state["resources"]
-        self._draw_resource(surface, (rx, ry), "Gold", res["gold"], icon_color=(190, 165, 90))
-        self._draw_resource(surface, (rx + 140, ry), "Prestige", res["prestige"], icon_color=(150, 150, 165))
-        self._draw_resource(surface, (rx + 290, ry), "Piety", res["piety"], icon_color=(165, 150, 110))
-
-        btns = []
-        bx = rect.right - UI_GUTTER - 300
-        by = rect.top + 12
-        bw = 60
-        bh = 36
-
-        plate = pygame.Rect(bx - 130, by, 120, bh)
-        pygame.draw.rect(surface, (22, 22, 22), plate, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), plate, 2, border_radius=8)
-        sp = state["speed_level"]
-        sp_label = "Paused" if sp == 0 else f"Speed {sp}"
-        draw_body_text(surface, sp_label, plate.left + 10, plate.top + 8, color=(220, 214, 198))
-
-        b_pause = draw_secondary_button(surface, "II", bx, by, bw, bh)
-        b_slow = draw_secondary_button(surface, ">", bx + 70, by, bw, bh)
-        b_fast = draw_secondary_button(surface, ">>", bx + 140, by, bw, bh)
-        b_ultra = draw_secondary_button(surface, ">>>", bx + 210, by, bw, bh)
-        btns.append((b_pause, "toggle_pause"))
-        btns.append((b_slow, "speed_1"))
-        btns.append((b_fast, "speed_2"))
-        btns.append((b_ultra, "speed_3"))
-        return btns
-
-    def _draw_portrait(self, surface, rect, state):
-        frame = pygame.Rect(rect.left, rect.top, rect.w, rect.h)
-        pygame.draw.rect(surface, (18, 18, 18), frame, border_radius=10)
-        pygame.draw.rect(surface, (0, 0, 0), frame, 2, border_radius=10)
-
-        inner = frame.inflate(-12, -12)
-        pygame.draw.rect(surface, (40, 36, 32), inner, border_radius=8)
-        tile_fill(surface, inner, self.panel_tile)
-        veil = pygame.Surface(inner.size, pygame.SRCALPHA)
-        veil.fill((0, 0, 0, 45))
-        surface.blit(veil, inner.topleft)
-
-        cx = inner.left + 60
-        cy = inner.centery
-        pygame.draw.circle(surface, (205, 185, 160), (cx, cy - 6), 26)
-        pygame.draw.circle(surface, (55, 40, 30), (cx + 4, cy - 18), 24)
-        pygame.draw.rect(surface, (90, 76, 62), pygame.Rect(cx - 20, cy + 12, 40, 26), border_radius=8)
-
-        sp = shield_points((inner.right - 52, inner.centery), 34)
-        pygame.draw.polygon(surface, (150, 40, 40), sp)
-        pygame.draw.polygon(surface, (235, 228, 210), sp, 1)
-
-    def draw_left_panel(self, surface, rect, state):
-        content = draw_framed_panel(surface, rect, title="Character", title_color=INK, tile=self.panel_tile)
-        y = content.top
-        pf = pygame.Rect(content.left, y, content.w, 120)
-        self._draw_portrait(surface, pf, state)
-        y = pf.bottom + 10
-
-        draw_header_text(surface, state["character"]["name"], content.left, y, color=(235, 228, 210))
-        return []
-
-    def draw_right_panel(self, surface, rect, state):
-        content = draw_framed_panel(surface, rect, title="Province / Realm", title_color=INK, tile=self.panel_tile)
-        y = content.top
-
-        sel = state["selected_province"]
-        hov = state["hover_province"]
-        world = state["world"]
-
-        if sel is None:
-            y = draw_body_text(surface, "No province selected.", content.left, y, color=(205, 198, 180))
-            y = draw_footer_text(surface, "Click a province on the map to inspect it.", content.left, y, color=(155, 150, 140))
-        else:
-            k = sel.kingdom_id
-            owner = "Your Realm" if k == world.player_kingdom else f"Kingdom #{k+1}"
-            y = draw_header_text(surface, sel.name, content.left, y, color=(235, 228, 210))
-            y = draw_body_text(surface, f"Owner: {owner}", content.left, y, color=(205, 198, 180))
-            y = draw_body_text(surface, f"Income: {sel.income} / mo", content.left, y, color=(205, 198, 180))
-            y = draw_body_text(surface, f"Levies: {sel.levy}", content.left, y, color=(205, 198, 180))
-
-        if hov is not None:
-            y2 = rect.bottom - 78
-            box = pygame.Rect(content.left, y2, content.w, 62)
-            pygame.draw.rect(surface, (20, 20, 20), box, border_radius=8)
-            pygame.draw.rect(surface, (0, 0, 0), box, 2, border_radius=8)
-            draw_footer_text(surface, "Hover", box.left + 10, box.top + 8, color=(165, 160, 150))
-            draw_body_text(surface, hov.name, box.left + 10, box.top + 24, color=(235, 228, 210))
-        return []
-
-    def draw_bottom_bar(self, surface, rect, state):
-        pygame.draw.rect(surface, (14, 14, 14), rect)
-        tile_fill(surface, rect, self.bottom_tile)
-        pygame.draw.line(surface, (90, 86, 78), (rect.left, rect.top), (rect.right, rect.top))
-        return [(draw_secondary_button(surface, "Menu", rect.left + UI_GUTTER, rect.top + 12, 96, 34), "open_menu")]
-
-# =========================
-# Game App
-# =========================
-
-class GameApp:
-    def __init__(self):
-        pygame.init()
-        pygame.display.set_caption("CK1-Inspired Grand Strategy UI (Pygame)")
-        self.screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
-        self.clock = pygame.time.Clock()
-
-        self.ui = UIManager(seed=11)
-        self.layout = Layout(*self.screen.get_size())
-
-        self.world = MapWorld(seed=7, world_size=(3200, 2200), tile_size=10)
-        self.camera = Camera((self.world.world_w, self.world.world_h), self.layout.map.size)
-
-        self.modal = Modal()
-        self.date = GameDate(1067, 1, 21)
-
-        self.speed_level = 0
-        self.speed_days_per_sec = {0: 0, 1: 1, 2: 3, 3: 7}
-        self._time_accum = 0.0
-
-        self.resources = {"gold": 489, "prestige": 100, "piety": 100}
-        self.character = {"name": "King Sancho II"}
-        self.selected_province = None
-        self.hover_province = None
-
-        self._mouse_down_in_map = False
-        self._mouse_down_pos = (0, 0)
-        self._mouse_drag_threshold = 5
-        self._prev_mouse_down = False
-
-        self._sel_fill = None
-        self._sel_outline = None
-        self._hov_fill = None
-        self._hov_outline = None
-
-        self.running = True
-
-    def open_menu(self):
-        self.modal.show(
-            "Map Info",
-            [
-                "Kingdom colors are painted on provinces.",
-                "Fog-of-war: your realm brightest, neighbors readable, others darker.",
-                "Click provinces to select them."
-            ],
-            [("Close", "accept", lambda: self.modal.close())]
-        )
-
-    def _handle_action(self, action):
-        if action == "open_menu":
-            self.open_menu()
-
-    def _update_hover(self):
-        mx, my = pygame.mouse.get_pos()
-        if self.layout.map.collidepoint((mx, my)):
-            wp = self.camera.screen_to_world((mx, my), self.layout.map, use_target=False)
-            self.hover_province = self.world.province_at_world(wp)
-        else:
-            self.hover_province = None
-
-    def _refresh_overlays(self):
-        if self.selected_province is None:
-            self._sel_fill = self._sel_outline = None
-        else:
-            self._sel_fill, self._sel_outline = self.world.province_outline_overlay(self.selected_province.id, fill_alpha=55, border_alpha=235)
-
-        if self.hover_province is None or (self.selected_province and self.hover_province.id == self.selected_province.id):
-            self._hov_fill = self._hov_outline = None
-        else:
-            self._hov_fill, self._hov_outline = self.world.province_outline_overlay(self.hover_province.id, fill_alpha=30, border_alpha=160)
-
-    def _draw_map(self, surface):
-        map_rect = self.layout.map
-
-        frame_rect = map_rect.inflate(12, 12)
-        draw_drop_shadow(surface, frame_rect, strength=140, inflate=8, radius=12)
-        pygame.draw.rect(surface, PANEL_OUTER, frame_rect, border_radius=12)
-        pygame.draw.rect(surface, (0, 0, 0), frame_rect, 2, border_radius=12)
-
-        view = pygame.Surface(map_rect.size).convert()
-        view.fill(SEA_DEEP)
-
-        self.camera.set_viewport(map_rect.size)
-        vrect = self.camera.view_rect(use_target=False)
-
-        world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
-        inter = vrect.clip(world_rect)
-        if inter.w > 0 and inter.h > 0:
-            subs = self.world.combined_world.subsurface(inter).copy()
-            z = self.camera.zoom
-            scaled_w = max(1, int(round(inter.w * z)))
-            scaled_h = max(1, int(round(inter.h * z)))
-            scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
-            dx = int(round((inter.left - vrect.left) * z))
-            dy = int(round((inter.top - vrect.top) * z))
-            view.blit(scaled, (dx, dy))
-
-            def blit_overlay(ov_surf):
-                if ov_surf is None:
-                    return
-                ov_sub = ov_surf.subsurface(inter).copy()
-                ov_scaled = pygame.transform.scale(ov_sub, (scaled_w, scaled_h))
-                view.blit(ov_scaled, (dx, dy))
-
-            blit_overlay(self._sel_fill)
-            blit_overlay(self._sel_outline)
-            blit_overlay(self._hov_fill)
-            blit_overlay(self._hov_outline)
-
-        draw_vignette(view, view.get_rect(), strength=80)
-        surface.blit(view, map_rect.topleft)
-
     def run(self):
-        while self.running:
+        running = True
+        while running:
             dt = self.clock.tick(60) / 1000.0
+            self._advance_date(dt)
+
+            # hover pid
+            mx, my = pygame.mouse.get_pos()
+            if self.map_rect.collidepoint(mx, my):
+                wx, wy = self.camera.screen_to_world(mx, my)
+                self.world.hover_pid = self.world.pid_at_world(wx, wy)
+            else:
+                self.world.hover_pid = 0
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    self.running = False
-
-                elif event.type == pygame.VIDEORESIZE:
-                    w = max(1024, event.w)
-                    h = max(640, event.h)
-                    self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
-                    self.layout.update(w, h)
-                    self.camera.set_viewport(self.layout.map.size)
-
-                elif event.type == pygame.MOUSEWHEEL and not self.modal.open:
-                    mx, my = pygame.mouse.get_pos()
-                    if self.layout.map.collidepoint((mx, my)):
-                        factor = 1.12 if event.y > 0 else 0.89
-                        self.camera.zoom_at(factor, (mx, my), self.layout.map)
+                    running = False
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1 and not self.modal.open:
-                        if self.layout.map.collidepoint(event.pos):
-                            self._mouse_down_in_map = True
-                            self._mouse_down_pos = event.pos
-                            self.camera.begin_drag(event.pos)
+                    if event.button == 1:
+                        if self.btn_cycle and self.btn_cycle.collidepoint(event.pos):
+                            self.world.cycle_player()
+                            self._cached_view = None
+                        elif self.btn_regen and self.btn_regen.collidepoint(event.pos):
+                            self.regen_world()
+                        elif self.btn_center and self.btn_center.collidepoint(event.pos):
+                            self.center_camera()
+                        elif self.btn_quit and self.btn_quit.collidepoint(event.pos):
+                            running = False
+                        else:
+                            # map dragging / selecting
+                            if self.map_rect.collidepoint(event.pos):
+                                # click selects province
+                                wx, wy = self.camera.screen_to_world(*event.pos)
+                                pid = self.world.pid_at_world(wx, wy)
+                                if pid != 0:
+                                    self.world.selected_pid = pid
+                                self.camera.start_drag(event.pos)
+
+                    elif event.button == 4:  # wheel up
+                        if self.map_rect.collidepoint(event.pos):
+                            self.camera.zoom_at(event.pos, +1)
+                    elif event.button == 5:  # wheel down
+                        if self.map_rect.collidepoint(event.pos):
+                            self.camera.zoom_at(event.pos, -1)
 
                 elif event.type == pygame.MOUSEBUTTONUP:
-                    if event.button == 1 and not self.modal.open:
-                        if self._mouse_down_in_map:
-                            self.camera.end_drag()
-                            moved = (abs(event.pos[0] - self._mouse_down_pos[0]) + abs(event.pos[1] - self._mouse_down_pos[1]))
-                            if moved <= self._mouse_drag_threshold and self.layout.map.collidepoint(event.pos):
-                                wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
-                                prov = self.world.province_at_world(wp)
-                                if prov is not None:
-                                    self.selected_province = prov
-                                    self._refresh_overlays()
-                            self._mouse_down_in_map = False
+                    if event.button == 1:
+                        self.camera.end_drag()
 
                 elif event.type == pygame.MOUSEMOTION:
-                    if not self.modal.open and self._mouse_down_in_map:
-                        self.camera.drag_to(event.pos)
+                    if self.camera.dragging:
+                        self.camera.drag(event.pos)
 
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_TAB:
+                        self.world.cycle_player()
+                        self._cached_view = None
+                    elif event.key == pygame.K_r:
+                        self.regen_world()
+                    elif event.key == pygame.K_SPACE:
+                        self.center_camera()
+
+            self.camera.pan_keys(dt, speed=520.0)
             self.camera.update(dt)
 
-            prev_hover = self.hover_province.id if self.hover_province else None
-            self._update_hover()
-            now_hover = self.hover_province.id if self.hover_province else None
-            if prev_hover != now_hover:
-                self._refresh_overlays()
-
-            self.screen.fill(BG_COLOR)
-
-            self._draw_map(self.screen)
-
-            state = {
-                "date": self.date,
-                "resources": self.resources,
-                "speed_level": self.speed_level,
-                "character": self.character,
-                "selected_province": self.selected_province,
-                "hover_province": self.hover_province,
-                "world": self.world,
-            }
-
-            clickables = []
-            clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state))
-            clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state))
-            clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state))
-            clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state))
-            modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
-
-            now_down = pygame.mouse.get_pressed(num_buttons=3)[0]
-            if self._prev_mouse_down and (not now_down):
-                mx, my = pygame.mouse.get_pos()
-                if self.modal.open:
-                    for r, cb in modal_clickables:
-                        if r.collidepoint((mx, my)):
-                            cb()
-                            break
-                else:
-                    for r, action in clickables:
-                        if r.collidepoint((mx, my)):
-                            self._handle_action(action)
-                            break
-            self._prev_mouse_down = now_down
-
-            pygame.display.flip()
+            self.draw()
 
         pygame.quit()
 
+    # ============================================================
+    # Rendering
+    # ============================================================
+
+    def _render_map_view(self):
+        # Cache render of visible_surface into viewport with current camera
+        # Params for caching: camera center, zoom rounded to avoid thrashing
+        cx = round(self.camera.x, 2)
+        cy = round(self.camera.y, 2)
+        z  = round(self.camera.zoom, 3)
+        params = (cx, cy, z, self.map_rect.size)
+
+        if self._cached_view is not None and self._cached_params == params:
+            return self._cached_view
+
+        vx, vy, vw, vh = self.map_rect
+        view_w = vw / self.camera.zoom
+        view_h = vh / self.camera.zoom
+
+        x0 = int(self.camera.x - view_w * 0.5)
+        y0 = int(self.camera.y - view_h * 0.5)
+
+        # clamp to world, but allow slight overscan for edge smoothness
+        x0 = clamp(x0, 0, self.world.W - 1)
+        y0 = clamp(y0, 0, self.world.H - 1)
+
+        x1 = int(x0 + view_w) + 2
+        y1 = int(y0 + view_h) + 2
+        x1 = clamp(x1, 1, self.world.W)
+        y1 = clamp(y1, 1, self.world.H)
+
+        sub = self.world.visible_surface.subsurface(pygame.Rect(x0, y0, x1 - x0, y1 - y0))
+        # smoothscale for nicer zoom
+        scaled = pygame.transform.smoothscale(sub, (vw, vh))
+
+        self._cached_view = scaled
+        self._cached_params = params
+        return scaled
+
+    def draw(self):
+        self.screen.fill(BG_COLOR)
+
+        # Top bar
+        pygame.draw.rect(self.screen, (30, 28, 26), self.top_bar)
+        pygame.draw.line(self.screen, (105, 98, 86), (0, self.top_h - 1), (self.screen.get_width(), self.top_h - 1), 2)
+
+        tx = 12
+        ty = 10
+        draw_title_text(self.screen, "REGNAL ATLAS", tx, ty, color=(240, 232, 210))
+        date_txt = f"{self.day:02d}/{self.month:02d}/{self.year}"
+        draw_body_text(self.screen, f"Date: {date_txt}", 260, 18, color=(210, 200, 180))
+        draw_body_text(self.screen, "LMB Drag: Pan   Wheel: Zoom   TAB: Cycle Player   R: Regenerate   SPACE: Recenter", 420, 18, color=(200, 192, 175))
+
+        # Panels
+        draw_panel(self.screen, self.left_panel, title="Realm Ledger")
+        draw_panel(self.screen, self.right_panel, title="Province Dossier")
+        draw_panel(self.screen, self.bottom_bar.inflate(-16, -10), title=None)
+
+        # Map frame
+        frame = self.map_rect.inflate(10, 10)
+        pygame.draw.rect(self.screen, (26, 24, 22), frame, border_radius=8)
+        pygame.draw.rect(self.screen, (120, 112, 98), frame, width=2, border_radius=8)
+        pygame.draw.rect(self.screen, (60, 56, 49), self.map_rect, width=1, border_radius=6)
+
+        # Map render
+        view = self._render_map_view()
+        self.screen.blit(view, self.map_rect.topleft)
+
+        # Hover highlight (thin bright outline sampled in screen space)
+        if self.world.hover_pid != 0:
+            # draw a small label near cursor
+            pid = self.world.hover_pid
+            k = self.world.province_kingdom[pid]
+            name = self.world.kingdom_names[k]
+            label = f"Prov {pid:03d} — {name}"
+            text = FOOTER_FONT.render(label, True, (240, 235, 220))
+            pad = 6
+            box = pygame.Rect(pygame.mouse.get_pos()[0] + 16, pygame.mouse.get_pos()[1] + 10, text.get_width() + pad*2, text.get_height() + pad*2)
+            pygame.draw.rect(self.screen, (20, 20, 20), box, border_radius=6)
+            pygame.draw.rect(self.screen, (140, 132, 118), box, width=1, border_radius=6)
+            self.screen.blit(text, (box.x + pad, box.y + pad))
+
+        # Bottom buttons
+        bb = self.bottom_bar.inflate(-16, -10)
+        bx = bb.x + 12
+        by = bb.y + 10
+        self.btn_cycle = draw_primary_button(self.screen, "Cycle Player (TAB)", bx, by, 160, 38)
+        bx += 172
+        self.btn_regen = draw_secondary_button(self.screen, "Regenerate (R)", bx, by, 140, 38)
+        bx += 152
+        self.btn_center = draw_secondary_button(self.screen, "Recenter (SPACE)", bx, by, 160, 38)
+        bx += 172
+        self.btn_quit = draw_deny_button(self.screen, "Quit", bx, by, 90, 38)
+
+        # Left panel content (player realm)
+        lp = self.left_panel
+        x = lp.x + 12
+        y = lp.y + 44
+
+        pk = self.world.player_kingdom
+        pname = self.world.kingdom_names[pk]
+        pcol = self.world.kingdom_colors[pk]
+        y = draw_body_text(self.screen, f"Player Realm: {pname}", x, y, color=(235, 228, 210))
+        y = draw_body_text(self.screen, f"Kingdom Color: {pcol}", x, y, color=(205, 200, 190))
+
+        draw_divider(self.screen, x, y + 6, lp.width - 24)
+        y += 16
+
+        # counts
+        counts = [0] * self.world.num_kingdoms
+        for pid in range(1, self.world.num_provinces + 1):
+            counts[self.world.province_kingdom[pid]] += 1
+
+        y = draw_body_text(self.screen, "Holdings (Provinces):", x, y, color=(225, 220, 205))
+        y += 2
+        y = draw_body_text(self.screen, f"{counts[pk]} provinces under the crown.", x, y, color=(205, 200, 190))
+
+        # list a few neighbor realms by border contact
+        neighbor_realms = defaultdict(int)
+        owned = [pid for pid in range(1, self.world.num_provinces + 1) if self.world.province_kingdom[pid] == pk]
+        for pid in owned:
+            for nb in self.world.adj[pid]:
+                kb = self.world.province_kingdom[nb]
+                if kb != pk:
+                    neighbor_realms[kb] += 1
+
+        y += 8
+        y = draw_body_text(self.screen, "Border Realms:", x, y, color=(225, 220, 205))
+        if neighbor_realms:
+            for kb, n in sorted(neighbor_realms.items(), key=lambda kv: -kv[1])[:6]:
+                nm = self.world.kingdom_names[kb]
+                y = draw_body_text(self.screen, f"• {nm} (contacts: {n})", x, y, color=(200, 192, 175))
+        else:
+            y = draw_body_text(self.screen, "• None (isolated)", x, y, color=(200, 192, 175))
+
+        # Right panel content (selected/hover province)
+        rp = self.right_panel
+        x = rp.x + 12
+        y = rp.y + 44
+
+        pid = self.world.selected_pid if self.world.selected_pid != 0 else self.world.hover_pid
+        if pid != 0:
+            k = self.world.province_kingdom[pid]
+            kname = self.world.kingdom_names[k]
+            kcol = self.world.kingdom_colors[k]
+            c = self.world.province_colors[pid]
+            cx, cy = self.world.province_centroid[pid]
+            y = draw_body_text(self.screen, f"Province: {pid:03d}", x, y, color=(235, 228, 210))
+            y = draw_body_text(self.screen, f"Realm: {kname}", x, y, color=(225, 220, 205))
+            y = draw_body_text(self.screen, f"Prov Color: {c}", x, y, color=(205, 200, 190))
+            y = draw_body_text(self.screen, f"Realm Color: {kcol}", x, y, color=(205, 200, 190))
+            y += 6
+            draw_divider(self.screen, x, y, rp.width - 24)
+            y += 12
+            y = draw_body_text(self.screen, f"Centroid: ({cx:.1f}, {cy:.1f})", x, y, color=(200, 192, 175))
+            y = draw_body_text(self.screen, f"Adjacency: {len(self.world.adj[pid])} neighboring provinces", x, y, color=(200, 192, 175))
+
+            # fog status of this province under current player
+            pk = self.world.player_kingdom
+            owned = (self.world.province_kingdom[pid] == pk)
+            if owned:
+                vis = "Visible (Owned)"
+            else:
+                # adjacent?
+                adj_owned = False
+                for nb in self.world.adj[pid]:
+                    if self.world.province_kingdom[nb] == pk:
+                        adj_owned = True
+                        break
+                vis = "Revealed (Adjacent)" if adj_owned else "Fogged (Unseen)"
+            y += 6
+            y = draw_body_text(self.screen, f"Visibility: {vis}", x, y, color=(235, 228, 210))
+        else:
+            y = draw_body_text(self.screen, "Click a province to inspect it.", x, y, color=(210, 200, 180))
+            y = draw_body_text(self.screen, "Fog-of-war updates with TAB.", x, y, color=(200, 192, 175))
+
+        # Small crosshair marker for selected province centroid
+        if self.world.selected_pid != 0:
+            pid = self.world.selected_pid
+            cx, cy = self.world.province_centroid[pid]
+            sx, sy = self.camera.world_to_screen(cx, cy)
+            if self.map_rect.collidepoint(sx, sy):
+                pygame.draw.circle(self.screen, (245, 238, 220), (int(sx), int(sy)), 6, 1)
+                pygame.draw.line(self.screen, (245, 238, 220), (int(sx) - 10, int(sy)), (int(sx) + 10, int(sy)), 1)
+                pygame.draw.line(self.screen, (245, 238, 220), (int(sx), int(sy) - 10), (int(sx), int(sy) + 10), 1)
+
+        pygame.display.flip()
+
 if __name__ == "__main__":
-    GameApp().run()
+    App().run()
