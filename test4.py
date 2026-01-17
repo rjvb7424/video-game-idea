@@ -1289,8 +1289,27 @@ class GameApp:
         self.layout = Layout(*self.screen.get_size())
 
         # NEW: organic continent + provinces + kingdoms + fog-of-war
-        self.world = MapWorld(seed=7, world_size=(3200, 2200), tile_size=10)
-        self.camera = Camera((self.world.world_w, self.world.world_h), self.layout.map.size)
+        HD_SCALE = 2
+
+        base_w, base_h = 3200, 2200
+        base_cell_scale = 8   # if you changed this earlier, use YOUR current value
+
+        self.world = MapWorld(
+            seed=7,
+            world_size=(base_w * HD_SCALE, base_h * HD_SCALE),
+            cell_scale=base_cell_scale * HD_SCALE
+        )
+
+        self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
+
+        # start zoomed out so the “view” matches what you used to see at zoom=1.0
+        self.camera.zoom = 1.0 / HD_SCALE
+        self.camera.target_zoom = 1.0 / HD_SCALE
+
+        # allow similar zoom-out range as before
+        self.camera.min_zoom = 0.55 / HD_SCALE
+        # keep max zoom the same (now it zooms into more real pixels, so it looks sharper)
+        self.camera.max_zoom = 2.60
 
         self.modal = Modal()
         self.date = GameDate(1067, 1, 21)

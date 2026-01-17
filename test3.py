@@ -125,9 +125,9 @@ MOUNTAIN = (88, 86, 84)
 FOREST = (54, 70, 46)
 
 FOG_DARK = (12, 12, 14)
-BORDER_RED_DARK = (70, 14, 14)
-BORDER_RED = (120, 24, 24)
-BORDER_REALM = (145, 38, 38)
+BORDER_INK_DARK = (12, 12, 12)
+BORDER_INK = (32, 30, 28)
+BORDER_REALM_INK = (8, 8, 8)
 
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
@@ -386,12 +386,10 @@ class Camera:
 # =========================
 
 class Province:
-    """Represents a single province on the map."""
     def __init__(self, pid, name):
         self.id = pid
         self.name = name
         self.realm_id = 0
-        # province 
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
@@ -501,11 +499,9 @@ def _apply_fog(rgb, visibility):
     return _mix_color(rgb, FOG_DARK, fog_strength)
 
 class MapWorld:
-    """Procedurally generates a continent map with provinces and realms."""
-    def __init__(self, seed=1000, world_size=(3200, 2200), cell_scale=8):
+    def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
         self.seed = seed
         self.rnd = random.Random(seed)
-        # basic dimensions of the world
         self.world_w, self.world_h = world_size
         self.cell_scale = cell_scale
 
@@ -982,38 +978,55 @@ class MapWorld:
                             coast.append((x, y))
                             break
 
-                # province borders / realm borders
+                # province borders / realm borders (only check right & down to avoid duplicates)
                 for nx, ny in ((x+1,y), (x,y+1)):
-                    if 0 <= nx < w and 0 <= ny < h:
-                        if not self.land[ny][nx]:
-                            continue
+                    if 0 <= nx < w and 0 <= ny < h and self.land[ny][nx]:
                         b = self.prov_id[ny][nx]
                         if b >= 0 and b != a:
                             thin_border.append((x, y))
-                            # realm border?
                             if self.provinces[a].realm_id != self.provinces[b].realm_id:
                                 realm_border.append((x, y))
 
         thin_set = set(thin_border)
-        thick_set = _dilate_points(thin_set, w, h, radius=1)
         realm_set = set(realm_border)
-        realm_thick = _dilate_points(realm_set, w, h, radius=2)
         coast_set = set(coast)
-        coast_thick = _dilate_points(coast_set, w, h, radius=1)
 
-        # make low-res masks (sparse set_at is fine: only border points)
+        # --- KEY QUALITY BOOST ---
+        # render border masks at 2x the low-res grid, then smoothscale to world
+        UPSCALE = 2
+        w2, h2 = w * UPSCALE, h * UPSCALE
+
+        def up_points(points):
+            out = set()
+            for (x, y) in points:
+                ox, oy = x * UPSCALE, y * UPSCALE
+                # fill the UPSCALE×UPSCALE block so scaling doesn't create gaps
+                for dy in range(UPSCALE):
+                    for dx in range(UPSCALE):
+                        out.add((ox + dx, oy + dy))
+            return out
+
+        thin2 = up_points(thin_set)
+        realm2 = up_points(realm_set)
+        coast2 = up_points(coast_set)
+
+        # dilate in the upscaled space for smoother thickness
+        thick2 = _dilate_points(thin2, w2, h2, radius=2)
+        realm_thick2 = _dilate_points(realm2, w2, h2, radius=3)
+        coast_thick2 = _dilate_points(coast2, w2, h2, radius=2)
+
         def make_mask(points, alpha=255):
-            s = pygame.Surface((w, h), pygame.SRCALPHA)
+            s = pygame.Surface((w2, h2), pygame.SRCALPHA)
             for (x, y) in points:
                 s.set_at((x, y), (255, 255, 255, alpha))
             return s
 
-        mask_thin = make_mask(thin_set, alpha=255)
-        mask_thick = make_mask(thick_set, alpha=220)
-        mask_realm = make_mask(realm_thick, alpha=240)
-        mask_coast = make_mask(coast_thick, alpha=170)
+        mask_thin = make_mask(thin2, alpha=255)
+        mask_thick = make_mask(thick2, alpha=210)
+        mask_realm = make_mask(realm_thick2, alpha=230)
+        mask_coast = make_mask(coast_thick2, alpha=160)
 
-        # scale masks with smoothing to get organic, non-grid-looking ink
+        # smooth scale masks to world resolution (anti-aliased look)
         ms_thin = pygame.transform.smoothscale(mask_thin, (self.world_w, self.world_h))
         ms_thick = pygame.transform.smoothscale(mask_thick, (self.world_w, self.world_h))
         ms_realm = pygame.transform.smoothscale(mask_realm, (self.world_w, self.world_h))
@@ -1021,29 +1034,29 @@ class MapWorld:
 
         self.border_surface = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
 
-        # province borders: dark thick + bright thin
-        thick_dark = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        thick_dark.fill((*BORDER_RED_DARK, 255))
-        thick_dark.blit(ms_thick, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
-        thin_bright = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        thin_bright.fill((*BORDER_RED, 255))
-        thin_bright.blit(ms_thin, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
-        # realm borders: slightly stronger ink (still red like CK1)
-        realm_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        realm_ink.fill((*BORDER_REALM, 255))
-        realm_ink.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
-        # coastline foam
+        # coastline foam (keep subtle)
         foam = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         foam.fill((*COAST_FOAM, 255))
         foam.blit(ms_coast, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
         self.border_surface.blit(foam, (0, 0))
-        self.border_surface.blit(thick_dark, (0, 0))
+
+        # province borders: subtle ink (NO RED)
+        thick_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        thick_ink.fill((*BORDER_INK_DARK, 255))
+        thick_ink.blit(ms_thick, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        thin_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        thin_ink.fill((*BORDER_INK, 255))
+        thin_ink.blit(ms_thin, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        # realm borders: slightly stronger ink
+        realm_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        realm_ink.fill((*BORDER_REALM_INK, 255))
+        realm_ink.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        self.border_surface.blit(thick_ink, (0, 0))
         self.border_surface.blit(realm_ink, (0, 0))
-        self.border_surface.blit(thin_bright, (0, 0))
+        self.border_surface.blit(thin_ink, (0, 0))
 
     def _render_labels_and_markers(self):
         overlay = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
@@ -1481,8 +1494,8 @@ class GameApp:
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
 
-        self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=3)  # or 2 or 4
-        self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
+        self.world = MapWorld(seed=7, world_size=(3200, 2200))
+        self.camera = Camera(viewport_size=(100, 100), world_size=(3200, 2200))
 
         self.modal = Modal()
 
@@ -1640,7 +1653,7 @@ class GameApp:
         self.camera.set_viewport(map_rect.size)
         vrect = self.camera.view_rect(use_target=False)
 
-        world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
+        world_rect = pygame.Rect(0, 0, 3200, 2200)
         inter = vrect.clip(world_rect)
 
         if inter.w > 0 and inter.h > 0:
