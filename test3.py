@@ -653,7 +653,8 @@ class MapWorld:
         land_cells = [(x, y) for y in range(h) for x in range(w) if self.land[y][x]]
         land_n = len(land_cells)
         # province count scales with land area
-        target = clamp(land_n // 720, 55, 95)
+        scale_factor = (self.cell_scale / 8.0) ** 2   # 1.0 at 8, 0.25 at 4
+        target = clamp(int((land_n * scale_factor) // 720), 55, 95)
 
         seeds = self._pick_province_seeds(land_cells, target)
         prov_count = len(seeds)
@@ -993,7 +994,7 @@ class MapWorld:
 
         # --- KEY QUALITY BOOST ---
         # render border masks at 2x the low-res grid, then smoothscale to world
-        UPSCALE = 2
+        UPSCALE = 4
         w2, h2 = w * UPSCALE, h * UPSCALE
 
         def up_points(points):
@@ -1011,9 +1012,9 @@ class MapWorld:
         coast2 = up_points(coast_set)
 
         # dilate in the upscaled space for smoother thickness
-        thick2 = _dilate_points(thin2, w2, h2, radius=2)
-        realm_thick2 = _dilate_points(realm2, w2, h2, radius=3)
-        coast_thick2 = _dilate_points(coast2, w2, h2, radius=2)
+        # keep them *thin*
+        realm_thick2 = _dilate_points(realm2, w2, h2, radius=1) # tiny emphasis
+        coast_thick2 = _dilate_points(coast2, w2, h2, radius=1)
 
         def make_mask(points, alpha=255):
             s = pygame.Surface((w2, h2), pygame.SRCALPHA)
@@ -1021,14 +1022,12 @@ class MapWorld:
                 s.set_at((x, y), (255, 255, 255, alpha))
             return s
 
-        mask_thin = make_mask(thin2, alpha=255)
-        mask_thick = make_mask(thick2, alpha=210)
-        mask_realm = make_mask(realm_thick2, alpha=230)
-        mask_coast = make_mask(coast_thick2, alpha=160)
+        mask_thin = make_mask(thin2, alpha=190)   # was 255
+        mask_realm = make_mask(realm_thick2, alpha=200)
+        mask_coast = make_mask(coast_thick2, alpha=150)
 
         # smooth scale masks to world resolution (anti-aliased look)
         ms_thin = pygame.transform.smoothscale(mask_thin, (self.world_w, self.world_h))
-        ms_thick = pygame.transform.smoothscale(mask_thick, (self.world_w, self.world_h))
         ms_realm = pygame.transform.smoothscale(mask_realm, (self.world_w, self.world_h))
         ms_coast = pygame.transform.smoothscale(mask_coast, (self.world_w, self.world_h))
 
@@ -1043,7 +1042,6 @@ class MapWorld:
         # province borders: subtle ink (NO RED)
         thick_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         thick_ink.fill((*BORDER_INK_DARK, 255))
-        thick_ink.blit(ms_thick, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
         thin_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         thin_ink.fill((*BORDER_INK, 255))
@@ -1054,7 +1052,6 @@ class MapWorld:
         realm_ink.fill((*BORDER_REALM_INK, 255))
         realm_ink.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
-        self.border_surface.blit(thick_ink, (0, 0))
         self.border_surface.blit(realm_ink, (0, 0))
         self.border_surface.blit(thin_ink, (0, 0))
 
@@ -1494,7 +1491,7 @@ class GameApp:
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
 
-        self.world = MapWorld(seed=7, world_size=(3200, 2200))
+        self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=4)  # was 8
         self.camera = Camera(viewport_size=(100, 100), world_size=(3200, 2200))
 
         self.modal = Modal()
