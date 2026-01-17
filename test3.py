@@ -393,6 +393,8 @@ class Province:
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
+        self.biome = "Plains"
+        self.biome_color = LAND_GREEN
 
         self.income = 1 + (pid % 5)
         self.levy = 120 + (pid * 9) % 520
@@ -528,6 +530,65 @@ class MapWorld:
 
         self._generate()
 
+    def _assign_biomes_per_province(self):
+        """Assign a single biome per province based on average height + a macro noise field."""
+        w, h = self.gw, self.gh
+        prov_n = len(self.provinces)
+
+        # macro noise: big shapes (NOT per-cell speckle)
+        macro = _value_noise_2d(w, h, cell_w=18, cell_h=18, seed=self.seed + 4242)
+
+        sum_h = [0.0] * prov_n
+        sum_n = [0.0] * prov_n
+        cnt = [0] * prov_n
+
+        for y in range(h):
+            for x in range(w):
+                if not self.land[y][x]:
+                    continue
+                pid = self.prov_id[y][x]
+                if pid < 0:
+                    continue
+                sum_h[pid] += self.height[y][x]
+                sum_n[pid] += macro[y][x]
+                cnt[pid] += 1
+
+        for pid in range(prov_n):
+            if cnt[pid] <= 0:
+                continue
+
+            ah = sum_h[pid] / cnt[pid]   # avg height
+            an = sum_n[pid] / cnt[pid]   # avg macro noise
+
+            # Deterministic province variation (so it doesn't look uniform)
+            pr = random.Random(self.seed * 99991 + pid * 31)
+            jitter = (pr.random() - 0.5) * 0.08
+
+            # Biome rules (province-wide)
+            if ah > 0.82:
+                biome = "Mountains"
+                col = MOUNTAIN
+            elif ah > 0.74:
+                biome = "Hills"
+                col = HILLS
+            else:
+                # Forest vs plains vs dryland using macro noise + slight jitter
+                forestiness = an * 0.75 + ah * 0.25 + jitter
+                dryness = (1.0 - ah) * 0.55 + (an - 0.5) * 0.35 - jitter
+
+                if forestiness > 0.63:
+                    biome = "Forest"
+                    col = FOREST
+                elif dryness > 0.58:
+                    biome = "Drylands"
+                    col = LAND_DRY
+                else:
+                    biome = "Fertile" if ah > 0.60 else "Plains"
+                    col = LAND_RICH if ah > 0.60 else LAND_GREEN
+
+            self.provinces[pid].biome = biome
+            self.provinces[pid].biome_color = col
+
     def _name(self):
         a = ["Al", "Bel", "Car", "Dor", "Er", "Fen", "Gar", "Hal", "Ish", "Jar", "Kor", "Lor", "Mor", "Nor", "Or", "Pra", "Quel", "Ros", "San", "Tor", "Ul", "Var"]
         b = ["a", "e", "i", "o", "u", "ae", "ia", "oa"]
@@ -624,7 +685,7 @@ class MapWorld:
 
     def _pick_province_seeds(self, land_cells, target_count):
         # Poisson-ish spacing in cell coordinates
-        min_dist = max(6, int(math.sqrt((len(land_cells) / max(1, target_count))) * 0.55))
+        min_dist = max(4, int(math.sqrt((len(land_cells) / max(1, target_count))) * 0.45))  # was 0.55 and min 6
         seeds = []
         attempts = 0
         max_attempts = 90000
@@ -653,8 +714,9 @@ class MapWorld:
         land_cells = [(x, y) for y in range(h) for x in range(w) if self.land[y][x]]
         land_n = len(land_cells)
         # province count scales with land area
-        scale_factor = (self.cell_scale / 8.0) ** 2   # 1.0 at 8, 0.25 at 4
-        target = clamp(int((land_n * scale_factor) // 720), 55, 95)
+        # province count scales with land area (MORE provinces)
+        scale_factor = (self.cell_scale / 8.0) ** 2
+        target = clamp(int((land_n * scale_factor) // 360), 140, 240)  # was //720, 55..95
 
         seeds = self._pick_province_seeds(land_cells, target)
         prov_count = len(seeds)
@@ -727,7 +789,7 @@ class MapWorld:
             return contacts
 
         contacts = build_border_contacts()
-        small_threshold = 95
+        small_threshold = 18
         merged_into = [-1 for _ in range(prov_count)]
 
         for pid in range(prov_count):
@@ -923,16 +985,7 @@ class MapWorld:
                 rid = prov.realm_id
                 realm_col = self.realm_colors[rid]
 
-                ht = self.height[y][x]
-                # terrain tint
-                if ht > 0.82:
-                    terrain = MOUNTAIN
-                elif ht > 0.74:
-                    terrain = HILLS
-                else:
-                    # forest pockets
-                    forestiness = (ntex[y][x] * 0.7 + ht * 0.3)
-                    terrain = FOREST if forestiness > 0.68 else (LAND_RICH if ht > 0.60 else (LAND_GREEN if ht > 0.54 else LAND_DRY))
+                terrain = prov.biome_color
 
                 # mix realm with terrain (so kingdoms read as colored blocks, but not flat-modern)
                 col = _mix_color(realm_col, terrain, 0.46)
@@ -1111,6 +1164,10 @@ class MapWorld:
         self._assign_provinces_region_growth()
         self._assign_realms()
         self._compute_fog_of_war()
+
+        # NEW
+        self._assign_biomes_per_province()
+
         self._render_base()
         self._render_borders_and_coast()
         self._render_labels_and_markers()
