@@ -1770,21 +1770,6 @@ class GameApp:
             pygame.draw.polygon(surface, (base[0], base[1], base[2], a), pts)
             pygame.draw.polygon(surface, (235, 228, 210, 160), pts, 1)
 
-        # Army markers (vector shapes, crisp)
-        for (wx, wy) in getattr(self.world, "army_markers", []):
-            sp = self.camera.world_to_screen((wx, wy), map_rect, use_target=False)
-            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
-                continue
-            self.world._draw_army(surface, (int(sp.x), int(sp.y)), color=(200, 200, 210, 210))
-
-        # Map corner compass (purely aesthetic)
-        cx, cy = map_rect.right - 46, map_rect.bottom - 46
-        pygame.draw.circle(surface, (18, 18, 18), (cx, cy), 20)
-        pygame.draw.circle(surface, (0, 0, 0), (cx, cy), 20, 2)
-        pygame.draw.line(surface, (220, 214, 198), (cx, cy - 14), (cx, cy + 14), 1)
-        pygame.draw.line(surface, (220, 214, 198), (cx - 14, cy), (cx + 14, cy), 1)
-        draw_footer_text(surface, "N", cx - 5, cy - 32, color=(220, 214, 198))
-
     def _update_hover(self):
         mx, my = pygame.mouse.get_pos()
         if self.layout.map.collidepoint((mx, my)):
