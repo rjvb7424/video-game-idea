@@ -386,10 +386,12 @@ class Camera:
 # =========================
 
 class Province:
+    """Represents a single province on the map."""
     def __init__(self, pid, name):
         self.id = pid
         self.name = name
         self.realm_id = 0
+        # province 
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
@@ -499,9 +501,11 @@ def _apply_fog(rgb, visibility):
     return _mix_color(rgb, FOG_DARK, fog_strength)
 
 class MapWorld:
-    def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
+    """Procedurally generates a continent map with provinces and realms."""
+    def __init__(self, seed=1000, world_size=(3200, 2200), cell_scale=8):
         self.seed = seed
         self.rnd = random.Random(seed)
+        # basic dimensions of the world
         self.world_w, self.world_h = world_size
         self.cell_scale = cell_scale
 
@@ -948,7 +952,7 @@ class MapWorld:
         del px
 
         # scale up (keep provinces solid), then add subtle paper/noise veil
-        self.base_surface = pygame.transform.scale(low, (self.world_w, self.world_h)).convert()
+        self.base_surface = pygame.transform.smoothscale(low, (self.world_w, self.world_h)).convert()
 
         veil = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         tile_fill(veil, veil.get_rect(), self.paper_tile)
@@ -1477,8 +1481,8 @@ class GameApp:
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
 
-        self.world = MapWorld(seed=7, world_size=(3200, 2200))
-        self.camera = Camera(viewport_size=(100, 100), world_size=(3200, 2200))
+        self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=3)  # or 2 or 4
+        self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
 
         self.modal = Modal()
 
@@ -1636,7 +1640,7 @@ class GameApp:
         self.camera.set_viewport(map_rect.size)
         vrect = self.camera.view_rect(use_target=False)
 
-        world_rect = pygame.Rect(0, 0, 3200, 2200)
+        world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
         inter = vrect.clip(world_rect)
 
         if inter.w > 0 and inter.h > 0:
