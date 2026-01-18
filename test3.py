@@ -1616,6 +1616,58 @@ class GameApp:
     def _exit_game(self):
         self.running = False
 
+    def _draw_shield_icon(self, surf, center, base_rgb, alpha=220):
+        cx, cy = center
+        pts = shield_points((int(cx), int(cy)), 26)
+
+        # shield fill
+        pygame.draw.polygon(surf, (base_rgb[0], base_rgb[1], base_rgb[2], alpha), pts)
+
+        # simple highlight stripe (optional, helps it read as a coat-of-arms)
+        pygame.draw.line(surf, (235, 228, 210, int(alpha * 0.85)),
+                         (int(cx) - 7, int(cy) - 16), (int(cx) - 7, int(cy) + 16), 3)
+        pygame.draw.line(surf, (235, 228, 210, int(alpha * 0.85)),
+                         (int(cx) + 7, int(cy) - 16), (int(cx) + 7, int(cy) + 16), 3)
+
+        # outline
+        pygame.draw.polygon(surf, (10, 10, 10, int(alpha * 0.9)), pts, 1)
+
+    def _draw_banner_with_text(self, surf, center, text, alpha=220):
+        # Light parchment banner + dark text (solves your "white on white" issue)
+        text_surf = FOOTER_FONT.render(text, True, (20, 20, 20))
+        pad_x, pad_y = 14, 6
+
+        w = text_surf.get_width() + pad_x * 2
+        h = text_surf.get_height() + pad_y * 2
+
+        rect = pygame.Rect(0, 0, w, h)
+        rect.center = (int(center[0]), int(center[1]))
+
+        # shadow
+        shadow = rect.move(2, 2)
+        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.35)), shadow, border_radius=8)
+
+        # banner fill (parchment)
+        pygame.draw.rect(surf, (220, 210, 190, alpha), rect, border_radius=8)
+
+        # banner border
+        pygame.draw.rect(surf, (40, 36, 32, int(alpha * 0.9)), rect, width=1, border_radius=8)
+
+        # text on top
+        surf.blit(text_surf, text_surf.get_rect(center=rect.center))
+
+    def _draw_province_label_marker(self, surf, center, prov, vis):
+        base = self.world.realm_colors[prov.realm_id]
+        a = 235 if vis > 0.95 else 190
+
+        # 1) coat of arms (back)
+        shield_center = (center[0], center[1] - 10)
+        self._draw_shield_icon(surf, shield_center, base, alpha=int(a * 0.95))
+
+        # 2) banner (middle) + 3) name (front)
+        banner_center = (center[0], center[1] + 14)
+        self._draw_banner_with_text(surf, banner_center, prov.name, alpha=a)
+
     def _handle_action(self, action):
         if action == "toggle_pause":
             self.toggle_pause()
@@ -1740,35 +1792,41 @@ class GameApp:
         surface.blit(view, map_rect.topleft)
 
         # --------------------------
-        # Screen-space overlays (CRISP at any zoom)
+        # Screen-space overlays (CRISP at any zoom) — FIXED ORDER
+        # shield (back) -> banner -> text (front)
+        # Also drawn on an SRCALPHA overlay so alpha behaves correctly.
         # --------------------------
-        # Labels
-        for pid in getattr(self.world, "label_items", []):
+
+        # ---- overlays ----
+        overlay = pygame.Surface(map_rect.size, pygame.SRCALPHA).convert_alpha()
+        overlay.fill((0, 0, 0, 0))
+
+        label_set = set(getattr(self.world, "label_items", []))
+        shield_set = set(getattr(self.world, "shield_items", []))
+
+        for pid in sorted(shield_set | label_set):
             prov = self.world.provinces[pid]
             vis = self.world.visibility_by_prov.get(pid, 0.45)
+
             sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
-            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
+            lx = int(sp.x - map_rect.left)
+            ly = int(sp.y - map_rect.top)
+
+            if not (0 <= lx < map_rect.w and 0 <= ly < map_rect.h):
                 continue
 
-            label = FOOTER_FONT.render(prov.name, True, (225, 218, 200))
-            label.set_alpha(170 if vis > 0.95 else 120)
-            r = label.get_rect(center=(int(sp.x), int(sp.y)))
-            surface.blit(label, r)
+            if pid in label_set:
+                self._draw_province_label_marker(overlay, (lx, ly), prov, vis)
+            else:
+                base = self.world.realm_colors[prov.realm_id]
+                a = 210 if vis > 0.95 else 150
+                self._draw_shield_icon(overlay, (lx, ly), base, alpha=a)
 
-        # Shields (drawn as vector polygons each frame)
-        for pid in getattr(self.world, "shield_items", []):
-            prov = self.world.provinces[pid]
-            vis = self.world.visibility_by_prov.get(pid, 0.45)
-            sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
-            if not map_rect.collidepoint((int(sp.x), int(sp.y))):
-                continue
+        # blend onto the map view
+        view.blit(overlay, (0, 0))
 
-            base = self.world.realm_colors[prov.realm_id]
-            a = 210 if vis > 0.95 else 150
-
-            pts = shield_points((int(sp.x), int(sp.y)), 26)
-            pygame.draw.polygon(surface, (base[0], base[1], base[2], a), pts)
-            pygame.draw.polygon(surface, (235, 228, 210, 160), pts, 1)
+        # NOW blit the final view once
+        surface.blit(view, map_rect.topleft)
 
     def _update_hover(self):
         mx, my = pygame.mouse.get_pos()
