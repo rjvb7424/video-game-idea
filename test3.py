@@ -1275,80 +1275,133 @@ class Modal:
 
 class UIManager:
     def __init__(self, seed=11):
+        HEADER_COLOR = (70, 0, 18)
         # Textures used across panels (precomputed)
         self.panel_tile = make_noise_tile((96, 96), (44, 44, 46), variance=10, alpha=255, seed=seed)
-        self.top_tile = make_noise_tile((128, 64), (28, 28, 30), variance=10, alpha=255, seed=seed + 1)
+        self.top_tile = make_noise_tile((128, 64), HEADER_COLOR, variance=10, alpha=255, seed=seed + 1)
         self.bottom_tile = make_noise_tile((96, 96), (26, 26, 28), variance=10, alpha=255, seed=seed + 2)
 
     def draw_top_bar(self, surface, rect, state):
-        # Background
-        pygame.draw.rect(surface, (16, 16, 16), rect)
+        btns = []
+
+        # --- Responsive spacing ---
+        PAD = max(10, rect.w // 120)          # scales slightly with width
+        GAP = max(10, rect.w // 140)          # spacing between blocks
+        BH  = max(34, int(rect.h * 0.62))     # control height inside the bar
+        y   = rect.centery - BH // 2
+
+        # --- Background (you can swap colors here for your royal red) ---
+        pygame.draw.rect(surface, (70, 0, 18), rect)  # deep royal red
         tile_fill(surface, rect, self.top_tile)
         pygame.draw.line(surface, (90, 86, 78), (rect.left, rect.bottom - 1), (rect.right, rect.bottom - 1))
         pygame.draw.line(surface, (0, 0, 0), (rect.left, rect.bottom - 2), (rect.right, rect.bottom - 2))
 
-        # Title plaque
-        plaque = pygame.Rect(rect.left + UI_GUTTER, rect.top + 10, 360, rect.h - 20)
-        pygame.draw.rect(surface, (22, 22, 22), plaque, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), plaque, 2, border_radius=8)
-        pygame.draw.line(surface, (120, 110, 92), (plaque.left + 2, plaque.top + 2), (plaque.right - 3, plaque.top + 2))
+        # --- Right side: Menu button (far right) ---
+        menu_label = "Menu"
+        menu_w = max(92, BODY_FONT.size(menu_label)[0] + 28)
+        menu_rect = pygame.Rect(rect.right - PAD - menu_w, y, menu_w, BH)
+        b_menu = draw_secondary_button(surface, menu_label, menu_rect.x, menu_rect.y, menu_rect.w, menu_rect.h)
+        btns.append((b_menu, "open_menu"))
 
-        draw_title_text(surface, "DOMINION: GRAND STRATEGY", plaque.left + 12, plaque.top + 6, color=(235, 228, 210))
-        draw_footer_text(surface, "Early-era Paradox-inspired interface prototype", plaque.left + 12, plaque.top + 32, color=(170, 165, 155))
+        x_right = menu_rect.left - GAP  # everything else must fit left of this
 
-        # Date block
-        date_block = pygame.Rect(plaque.right + 10, plaque.top, 240, plaque.h)
-        pygame.draw.rect(surface, (22, 22, 22), date_block, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
-        draw_header_text(surface, str(state["date"]), date_block.left + 12, date_block.top + 10, color=(230, 224, 208))
+        # --- Time controls block (to the left of Menu) ---
+        bw = BH  # square-ish buttons
+        bgap = max(8, bw // 6)
 
-        # Resources
-        rx = date_block.right + 14
-        ry = rect.top + 18
-        res = state["resources"]
-        self._draw_resource(surface, (rx, ry), "Gold", res["gold"], icon_color=(190, 165, 90))
-        self._draw_resource(surface, (rx + 140, ry), "Prestige", res["prestige"], icon_color=(150, 150, 165))
-        self._draw_resource(surface, (rx + 290, ry), "Piety", res["piety"], icon_color=(165, 150, 110))
-
-        # Time controls (right)
-        btns = []
-        bx = rect.right - UI_GUTTER - 300
-        by = rect.top + 12
-        bw = 60
-        bh = 36
-
-        # speed indicator plate
-        plate = pygame.Rect(bx - 130, by, 120, bh)
-        pygame.draw.rect(surface, (22, 22, 22), plate, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), plate, 2, border_radius=8)
         sp = state["speed_level"]
         sp_label = "Paused" if sp == 0 else f"Speed {sp}"
+        plate_w = max(110, BODY_FONT.size(sp_label)[0] + 24)
+
+        time_total_w = plate_w + GAP + (4 * bw + 3 * bgap)
+        x_time = x_right - time_total_w
+
+        # plate
+        plate = pygame.Rect(x_time, y, plate_w, BH)
+        pygame.draw.rect(surface, (35, 0, 8), plate, border_radius=8)      # darker red plate
+        pygame.draw.rect(surface, (0, 0, 0), plate, 2, border_radius=8)
         draw_body_text(surface, sp_label, plate.left + 10, plate.top + 8, color=(220, 214, 198))
 
-        # Buttons
-        b_pause = draw_secondary_button(surface, "II", bx, by, bw, bh)
-        b_slow = draw_secondary_button(surface, ">", bx + 70, by, bw, bh)
-        b_fast = draw_secondary_button(surface, ">>", bx + 140, by, bw, bh)
-        b_ultra = draw_secondary_button(surface, ">>>", bx + 210, by, bw, bh)
+        # buttons
+        bx = plate.right + GAP
+        by = y
+
+        b_pause = draw_secondary_button(surface, "II",  bx,                 by, bw, BH)
+        b_slow  = draw_secondary_button(surface, ">",   bx + (bw + bgap),   by, bw, BH)
+        b_fast  = draw_secondary_button(surface, ">>",  bx + 2*(bw + bgap), by, bw, BH)
+        b_ultra = draw_secondary_button(surface, ">>>", bx + 3*(bw + bgap), by, bw, BH)
+
         btns.append((b_pause, "toggle_pause"))
-        btns.append((b_slow, "speed_1"))
-        btns.append((b_fast, "speed_2"))
+        btns.append((b_slow,  "speed_1"))
+        btns.append((b_fast,  "speed_2"))
         btns.append((b_ultra, "speed_3"))
 
-        # Control hint
-        hint = "Drag map / WASD or Arrows to pan • Wheel or +/- to zoom • Click province to select"
-        draw_footer_text(surface, hint, rect.left + 10, rect.bottom - 20, color=(150, 145, 138))
+        x_right = x_time - GAP  # update available right boundary for middle content
+
+        # --- Left side: Date block ---
+        date_text = str(state["date"])
+        date_w = max(200, HEADER_FONT.size(date_text)[0] + 28)
+
+        x_left = rect.left + PAD
+        date_block = pygame.Rect(x_left, y, date_w, BH)
+        pygame.draw.rect(surface, (35, 0, 8), date_block, border_radius=8)  # darker red block
+        pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
+        draw_header_text(surface, date_text, date_block.left + 12, date_block.top + 10, color=(230, 224, 208))
+
+        x_left = date_block.right + GAP
+
+        # --- Middle: Resources fill whatever space is left ---
+        avail_w = max(0, x_right - x_left)
+
+        # If the screen gets too narrow, we still try to fit them by shrinking
+        # (keeps it responsive instead of breaking)
+        per_w = max(110, (avail_w - 2 * GAP) // 3) if avail_w > 0 else 110
+
+        # clamp to keep them from becoming huge on ultrawide
+        per_w = min(per_w, 170)
+
+        res = state["resources"]
+        r1 = pygame.Rect(x_left, y, per_w, BH)
+        r2 = pygame.Rect(r1.right + GAP, y, per_w, BH)
+        r3 = pygame.Rect(r2.right + GAP, y, per_w, BH)
+
+        # Only draw resources if they fit (prevents overlap on very small widths)
+        if r3.right <= x_right:
+            self._draw_resource(surface, r1, "Gold",     res["gold"],     icon_color=(190, 165, 90))
+            self._draw_resource(surface, r2, "Prestige", res["prestige"], icon_color=(150, 150, 165))
+            self._draw_resource(surface, r3, "Piety",    res["piety"],    icon_color=(165, 150, 110))
+        else:
+            # ultra-narrow fallback: draw just one compact resource block
+            compact = pygame.Rect(x_left, y, min(160, avail_w), BH)
+            if compact.w >= 120:
+                self._draw_resource(surface, compact, "Gold", res["gold"], icon_color=(190, 165, 90))
 
         return btns
 
-    def _draw_resource(self, surface, pos, label, value, icon_color):
-        x, y = pos
-        icon = pygame.Rect(x, y + 4, 18, 18)
-        pygame.draw.rect(surface, (22, 22, 22), pygame.Rect(x - 6, y - 6, 130, 34), border_radius=8)
-        pygame.draw.circle(surface, icon_color, icon.center, 7)
-        pygame.draw.circle(surface, (0, 0, 0), icon.center, 7, 1)
-        draw_body_text(surface, f"{value}", x + 24, y, color=(235, 228, 210))
-        draw_footer_text(surface, label, x + 24, y + 18, color=(165, 160, 150))
+
+    def _draw_resource(self, surface, rect, label, value, icon_color):
+        """
+        Draw a resource pill inside `rect` (responsive width).
+        """
+        pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
+        pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
+
+        icon_r = 7
+        icon_cx = rect.left + 18
+        icon_cy = rect.centery
+
+        pygame.draw.circle(surface, icon_color, (icon_cx, icon_cy), icon_r)
+        pygame.draw.circle(surface, (0, 0, 0), (icon_cx, icon_cy), icon_r, 1)
+
+        # text
+        value_s = str(value)
+        value_w, _ = BODY_FONT.size(value_s)
+        label_w, _ = FOOTER_FONT.size(label)
+
+        # layout: value above label (like before)
+        tx = icon_cx + 14
+        draw_body_text(surface, value_s, tx, rect.top + 5, color=(235, 228, 210))
+        draw_footer_text(surface, label, tx, rect.top + 20, color=(165, 160, 150))
 
     def draw_left_panel(self, surface, rect, state):
         content = draw_framed_panel(surface, rect, title="Character", title_color=INK, tile=self.panel_tile)
