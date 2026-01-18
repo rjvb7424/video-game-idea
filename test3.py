@@ -386,10 +386,11 @@ class Camera:
 # =========================
 
 class Province:
-    def __init__(self, pid, name):
+    def __init__(self, pid, name, is_capital=False):
         self.id = pid
         self.name = name
         self.realm_id = 0
+        self.is_capital = is_capital
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
@@ -936,6 +937,14 @@ class MapWorld:
         player_cap = chosen[0]
         self.player_realm_id = realm_of[player_cap]
 
+        self.realm_capitals = chosen[:]  # province ids
+
+        # mark them on the province objects (optional)
+        for pid in self.realm_capitals:
+            if 0 <= pid < len(self.provinces):
+                self.provinces[pid].is_capital = True
+
+
     def _compute_fog_of_war(self):
         adj = self._build_province_adjacency()
         player_provs = {p.id for p in self.provinces if p.realm_id == self.player_realm_id}
@@ -1110,29 +1119,29 @@ class MapWorld:
 
     def _render_labels_and_markers(self):
         # Store draw items (rendered later in screen-space so no pixelation on zoom)
-        self.label_items = []
-        self.shield_items = []
+        self.capital_label_items = []
+        self.minimal_label_items = []
         self.army_markers = []
 
-        # realm shields on visible provinces
-        for prov in self.provinces:
-            vis = self.visibility_by_prov.get(prov.id, 0.45)
-            if vis < 0.75:
-                continue
-            if prov.cell_count < 220:
-                continue
-            self.shield_items.append(prov.id)
+        capitals = set(getattr(self, "realm_capitals", []))
 
-        # labels only for seen + border provinces
+        # Labels only for seen + border provinces (same fog rules as before)
         for prov in self.provinces:
             vis = self.visibility_by_prov.get(prov.id, 0.45)
             if vis < 0.78:
                 continue
-            if prov.cell_count < 280:
-                continue
-            self.label_items.append(prov.id)
 
-        # a few army markers on player/adjacent provinces
+            # Capitals always get the big label (even if a bit smaller)
+            if prov.id in capitals:
+                self.capital_label_items.append(prov.id)
+                continue
+
+            # Non-capitals: only show minimal labels for larger provinces (reduce clutter)
+            if prov.cell_count < 320:
+                continue
+            self.minimal_label_items.append(prov.id)
+
+        # a few army markers on player/adjacent provinces (keep as-is)
         candidates = [p for p in self.provinces if self.visibility_by_prov.get(p.id, 0.45) >= 0.78 and p.cell_count > 220]
         for i in range(min(9, len(candidates))):
             p = self.rnd.choice(candidates)
@@ -1694,6 +1703,26 @@ class GameApp:
     def _exit_game(self):
         self.running = False
 
+    def _draw_minimal_province_label(self, surf, center, prov, vis):
+        # Minimal: outlined text only (no banner, no shield)
+        a = 220 if vis > 0.95 else 180 if vis > 0.80 else 150
+
+        text = prov.name
+        main = FOOTER_FONT.render(text, True, (235, 228, 210))
+        shadow = FOOTER_FONT.render(text, True, (0, 0, 0))
+
+        main.set_alpha(a)
+        shadow.set_alpha(int(a * 0.75))
+
+        r = main.get_rect(center=(int(center[0]), int(center[1])))
+
+        # outline (cheap + readable)
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(1,-1),(-1,1),(1,1)]:
+            surf.blit(shadow, (r.x + dx, r.y + dy))
+
+        surf.blit(main, r)
+
+
     def _draw_shield_icon(self, surf, center, base_rgb, alpha=220):
         cx, cy = center
         pts = shield_points((int(cx), int(cy)), 26)
@@ -1879,10 +1908,18 @@ class GameApp:
         overlay = pygame.Surface(map_rect.size, pygame.SRCALPHA).convert_alpha()
         overlay.fill((0, 0, 0, 0))
 
-        label_set = set(getattr(self.world, "label_items", []))
-        shield_set = set(getattr(self.world, "shield_items", []))
+        capital_set = set(getattr(self.world, "capital_label_items", []))
+        minimal_set = set(getattr(self.world, "minimal_label_items", []))
 
-        for pid in sorted(shield_set | label_set):
+        # OPTIONAL: only show minimal labels when zoomed in enough (big clutter reduction)
+        MIN_LABEL_ZOOM = 1.15
+        show_minimal = self.camera.zoom >= MIN_LABEL_ZOOM
+
+        draw_set = set(capital_set)
+        if show_minimal:
+            draw_set |= minimal_set
+
+        for pid in sorted(draw_set):
             prov = self.world.provinces[pid]
             vis = self.world.visibility_by_prov.get(pid, 0.45)
 
@@ -1893,12 +1930,12 @@ class GameApp:
             if not (0 <= lx < map_rect.w and 0 <= ly < map_rect.h):
                 continue
 
-            if pid in label_set:
+            if pid in capital_set:
+                # full marker only for kingdom capital
                 self._draw_province_label_marker(overlay, (lx, ly), prov, vis)
             else:
-                base = self.world.realm_colors[prov.realm_id]
-                a = 210 if vis > 0.95 else 150
-                self._draw_shield_icon(overlay, (lx, ly), base, alpha=a)
+                # minimal label for non-capitals
+                self._draw_minimal_province_label(overlay, (lx, ly), prov, vis)
 
         # blend onto the map view
         view.blit(overlay, (0, 0))
