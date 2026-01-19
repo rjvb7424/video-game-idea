@@ -501,6 +501,87 @@ def _apply_fog(rgb, visibility):
     fog_strength = clamp((1.0 - visibility) * 0.95, 0.0, 0.78)
     return _mix_color(rgb, FOG_DARK, fog_strength)
 
+# =========================
+# Character / Ruler Generation (GLOBAL)
+# =========================
+
+CULTURE_FIRST_NAMES = {
+    "Iberian":  ["Sancho", "Fernando", "Alfonso", "Ramiro", "García", "Rodrigo", "Diego", "Enrique"],
+    "Frankish": ["Hugh", "Louis", "Charles", "Philippe", "Robert", "Henri", "Gaston", "Guillaume"],
+    "Occitan":  ["Raymond", "Bernat", "Pons", "Arnaut", "Guilhem", "Peire", "Bertran", "Roger"],
+    "Germanic": ["Heinrich", "Otto", "Konrad", "Friedrich", "Lothar", "Siegfried", "Arnulf", "Albrecht"],
+    "Slavic":   ["Mieszko", "Bolesław", "Vladimir", "Sviatoslav", "Jaromir", "Radovan", "Milan", "Dragomir"],
+}
+
+CULTURE_HOUSES = {
+    "Iberian":  ["de Aragón", "de León", "de Navarra", "de Castela", "de Coimbra", "de Porto"],
+    "Frankish": ["de Valois", "de Blois", "de Anjou", "de Normandie", "de Champagne"],
+    "Occitan":  ["de Toulouse", "de Foix", "de Provence", "de Béarn", "de Carcassonne"],
+    "Germanic": ["von Habsburg", "von Bayern", "von Saxen", "von Schwaben", "von Thuringen"],
+    "Slavic":   ["Piast", "Rurikid", "Přemyslid", "Nemanjić", "Arpad"],
+}
+
+def _realm_core_name(realm_name: str) -> str:
+    # "Kingdom of X" -> "X"
+    if " of " in realm_name:
+        return realm_name.split(" of ", 1)[1]
+    return realm_name
+
+def _rank_for_realm_size(sz: int) -> str:
+    if sz >= 3:
+        return "King"
+    if sz == 2:
+        return "Duke"
+    return "Count"
+
+def _roll_stat(rnd: random.Random, lo=3, hi=14) -> int:
+    # slightly bell-shaped
+    v = int(round(rnd.gauss(8.5, 2.2)))
+    return clamp(v, lo, hi)
+
+def generate_random_traits(rnd: random.Random, min_n=2, max_n=4) -> list[str]:
+    keys = list(TRAITS.keys())
+    target = rnd.randint(min_n, max_n)
+    chosen: list[str] = []
+    tries = 0
+    while len(chosen) < target and tries < 200:
+        tries += 1
+        t = rnd.choice(keys)
+        if t in chosen:
+            continue
+        opp = TRAITS.get(t, {}).get("opposites", set())
+        if any(o in chosen for o in opp):
+            continue
+        chosen.append(t)
+    return normalize_traits(chosen)
+
+def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture: str, faith: str) -> dict:
+    first = rnd.choice(CULTURE_FIRST_NAMES.get(culture, ["Aurelian", "Marcus", "Cassius"]))
+    house = rnd.choice(CULTURE_HOUSES.get(culture, ["de Terra"]))
+    rank = _rank_for_realm_size(realm_size)
+    core = _realm_core_name(realm_name)
+
+    stats = [
+        ("Diplomacy",  _roll_stat(rnd)),
+        ("Martial",    _roll_stat(rnd)),
+        ("Stewardship",_roll_stat(rnd)),
+        ("Intrigue",   _roll_stat(rnd)),
+        ("Learning",   _roll_stat(rnd)),
+        ("Prowess",    _roll_stat(rnd)),
+    ]
+
+    traits = generate_random_traits(rnd, 2, 4)
+
+    return {
+        "name": f"{rank} {first}",
+        "title": f"{rank} of {core}",
+        "house": f"House {house}",
+        "culture": culture,
+        "faith": faith,
+        "traits": traits,
+        "stats": stats,
+    }
+
 class MapWorld:
     def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
         self.seed = seed
@@ -589,6 +670,26 @@ class MapWorld:
 
             self.provinces[pid].biome = biome
             self.provinces[pid].biome_color = col
+
+    def _generate_realm_rulers(self):
+        self.realm_rulers = [None] * len(self.realm_names)
+
+        for rid in range(len(self.realm_names)):
+            cap_pid = self.realm_capitals[rid]
+            cap_prov = self.provinces[cap_pid]
+
+            culture = cap_prov.culture
+            faith = cap_prov.faith
+
+            rr = random.Random(self.seed * 7777 + rid * 131)
+            ruler = generate_ruler(
+                rr,
+                realm_name=self.realm_names[rid],
+                realm_size=self.realm_sizes[rid],
+                culture=culture,
+                faith=faith,
+            )
+            self.realm_rulers[rid] = ruler
 
     def _name(self):
         a = ["Al", "Bel", "Car", "Dor", "Er", "Fen", "Gar", "Hal", "Ish", "Jar", "Kor", "Lor", "Mor", "Nor", "Or", "Pra", "Quel", "Ros", "San", "Tor", "Ul", "Var"]
@@ -1190,6 +1291,7 @@ class MapWorld:
         self._assign_provinces_region_growth()
         self._assign_realms()
         self._compute_fog_of_war()
+        self._generate_realm_rulers()
 
         # NEW
         self._assign_biomes_per_province()
@@ -1734,9 +1836,10 @@ class UIManager:
             y = draw_body_text(surface, "No province selected.", content.left, y, color=(205, 198, 180))
             y = draw_footer_text(surface, "Click a province on the map to inspect it.", content.left, y, color=(155, 150, 140))
             y += 10
+
         else:
-            name = sel.name
-            y = draw_header_text(surface, name, content.left, y, color=(235, 228, 210))
+            # --- Province info ---
+            y = draw_header_text(surface, sel.name, content.left, y, color=(235, 228, 210))
             y = draw_body_text(surface, f"Culture: {sel.culture}", content.left, y, color=(205, 198, 180))
             y = draw_body_text(surface, f"Faith: {sel.faith}", content.left, y, color=(205, 198, 180))
             y += 6
@@ -1751,17 +1854,50 @@ class UIManager:
             y += 10
 
             y = draw_header_text(surface, "Holdings", content.left, y, color=(230, 224, 208))
-            holdings = ["Castle", "City", "Temple"]
-            for i, hname in enumerate(holdings):
+            for i, hname in enumerate(["Castle", "City", "Temple"]):
                 tag = " (capital)" if i == 0 else ""
                 y = draw_body_text(surface, f"• {hname}{tag}", content.left, y, color=(205, 198, 180))
 
             y += 10
+
+            # --- Realm + Ruler info (ONLY when sel exists) ---
+            rid = sel.realm_id
+            realm_name = state["realm_names"][rid]
+            ruler = state["realm_rulers"][rid]
+
+            pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
+            pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
+            y += 10
+
+            y = draw_header_text(surface, "Realm", content.left, y, color=(230, 224, 208))
+            y = draw_body_text(surface, realm_name, content.left, y, color=(235, 228, 210))
+            y += 6
+
+            y = draw_header_text(surface, "Ruler", content.left, y, color=(230, 224, 208))
+            y = draw_body_text(surface, ruler["name"], content.left, y, color=(235, 228, 210))
+            y = draw_footer_text(surface, ruler["title"], content.left, y, color=(185, 175, 160))
+            y = draw_body_text(surface, f"Faith: {ruler.get('faith','—')}", content.left, y, color=(205, 198, 180))
+            y = draw_body_text(surface, f"Culture: {ruler.get('culture','—')}", content.left, y, color=(205, 198, 180))
+
+            pr, _ = compute_piety_rate(ruler)
+            y = draw_body_text(surface, f"Piety from traits: {pr:+d} / mo", content.left, y, color=(205, 198, 180))
+
+            traits = ruler.get("traits", [])
+            if traits:
+                trait_text = " • " + " • ".join(trait_name(t) for t in traits)
+                for ln in wrap_text(trait_text.strip(), BODY_FONT, content.w - 10):
+                    y = draw_body_text(surface, ln, content.left, y, color=(205, 198, 180))
+            else:
+                y = draw_body_text(surface, "No traits", content.left, y, color=(185, 175, 160))
+
+            y += 10
+
+            # Optional placeholder actions text (keep if you want)
             y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
             y = draw_footer_text(surface, "These are placeholders; wiring them is game-specific.", content.left, y, color=(150, 145, 138))
             y += 6
 
-        # Quick hover readout
+        # --- Hover readout (works either way) ---
         if hov is not None:
             y2 = rect.bottom - 78
             box = pygame.Rect(content.left, y2, content.w, 62)
@@ -1781,6 +1917,7 @@ class UIManager:
         btns.append((b2, "set_rally"))
         btns.append((b3, "council"))
         return btns
+
 
     def draw_bottom_bar(self, surface, rect, state):
         pygame.draw.rect(surface, (14, 14, 14), rect)
@@ -1846,20 +1983,16 @@ class GameApp:
     "prestige": 100, "prestige_rate": 0,
     "piety": 100, "piety_rate": -2
 }
-        self.character = {
-            "name": "King Sancho II",
-            "title": "King of Aragon • Defender of the Pyrenees",
-            "house": "House de Aragón",
-            "culture": "Iberian",      # does nothing for now
-            "faith": "Catholic",       # IMPORTANT for piety rules
-            "traits": ["diligent", "humble", "forgiving"],
 
-            "stats": [
-                ("Diplomacy", 7), ("Martial", 11),
-                ("Stewardship", 8), ("Intrigue", 6),
-                ("Learning", 9), ("Prowess", 10),
-            ],
-        }
+        # Player character = ruler of player realm
+        self.player_realm_id = self.world.player_realm_id
+        self.character = dict(self.world.realm_rulers[self.player_realm_id])  # copy
+
+        # enforce opposites cleanly + update piety rate
+        self.character["traits"] = normalize_traits(self.character.get("traits", []))
+        p_rate, _ = compute_piety_rate(self.character)
+        self.resources["piety_rate"] = p_rate
+
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
 
         p_rate, _ = compute_piety_rate(self.character)
@@ -2265,6 +2398,9 @@ class GameApp:
             # Map
             self._draw_map(self.screen)
 
+            p_rate, _ = compute_piety_rate(self.character)
+            self.resources["piety_rate"] = p_rate
+
             # UI panels
             state = {
                 "date": self.date,
@@ -2275,10 +2411,9 @@ class GameApp:
                 "selected_province": self.selected_province,
                 "hover_province": self.hover_province,
                 "log": self.log,
+                "realm_names": self.world.realm_names,
+                "realm_rulers": self.world.realm_rulers,
             }
-
-            p_rate, _ = compute_piety_rate(self.character)
-            self.resources["piety_rate"] = p_rate
 
             clickables = []
             clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state))
