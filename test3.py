@@ -400,8 +400,8 @@ class Province:
         self.income = 1 + (pid % 5)
         self.levy = 120 + (pid * 9) % 520
         self.control = 55 + (pid * 3) % 45
-        self.culture = ["Frankish", "Occitan", "Iberian", "Germanic", "Slavic"][pid % 5]
-        self.faith = ["Catholic", "Orthodox", "Pagan", "Sunni", "Mozarabic"][pid % 5]
+        self.culture = "Nordfolken"
+        self.faith = "Nordfolken Mythology"
 
 
 def _value_noise_2d(w, h, cell_w, cell_h, seed):
@@ -692,9 +692,9 @@ class MapWorld:
             self.realm_rulers[rid] = ruler
 
     def _name(self):
-        a = ["Al", "Bel", "Car", "Dor", "Er", "Fen", "Gar", "Hal", "Ish", "Jar", "Kor", "Lor", "Mor", "Nor", "Or", "Pra", "Quel", "Ros", "San", "Tor", "Ul", "Var"]
-        b = ["a", "e", "i", "o", "u", "ae", "ia", "oa"]
-        c = ["don", "bar", "mont", "ford", "wick", "mere", "gard", "heim", "hold", "grad", "port", "cester", "vale", "mark", "burg"]
+        a = ["Skal", "Hrafn", "Eir", "Fjall", "Vik", "Bjorn", "Ulf", "Sigr", "Thor", "As", "Hald", "Rim", "Storm", "Frost", "Var"]
+        b = ["a", "e", "i", "o", "u", "y", "ei", "au"]
+        c = ["vik", "heim", "fjord", "gard", "holt", "ness", "mark", "borg", "dal", "lund", "skar", "holm", "fell"]
         return self.rnd.choice(a) + self.rnd.choice(b) + self.rnd.choice(c)
 
     def _generate_continent_height(self):
