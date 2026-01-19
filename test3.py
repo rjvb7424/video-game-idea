@@ -400,8 +400,8 @@ class Province:
         self.income = 1 + (pid % 5)
         self.levy = 120 + (pid * 9) % 520
         self.control = 55 + (pid * 3) % 45
-        self.culture = ["Frankish", "Occitan", "Iberian", "Germanic", "Slavic"][pid % 5]
-        self.faith = ["Catholic", "Orthodox", "Pagan", "Sunni", "Mozarabic"][pid % 5]
+        self.culture = "Nordfolken"
+        self.faith = "Nordfolken Mythology"
 
 
 def _value_noise_2d(w, h, cell_w, cell_h, seed):
@@ -539,12 +539,12 @@ def _roll_stat(rnd: random.Random, lo=3, hi=14) -> int:
     v = int(round(rnd.gauss(8.5, 2.2)))
     return clamp(v, lo, hi)
 
-def generate_random_traits(rnd: random.Random, min_n=2, max_n=4) -> list[str]:
+def generate_random_traits(rnd: random.Random, min_n=3, max_n=3) -> list[str]:
     keys = list(TRAITS.keys())
-    target = rnd.randint(min_n, max_n)
+    target = 3  # CK3-style cap
     chosen: list[str] = []
     tries = 0
-    while len(chosen) < target and tries < 200:
+    while len(chosen) < target and tries < 400:
         tries += 1
         t = rnd.choice(keys)
         if t in chosen:
@@ -553,7 +553,7 @@ def generate_random_traits(rnd: random.Random, min_n=2, max_n=4) -> list[str]:
         if any(o in chosen for o in opp):
             continue
         chosen.append(t)
-    return normalize_traits(chosen)
+    return normalize_traits(chosen, max_traits=3)
 
 def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture: str, faith: str) -> dict:
     first = rnd.choice(CULTURE_FIRST_NAMES.get(culture, ["Aurelian", "Marcus", "Cassius"]))
@@ -572,15 +572,21 @@ def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture
 
     traits = generate_random_traits(rnd, 2, 4)
 
-    return {
+    character = {
         "name": f"{rank} {first}",
         "title": f"{rank} of {core}",
         "house": f"House {house}",
         "culture": culture,
         "faith": faith,
         "traits": traits,
-        "stats": stats,
+        "stats": stats,  # temp; will become modified after apply_trait_effects
     }
+
+    # Store base stats and apply trait effects
+    character["base_stats"] = _stats_list_to_dict(character["stats"])
+    apply_trait_effects(character)
+
+    return character
 
 class MapWorld:
     def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
@@ -692,9 +698,9 @@ class MapWorld:
             self.realm_rulers[rid] = ruler
 
     def _name(self):
-        a = ["Al", "Bel", "Car", "Dor", "Er", "Fen", "Gar", "Hal", "Ish", "Jar", "Kor", "Lor", "Mor", "Nor", "Or", "Pra", "Quel", "Ros", "San", "Tor", "Ul", "Var"]
-        b = ["a", "e", "i", "o", "u", "ae", "ia", "oa"]
-        c = ["don", "bar", "mont", "ford", "wick", "mere", "gard", "heim", "hold", "grad", "port", "cester", "vale", "mark", "burg"]
+        a = ["Skal", "Hrafn", "Eir", "Fjall", "Vik", "Bjorn", "Ulf", "Sigr", "Thor", "As", "Hald", "Rim", "Storm", "Frost", "Var"]
+        b = ["a", "e", "i", "o", "u", "y", "ei", "au"]
+        c = ["vik", "heim", "fjord", "gard", "holt", "ness", "mark", "borg", "dal", "lund", "skar", "holm", "fell"]
         return self.rnd.choice(a) + self.rnd.choice(b) + self.rnd.choice(c)
 
     def _generate_continent_height(self):
@@ -1435,11 +1441,68 @@ TRAITS = {
     "lazy":       {"name": "Lazy",       "opposites": {"diligent"}, "desc": "Avoids effort; procrastinates."},
 }
 
+# Stats keys must match your character["stats"] tuples
+STAT_KEYS = ["Diplomacy", "Martial", "Stewardship", "Intrigue", "Learning", "Prowess"]
+
+# Per-trait stat modifiers (tweak numbers freely)
+TRAIT_EFFECTS = {
+    "forgiving":  {"Diplomacy": +2, "Martial": -1},
+    "vengeful":   {"Martial": +2, "Diplomacy": -1},
+
+    "humble":     {"Learning": +1, "Diplomacy": +1, "Prowess": -1},
+    "proud":      {"Prowess": +2, "Diplomacy": -1},
+
+    "charitable": {"Diplomacy": +2, "Stewardship": +1, "Intrigue": -1},
+    "greedy":     {"Stewardship": +2, "Diplomacy": -1},
+
+    "patient":    {"Learning": +1, "Stewardship": +1, "Martial": -1},
+    "wrathful":   {"Martial": +2, "Prowess": +1, "Diplomacy": -1},
+
+    "chaste":     {"Learning": +1, "Intrigue": -1},
+    "lustful":    {"Intrigue": +2, "Diplomacy": +1, "Learning": -1},
+
+    "temperate":  {"Stewardship": +1, "Learning": +1, "Prowess": -1},
+    "gluttonous": {"Prowess": +1, "Stewardship": -1},
+
+    "diligent":   {"Stewardship": +2, "Learning": +1, "Intrigue": -1},
+    "lazy":       {"Stewardship": -2, "Martial": -1, "Intrigue": +1},
+}
+
+def _stats_list_to_dict(stats_list):
+    return {k: int(v) for (k, v) in stats_list}
+
+def _stats_dict_to_list(stats_dict):
+    return [(k, int(stats_dict.get(k, 0))) for k in STAT_KEYS]
+
+def apply_trait_effects(character: dict, lo=0, hi=20):
+    """
+    Recomputes character["stats"] from character["base_stats"] + trait modifiers.
+    Creates base_stats if missing.
+    """
+    # Ensure base_stats exists
+    if "base_stats" not in character:
+        character["base_stats"] = _stats_list_to_dict(character.get("stats", []))
+
+    base = dict(character["base_stats"])
+    out = dict(base)
+
+    for t in character.get("traits", []):
+        mods = TRAIT_EFFECTS.get(t, {})
+        for stat, delta in mods.items():
+            out[stat] = out.get(stat, 0) + delta
+
+    # Clamp
+    for k in STAT_KEYS:
+        out[k] = clamp(out.get(k, 0), lo, hi)
+
+    character["stats"] = _stats_dict_to_list(out)
+    return character
+
 def trait_name(trait_id: str) -> str:
     return TRAITS.get(trait_id, {}).get("name", trait_id)
 
-def normalize_traits(traits: list[str]) -> list[str]:
-    """Ensures no opposites coexist. Keeps the first encountered trait."""
+def normalize_traits(traits: list[str], max_traits: int = 3) -> list[str]:
+    """Ensures no opposites coexist. Keeps the first encountered trait. Caps to max_traits."""
     out: list[str] = []
     have: set[str] = set()
     for t in traits:
@@ -1450,28 +1513,50 @@ def normalize_traits(traits: list[str]) -> list[str]:
             continue
         out.append(t)
         have.add(t)
+        if len(out) >= max_traits:
+            break
     return out
 
 def add_trait(character: dict, trait_id: str) -> tuple[bool, str]:
     """
     Adds a trait; if it has opposites, those are removed.
+    Enforces a max of 3 traits total.
+    Also applies stat effects after change.
     Returns (changed, message)
     """
     if trait_id not in TRAITS:
         return (False, f"Unknown trait '{trait_id}'.")
 
     character.setdefault("traits", [])
+    character["traits"] = normalize_traits(character["traits"], max_traits=3)
 
     if trait_id in character["traits"]:
         return (False, f"{character.get('name','Character')} already has {trait_name(trait_id)}.")
 
     opposites = TRAITS[trait_id]["opposites"]
     removed = [t for t in character["traits"] if t in opposites]
+
+    # Remove opposites first
     if removed:
         character["traits"] = [t for t in character["traits"] if t not in opposites]
 
+    # Enforce cap (after removals)
+    if len(character["traits"]) >= 3:
+        # put them back? (we already removed opposites; but in CK3 gaining a new trait replaces an opposite)
+        # Since we removed opposites only if relevant, this situation happens when there's no opposite removed.
+        # So just reject cleanly:
+        if removed:
+            # If we removed opposites, we should allow the new trait because it's a replacement
+            pass
+        else:
+            return (False, f"{character.get('name','Character')} already has 3 traits.")
+
+    # Add and normalize again (cap + opposites)
     character["traits"].append(trait_id)
-    character["traits"] = normalize_traits(character["traits"])
+    character["traits"] = normalize_traits(character["traits"], max_traits=3)
+
+    # Apply trait stat effects
+    apply_trait_effects(character)
 
     if removed:
         return (True, f"Gained {trait_name(trait_id)} (removed {', '.join(trait_name(x) for x in removed)}).")
@@ -2015,6 +2100,11 @@ class GameApp:
         self.player_realm_id = self.world.player_realm_id
         self.character = dict(self.world.realm_rulers[self.player_realm_id])  # copy
 
+        # Make sure base stats exist and trait effects are applied
+        if "base_stats" not in self.character:
+            self.character["base_stats"] = _stats_list_to_dict(self.character.get("stats", []))
+        apply_trait_effects(self.character)
+
         # enforce opposites cleanly + update piety rate
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         p_rate, _ = compute_piety_rate(self.character)
@@ -2424,9 +2514,6 @@ class GameApp:
 
             # Map
             self._draw_map(self.screen)
-
-            p_rate, _ = compute_piety_rate(self.character)
-            self.resources["piety_rate"] = p_rate
 
             # UI panels
             state = {
