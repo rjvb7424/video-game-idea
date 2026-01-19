@@ -1707,7 +1707,7 @@ class UIManager:
         y = content.top
 
         # Portrait frame
-        pf = pygame.Rect(content.left, y, content.w, 120)
+        pf = pygame.Rect(content.left, y, content.w, 90)
         self._draw_portrait(surface, pf, state)
         y = pf.bottom + 10
 
@@ -1789,9 +1789,8 @@ class UIManager:
         btns.append((b3, "disband"))
         return btns
 
-
     def _draw_portrait(self, surface, rect, state):
-        # Framed portrait with a “painted” feel (procedural shapes)
+        # Heraldry plate (NO avatar/head)
         frame = pygame.Rect(rect.left, rect.top, rect.w, rect.h)
         pygame.draw.rect(surface, (18, 18, 18), frame, border_radius=10)
         pygame.draw.rect(surface, (0, 0, 0), frame, 2, border_radius=10)
@@ -1799,124 +1798,152 @@ class UIManager:
         inner = frame.inflate(-12, -12)
         pygame.draw.rect(surface, (40, 36, 32), inner, border_radius=8)
 
-        # Faux canvas noise overlay
-        tile = self.panel_tile
-        tile_fill(surface, inner, tile)
+        tile_fill(surface, inner, self.panel_tile)
         veil = pygame.Surface(inner.size, pygame.SRCALPHA)
         veil.fill((0, 0, 0, 45))
         surface.blit(veil, inner.topleft)
 
-        # Head silhouette
-        cx = inner.left + 60
-        cy = inner.centery
-        pygame.draw.circle(surface, (205, 185, 160), (cx, cy - 6), 26)
-        pygame.draw.circle(surface, (55, 40, 30), (cx + 4, cy - 18), 24)  # hair
-        pygame.draw.rect(surface, (90, 76, 62), pygame.Rect(cx - 20, cy + 12, 40, 26), border_radius=8)  # tunic
-        pygame.draw.circle(surface, (18, 18, 18), (cx - 8, cy - 8), 2)  # eye
-        pygame.draw.circle(surface, (18, 18, 18), (cx + 6, cy - 8), 2)
-        pygame.draw.line(surface, (120, 90, 70), (cx - 6, cy + 4), (cx + 8, cy + 4), 2)  # mouth
+        # Deterministic-ish house color (stable)
+        house = state["character"].get("house", "House")
+        s = sum((i + 1) * ord(ch) for i, ch in enumerate(house))
+        palette = [(150, 40, 40), (40, 120, 90), (120, 90, 40), (90, 60, 120), (150, 120, 50)]
+        base = palette[s % len(palette)]
 
-        # Banner/shield
-        sp = shield_points((inner.right - 52, inner.centery), 34)
-        pygame.draw.polygon(surface, (150, 40, 40), sp)
-        pygame.draw.polygon(surface, (235, 228, 210), sp, 1)
-        pygame.draw.line(surface, (235, 228, 210), (inner.right - 62, inner.centery - 22), (inner.right - 62, inner.centery + 22), 4)
-        pygame.draw.line(surface, (235, 228, 210), (inner.right - 42, inner.centery - 22), (inner.right - 42, inner.centery + 22), 4)
+        # Big shield centered
+        pts = shield_points((inner.centerx, inner.centery - 2), 62)
+        pygame.draw.polygon(surface, base, pts)
+        pygame.draw.polygon(surface, (235, 228, 210), pts, 1)
 
-        draw_footer_text(surface, state["character"]["house"], inner.left + 10, inner.bottom - 18, color=(200, 190, 175))
+        # Simple charge (vertical stripes)
+        pygame.draw.line(surface, (235, 228, 210), (inner.centerx - 10, inner.top + 14), (inner.centerx - 10, inner.bottom - 14), 5)
+        pygame.draw.line(surface, (235, 228, 210), (inner.centerx + 10, inner.top + 14), (inner.centerx + 10, inner.bottom - 14), 5)
+
+        # House label
+        draw_footer_text(surface, house, inner.left + 10, inner.bottom - 18, color=(200, 190, 175))
+
 
     def draw_right_panel(self, surface, rect, state):
         content = draw_framed_panel(surface, rect, title="Province / Realm", title_color=INK, tile=self.panel_tile)
-        y = content.top
 
         sel = state["selected_province"]
         hov = state["hover_province"]
 
+        # --- Reserve bottom space so nothing overlaps buttons/hover ---
+        BTN_BAR_Y = rect.bottom - 56
+        BTN_H = 34
+        HOVER_H = 62
+        GAP = 8
+
+        show_hover = hov is not None
+        hover_y = BTN_BAR_Y - GAP - HOVER_H if show_hover else BTN_BAR_Y
+        y_limit = hover_y - 10  # content must stop before this
+
+        y = content.top
+
+        def safe_body(text, color=(205, 198, 180)):
+            nonlocal y
+            if y + BODY_FONT.get_height() + 6 > y_limit:
+                return False
+            y = draw_body_text(surface, text, content.left, y, color=color)
+            return True
+
+        def safe_header(text, color=(230, 224, 208)):
+            nonlocal y
+            if y + HEADER_FONT.get_height() + 8 > y_limit:
+                return False
+            y = draw_header_text(surface, text, content.left, y, color=color)
+            return True
+
+        def safe_footer(text, color=(155, 150, 140)):
+            nonlocal y
+            if y + FOOTER_FONT.get_height() + 6 > y_limit:
+                return False
+            y = draw_footer_text(surface, text, content.left, y, color=color)
+            return True
+
         if sel is None:
-            y = draw_body_text(surface, "No province selected.", content.left, y, color=(205, 198, 180))
-            y = draw_footer_text(surface, "Click a province on the map to inspect it.", content.left, y, color=(155, 150, 140))
-            y += 10
-
+            safe_body("No province selected.")
+            safe_footer("Click a province on the map to inspect it.")
         else:
-            # --- Province info ---
-            y = draw_header_text(surface, sel.name, content.left, y, color=(235, 228, 210))
-            y = draw_body_text(surface, f"Culture: {sel.culture}", content.left, y, color=(205, 198, 180))
-            y = draw_body_text(surface, f"Faith: {sel.faith}", content.left, y, color=(205, 198, 180))
-            y += 6
+            # Province info
+            safe_header(sel.name, color=(235, 228, 210))
+            safe_body(f"Culture: {sel.culture}")
+            safe_body(f"Faith: {sel.faith}")
 
-            pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
-            pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
-            y += 10
+            if y + 18 < y_limit:
+                y += 6
+                pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
+                pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
+                y += 10
 
-            y = draw_body_text(surface, f"Income: {sel.income} / mo", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Levies: {sel.levy}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Control: {sel.control}%", content.left, y, color=(220, 214, 198))
-            y += 10
+            safe_body(f"Income: {sel.income} / mo", color=(220, 214, 198))
+            safe_body(f"Levies: {sel.levy}", color=(220, 214, 198))
+            safe_body(f"Control: {sel.control}%", color=(220, 214, 198))
 
-            y = draw_header_text(surface, "Holdings", content.left, y, color=(230, 224, 208))
+            if y + 18 < y_limit:
+                y += 10
+
+            # Holdings
+            safe_header("Holdings")
             for i, hname in enumerate(["Castle", "City", "Temple"]):
                 tag = " (capital)" if i == 0 else ""
-                y = draw_body_text(surface, f"• {hname}{tag}", content.left, y, color=(205, 198, 180))
+                if not safe_body(f"• {hname}{tag}"):
+                    break
 
-            y += 10
-
-            # --- Realm + Ruler info (ONLY when sel exists) ---
+            # --- Realm + ruler (THIS is the part you were confused about) ---
+            # Only do this when sel != None.
             rid = sel.realm_id
             realm_name = state["realm_names"][rid]
             ruler = state["realm_rulers"][rid]
 
-            pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
-            pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
-            y += 10
+            if y + 18 < y_limit:
+                y += 8
+                pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
+                pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
+                y += 10
 
-            y = draw_header_text(surface, "Realm", content.left, y, color=(230, 224, 208))
-            y = draw_body_text(surface, realm_name, content.left, y, color=(235, 228, 210))
-            y += 6
+            safe_header("Realm")
+            safe_body(realm_name, color=(235, 228, 210))
 
-            y = draw_header_text(surface, "Ruler", content.left, y, color=(230, 224, 208))
-            y = draw_body_text(surface, ruler["name"], content.left, y, color=(235, 228, 210))
-            y = draw_footer_text(surface, ruler["title"], content.left, y, color=(185, 175, 160))
-            y = draw_body_text(surface, f"Faith: {ruler.get('faith','—')}", content.left, y, color=(205, 198, 180))
-            y = draw_body_text(surface, f"Culture: {ruler.get('culture','—')}", content.left, y, color=(205, 198, 180))
+            if y + 10 < y_limit:
+                y += 6
+
+            safe_header("Ruler")
+            safe_body(ruler["name"], color=(235, 228, 210))
+            safe_footer(ruler["title"], color=(185, 175, 160))
+            safe_body(f"Faith: {ruler.get('faith','—')}")
+            safe_body(f"Culture: {ruler.get('culture','—')}")
 
             pr, _ = compute_piety_rate(ruler)
-            y = draw_body_text(surface, f"Piety from traits: {pr:+d} / mo", content.left, y, color=(205, 198, 180))
+            safe_body(f"Piety from traits: {pr:+d} / mo")
 
             traits = ruler.get("traits", [])
-            if traits:
+            if traits and y + 10 < y_limit:
                 trait_text = " • " + " • ".join(trait_name(t) for t in traits)
                 for ln in wrap_text(trait_text.strip(), BODY_FONT, content.w - 10):
-                    y = draw_body_text(surface, ln, content.left, y, color=(205, 198, 180))
-            else:
-                y = draw_body_text(surface, "No traits", content.left, y, color=(185, 175, 160))
+                    if not safe_body(ln):
+                        break
 
-            y += 10
-
-            # Optional placeholder actions text (keep if you want)
-            y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
-            y = draw_footer_text(surface, "These are placeholders; wiring them is game-specific.", content.left, y, color=(150, 145, 138))
-            y += 6
-
-        # --- Hover readout (works either way) ---
-        if hov is not None:
-            y2 = rect.bottom - 78
-            box = pygame.Rect(content.left, y2, content.w, 62)
+        # --- Hover box ABOVE the buttons (no overlap) ---
+        if show_hover:
+            box = pygame.Rect(content.left, hover_y, content.w, HOVER_H)
             pygame.draw.rect(surface, (20, 20, 20), box, border_radius=8)
             pygame.draw.rect(surface, (0, 0, 0), box, 2, border_radius=8)
             draw_footer_text(surface, "Hover", box.left + 10, box.top + 8, color=(165, 160, 150))
             draw_body_text(surface, hov.name, box.left + 10, box.top + 24, color=(235, 228, 210))
 
-        # Buttons at bottom
+        # Buttons at bottom (unchanged positioning)
         btns = []
         bx = content.left
-        by = rect.bottom - 56
-        b1 = draw_secondary_button(surface, "View Realm", bx, by, 120, 34)
-        b2 = draw_primary_button(surface, "Set Rally", bx + 130, by, 120, 34)
-        b3 = draw_secondary_button(surface, "Council", bx + 260, by, 120, 34)
+        by = BTN_BAR_Y
+        b1 = draw_secondary_button(surface, "View Realm", bx, by, 120, BTN_H)
+        b2 = draw_primary_button(surface, "Set Rally", bx + 130, by, 120, BTN_H)
+        b3 = draw_secondary_button(surface, "Council", bx + 260, by, 120, BTN_H)
         btns.append((b1, "view_realm"))
         btns.append((b2, "set_rally"))
         btns.append((b3, "council"))
         return btns
+
 
 
     def draw_bottom_bar(self, surface, rect, state):
@@ -2411,6 +2438,8 @@ class GameApp:
                 "selected_province": self.selected_province,
                 "hover_province": self.hover_province,
                 "log": self.log,
+
+                # ADD THESE:
                 "realm_names": self.world.realm_names,
                 "realm_rulers": self.world.realm_rulers,
             }
