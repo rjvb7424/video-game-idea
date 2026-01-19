@@ -875,74 +875,97 @@ class MapWorld:
         prov_n = len(self.provinces)
         adj = self._build_province_adjacency()
 
-        # number of realms
-        realm_n = clamp(prov_n // 10, 6, 9)
+        rnd = random.Random(self.seed + 1337)
 
-        # palette (subdued, distinct)
-        palette = [
-            (64, 80, 120),   # blue
-            (92, 66, 102),   # purple
-            (78, 96, 66),    # green
-            (120, 84, 58),   # brown
-            (70, 104, 104),  # teal
-            (120, 70, 70),   # maroon
-            (110, 110, 70),  # olive
-            (86, 86, 110),   # slate
-            (120, 92, 120),  # mauve
-        ]
-        self.realm_colors = palette[:realm_n]
+        # Mostly 2–3 provinces, some 1, very rare 4
+        # 4: 5%  |  3: 35%  |  2: 45%  |  1: 15%
+        def pick_target_size():
+            r = rnd.random()
+            if r < 0.05:
+                return 4
+            if r < 0.40:
+                return 3
+            if r < 0.85:
+                return 2
+            return 1
+
+        realm_of = [-1] * prov_n
+        realm_capitals = []
+        realm_sizes = []
+
+        order = list(range(prov_n))
+        rnd.shuffle(order)
+
+        rid = 0
+        for seed_pid in order:
+            if realm_of[seed_pid] != -1:
+                continue
+
+            target = pick_target_size()
+
+            realm_of[seed_pid] = rid
+            members = [seed_pid]
+
+            # Grow this tiny kingdom by adding adjacent unassigned provinces
+            while len(members) < target:
+                candidates = []
+                for p in members:
+                    for nb in adj[p]:
+                        if realm_of[nb] == -1:
+                            candidates.append(nb)
+
+                if not candidates:
+                    break
+
+                nb = rnd.choice(candidates)
+                realm_of[nb] = rid
+                members.append(nb)
+
+            realm_capitals.append(seed_pid)
+            realm_sizes.append(len(members))
+            rid += 1
+
+        realm_n = rid
+
+        # Generate MANY distinct-but-muted colors (deterministic)
+        import colorsys
+        self.realm_colors = []
+        for i in range(realm_n):
+            rr = random.Random(self.seed * 10007 + i * 97 + 555)
+            h = rr.random()
+            s = 0.28 + rr.random() * 0.22  # muted saturation
+            v = 0.48 + rr.random() * 0.22  # mid brightness
+            r, g, b = colorsys.hsv_to_rgb(h, s, v)
+            self.realm_colors.append((int(r * 255), int(g * 255), int(b * 255)))
+
         self.realm_names = [f"Kingdom of {self._name()}" for _ in range(realm_n)]
+        self.realm_capitals = realm_capitals[:]
+        self.realm_sizes = realm_sizes[:]
 
-        # choose realm capitals with farthest sampling (on province centers)
-        centers = [p.center for p in self.provinces]
-        chosen = []
-        # start near center
-        wx, wy = self.world_w * 0.52, self.world_h * 0.52
-        start = min(range(prov_n), key=lambda i: (centers[i].x-wx)**2 + (centers[i].y-wy)**2)
-        chosen.append(start)
-        while len(chosen) < realm_n:
-            best = None
-            best_d = -1
-            for i in range(prov_n):
-                if i in chosen:
-                    continue
-                dmin = min((centers[i].x - centers[c].x)**2 + (centers[i].y - centers[c].y)**2 for c in chosen)
-                if dmin > best_d:
-                    best_d = dmin
-                    best = i
-            chosen.append(best if best is not None else self.rnd.randrange(prov_n))
-
-        # multi-source BFS on province graph
-        realm_of = [-1 for _ in range(prov_n)]
-        q = []
-        for rid, cap in enumerate(chosen):
-            realm_of[cap] = rid
-            q.append(cap)
-
-        head = 0
-        while head < len(q):
-            p = q[head]
-            head += 1
-            rid = realm_of[p]
-            for nb in adj[p]:
-                if realm_of[nb] == -1:
-                    realm_of[nb] = rid
-                    q.append(nb)
-
-        # assign
+        # Apply to provinces
         for pid, prov in enumerate(self.provinces):
             prov.realm_id = realm_of[pid]
+            prov.is_capital = False
 
-        # player realm = realm whose capital is closest to center
-        player_cap = chosen[0]
-        self.player_realm_id = realm_of[player_cap]
+        # Player realm: realm containing province closest to map center
+        cx, cy = self.world_w * 0.52, self.world_h * 0.52
+        near = min(
+            range(prov_n),
+            key=lambda i: (self.provinces[i].center.x - cx) ** 2 + (self.provinces[i].center.y - cy) ** 2
+        )
+        self.player_realm_id = realm_of[near]
 
-        self.realm_capitals = chosen[:]  # province ids
+        # Mark capitals (one per realm)
+        for cap_pid in self.realm_capitals:
+            if 0 <= cap_pid < prov_n:
+                self.provinces[cap_pid].is_capital = True
 
-        # mark them on the province objects (optional)
-        for pid in self.realm_capitals:
-            if 0 <= pid < len(self.provinces):
-                self.provinces[pid].is_capital = True
+        # Store player capital province id (handy for label logic)
+        if 0 <= self.player_realm_id < len(self.realm_capitals):
+            self.player_capital_pid = self.realm_capitals[self.player_realm_id]
+        else:
+            self.player_capital_pid = near
+
 
 
     def _compute_fog_of_war(self):
@@ -1085,7 +1108,8 @@ class MapWorld:
             return s
 
         mask_thin = make_mask(thin2, alpha=190)   # was 255
-        mask_realm = make_mask(realm_thick2, alpha=200)
+        many_realms = len(self.realm_colors) > 20
+        mask_realm = make_mask(realm_thick2, alpha=110 if many_realms else 200)
         mask_coast = make_mask(coast_thick2, alpha=150)
 
         # smooth scale masks to world resolution (anti-aliased look)
