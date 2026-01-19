@@ -1313,6 +1313,7 @@ class UIManager:
         self.panel_tile = make_noise_tile((96, 96), (44, 44, 46), variance=10, alpha=255, seed=seed)
         self.top_tile = make_noise_tile((128, 64), HEADER_COLOR, variance=10, alpha=255, seed=seed + 1)
         self.bottom_tile = make_noise_tile((96, 96), (26, 26, 28), variance=10, alpha=255, seed=seed + 2)
+        self.left_tile = make_noise_tile((96, 96), (52, 36, 26), variance=12, alpha=255, seed=seed + 3)
 
     def draw_top_bar(self, surface, rect, state):
         btns = []
@@ -1456,9 +1457,15 @@ class UIManager:
         if rate_surf is not None:
             surface.blit(rate_surf, (text_x + main_surf.get_width(), rate_y))
 
-
     def draw_left_panel(self, surface, rect, state):
-        content = draw_framed_panel(surface, rect, title="Character", title_color=INK, tile=self.panel_tile)
+        # Brown/tinted ruler panel
+        content = draw_framed_panel(surface, rect, title="Ruler", title_color=INK, tile=self.left_tile)
+
+        # extra warm tint over the inner area for stronger brown vibe
+        tint = pygame.Surface((rect.w - 28, rect.h - 28), pygame.SRCALPHA)  # approx inner area
+        tint.fill((70, 45, 28, 28))
+        surface.blit(tint, (rect.left + 14, rect.top + 14))
+
         y = content.top
 
         # Portrait frame
@@ -1466,13 +1473,37 @@ class UIManager:
         self._draw_portrait(surface, pf, state)
         y = pf.bottom + 10
 
+        c = state["character"]
+
         # Name + titles
-        y = draw_header_text(surface, state["character"]["name"], content.left, y, color=(235, 228, 210))
-        y = draw_body_text(surface, state["character"]["title"], content.left, y, color=(185, 175, 160))
+        y = draw_header_text(surface, c["name"], content.left, y, color=(235, 228, 210))
+        y = draw_body_text(surface, c["title"], content.left, y, color=(185, 175, 160))
+        y = draw_footer_text(surface, c["house"], content.left, y, color=(170, 160, 145))
+        y += 8
+
+        # Identity: Faith + Culture
+        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
+        y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        y += 6
+
+        # Trait alignment + piety rate
+        virtues, sins, neutral = trait_alignment(c)
+        p_rate, breakdown = compute_piety_rate(c)
+
+        y = draw_body_text(surface, f"Piety from traits: {p_rate:+d} / mo", content.left, y, color=(220, 214, 198))
+
+        if virtues:
+            y = draw_footer_text(surface, "Virtues: " + ", ".join(trait_name(t) for t in virtues),
+                                content.left, y, color=(155, 190, 155))
+        if sins:
+            y = draw_footer_text(surface, "Sins: " + ", ".join(trait_name(t) for t in sins),
+                                content.left, y, color=(200, 150, 150))
         y += 6
 
         # Stats (CK-like columns)
-        stats = state["character"]["stats"]
+        y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
+        stats = c["stats"]
         left_x = content.left
         mid_x = content.left + content.w // 2
         for i, (k, v) in enumerate(stats):
@@ -1489,6 +1520,18 @@ class UIManager:
         pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
         y += 10
 
+        # Traits list (all traits, including neutral)
+        y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
+        traits = c.get("traits", [])
+        if not traits:
+            y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
+        else:
+            # wrap the trait string to fit panel width
+            trait_text = " • " + " • ".join(trait_name(t) for t in traits)
+            for ln in wrap_text(trait_text.strip(), BODY_FONT, content.w - 10):
+                y = draw_body_text(surface, ln, content.left, y, color=(205, 198, 180))
+        y += 6
+
         # Army block
         y = draw_header_text(surface, "Levy & Army", content.left, y, color=(230, 224, 208))
         y = draw_body_text(surface, f"Raised: {state['army']['raised']}", content.left, y, color=(205, 198, 180))
@@ -1496,7 +1539,7 @@ class UIManager:
         y = draw_body_text(surface, f"Morale: {state['army']['morale']}%", content.left, y, color=(205, 198, 180))
         y += 6
 
-        # Small action buttons
+        # Buttons at bottom (unchanged)
         btns = []
         bx = content.left
         by = rect.bottom - 56
@@ -1507,6 +1550,7 @@ class UIManager:
         btns.append((b2, "rally"))
         btns.append((b3, "disband"))
         return btns
+
 
     def _draw_portrait(self, surface, rect, state):
         # Framed portrait with a “painted” feel (procedural shapes)
@@ -1670,6 +1714,10 @@ class GameApp:
             "name": "King Sancho II",
             "title": "King of Aragon • Defender of the Pyrenees",
             "house": "House de Aragón",
+            "culture": "Iberian",      # does nothing for now
+            "faith": "Catholic",       # IMPORTANT for piety rules
+            "traits": ["diligent", "humble", "forgiving"],
+
             "stats": [
                 ("Diplomacy", 7), ("Martial", 11),
                 ("Stewardship", 8), ("Intrigue", 6),
@@ -2046,6 +2094,151 @@ class GameApp:
                 elif event.type == pygame.MOUSEMOTION:
                     if not self.modal.open and self._mouse_down_in_map:
                         self.camera.drag_to(event.pos)
+
+            # =========================
+            # Trait / Faith System
+            # =========================
+
+            TRAITS = {
+                # core moral axis examples
+                "forgiving":  {"name": "Forgiving",  "opposites": {"vengeful"}, "desc": "Lets go of slights and seeks reconciliation."},
+                "vengeful":   {"name": "Vengeful",   "opposites": {"forgiving"}, "desc": "Remembers wrongs and pursues retribution."},
+
+                "humble":     {"name": "Humble",     "opposites": {"proud"}, "desc": "Avoids vanity; accepts limitations."},
+                "proud":      {"name": "Proud",      "opposites": {"humble"}, "desc": "Seeks glory; easily offended by disrespect."},
+
+                "charitable": {"name": "Charitable", "opposites": {"greedy"}, "desc": "Gives freely; values mercy over wealth."},
+                "greedy":     {"name": "Greedy",     "opposites": {"charitable"}, "desc": "Hoarder; values wealth and gain."},
+
+                "patient":    {"name": "Patient",    "opposites": {"wrathful"}, "desc": "Slow to anger; endures hardship calmly."},
+                "wrathful":   {"name": "Wrathful",   "opposites": {"patient"}, "desc": "Quick to anger; escalates conflict."},
+
+                # optional extra “7 sins/virtues” style
+                "chaste":     {"name": "Chaste",     "opposites": {"lustful"}, "desc": "Restrained desires."},
+                "lustful":    {"name": "Lustful",    "opposites": {"chaste"}, "desc": "Indulgent desires."},
+
+                "temperate":  {"name": "Temperate",  "opposites": {"gluttonous"}, "desc": "Moderation in appetite."},
+                "gluttonous": {"name": "Gluttonous", "opposites": {"temperate"}, "desc": "Overindulgence in appetite."},
+
+                "diligent":   {"name": "Diligent",   "opposites": {"lazy"}, "desc": "Hard-working and disciplined."},
+                "lazy":       {"name": "Lazy",       "opposites": {"diligent"}, "desc": "Avoids effort; procrastinates."},
+            }
+
+            def trait_name(tid: str) -> str:
+                return TRAITS.get(tid, {}).get("name", tid)
+
+            def normalize_traits(traits):
+                """Ensure no opposites coexist. If they do, keep the first encountered."""
+                out = []
+                have = set()
+                for t in traits:
+                    if t in have:
+                        continue
+                    opp = TRAITS.get(t, {}).get("opposites", set())
+                    if any(o in have for o in opp):
+                        continue
+                    out.append(t)
+                    have.add(t)
+                return out
+
+            def add_trait(character: dict, trait_id: str):
+                """
+                Adds trait to character, removing opposites if present.
+                Returns (changed: bool, message: str)
+                """
+                if trait_id not in TRAITS:
+                    return (False, f"Unknown trait '{trait_id}'.")
+
+                if "traits" not in character:
+                    character["traits"] = []
+
+                if trait_id in character["traits"]:
+                    return (False, f"{character['name']} already has {trait_name(trait_id)}.")
+
+                opposites = TRAITS[trait_id]["opposites"]
+                removed = [t for t in character["traits"] if t in opposites]
+                if removed:
+                    character["traits"] = [t for t in character["traits"] if t not in opposites]
+
+                character["traits"].append(trait_id)
+                character["traits"] = normalize_traits(character["traits"])
+
+                if removed:
+                    return (True, f"Gained {trait_name(trait_id)} (removed {', '.join(trait_name(x) for x in removed)}).")
+                return (True, f"Gained {trait_name(trait_id)}.")
+
+            # Faith rules: which traits are virtues/sins depends on faith
+            FAITH_RULES = {
+                "Catholic": {
+                    "virtues": {"forgiving", "humble", "charitable", "patient", "chaste", "temperate", "diligent"},
+                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "lustful", "gluttonous", "lazy"},
+                    "base_piety_rate": 0,  # monthly baseline
+                },
+                "Orthodox": {
+                    "virtues": {"forgiving", "humble", "charitable", "patient", "temperate", "diligent"},
+                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous", "lazy"},
+                    "base_piety_rate": 0,
+                },
+                "Sunni": {
+                    "virtues": {"charitable", "patient", "temperate", "diligent"},
+                    "sins":    {"greedy", "wrathful", "gluttonous", "lazy"},
+                    "base_piety_rate": 0,
+                },
+                # Example of a faith where “vengeful/wrathful” can be seen as virtuous (warrior ethos)
+                "Pagan": {
+                    "virtues": {"vengeful", "wrathful", "diligent"},
+                    "sins":    {"forgiving", "lazy"},
+                    "base_piety_rate": 0,
+                },
+                "Mozarabic": {
+                    "virtues": {"forgiving", "humble", "charitable", "patient", "temperate"},
+                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous"},
+                    "base_piety_rate": 0,
+                },
+            }
+
+            def trait_alignment(character: dict):
+                faith = character.get("faith", "Catholic")
+                rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
+                virtues = []
+                sins = []
+                neutral = []
+                for t in character.get("traits", []):
+                    if t in rules["virtues"]:
+                        virtues.append(t)
+                    elif t in rules["sins"]:
+                        sins.append(t)
+                    else:
+                        neutral.append(t)
+                return virtues, sins, neutral
+
+            def compute_piety_rate(character: dict):
+                """
+                Returns (monthly_piety_rate: int, breakdown: dict)
+                """
+                faith = character.get("faith", "Catholic")
+                rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
+
+                virtues, sins, neutral = trait_alignment(character)
+
+                # Tuning knobs:
+                VIRTUE_BONUS = 1   # +1 piety/month per virtuous trait
+                SIN_PENALTY  = 1   # -1 piety/month per sinful trait
+
+                rate = int(rules.get("base_piety_rate", 0))
+                rate += VIRTUE_BONUS * len(virtues)
+                rate -= SIN_PENALTY  * len(sins)
+
+                breakdown = {
+                    "faith": faith,
+                    "base": int(rules.get("base_piety_rate", 0)),
+                    "virtues": virtues,
+                    "sins": sins,
+                    "neutral": neutral,
+                    "virtue_bonus": VIRTUE_BONUS * len(virtues),
+                    "sin_penalty": SIN_PENALTY * len(sins),
+                }
+                return rate, breakdown
 
             # Continuous controls
             self._map_controls(dt)
