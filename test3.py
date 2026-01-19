@@ -1306,6 +1306,142 @@ class Modal:
 
         return btns
 
+# =========================
+# Trait / Faith System (GLOBAL)
+# =========================
+
+TRAITS = {
+    "forgiving":  {"name": "Forgiving",  "opposites": {"vengeful"}, "desc": "Lets go of slights and seeks reconciliation."},
+    "vengeful":   {"name": "Vengeful",   "opposites": {"forgiving"}, "desc": "Remembers wrongs and pursues retribution."},
+
+    "humble":     {"name": "Humble",     "opposites": {"proud"}, "desc": "Avoids vanity; accepts limitations."},
+    "proud":      {"name": "Proud",      "opposites": {"humble"}, "desc": "Seeks glory; easily offended by disrespect."},
+
+    "charitable": {"name": "Charitable", "opposites": {"greedy"}, "desc": "Gives freely; values mercy over wealth."},
+    "greedy":     {"name": "Greedy",     "opposites": {"charitable"}, "desc": "Hoarder; values wealth and gain."},
+
+    "patient":    {"name": "Patient",    "opposites": {"wrathful"}, "desc": "Slow to anger; endures hardship calmly."},
+    "wrathful":   {"name": "Wrathful",   "opposites": {"patient"}, "desc": "Quick to anger; escalates conflict."},
+
+    "chaste":     {"name": "Chaste",     "opposites": {"lustful"}, "desc": "Restrained desires."},
+    "lustful":    {"name": "Lustful",    "opposites": {"chaste"}, "desc": "Indulgent desires."},
+
+    "temperate":  {"name": "Temperate",  "opposites": {"gluttonous"}, "desc": "Moderation in appetite."},
+    "gluttonous": {"name": "Gluttonous", "opposites": {"temperate"}, "desc": "Overindulgence in appetite."},
+
+    "diligent":   {"name": "Diligent",   "opposites": {"lazy"}, "desc": "Hard-working and disciplined."},
+    "lazy":       {"name": "Lazy",       "opposites": {"diligent"}, "desc": "Avoids effort; procrastinates."},
+}
+
+def trait_name(trait_id: str) -> str:
+    return TRAITS.get(trait_id, {}).get("name", trait_id)
+
+def normalize_traits(traits: list[str]) -> list[str]:
+    """Ensures no opposites coexist. Keeps the first encountered trait."""
+    out: list[str] = []
+    have: set[str] = set()
+    for t in traits:
+        if t in have:
+            continue
+        opp = TRAITS.get(t, {}).get("opposites", set())
+        if any(o in have for o in opp):
+            continue
+        out.append(t)
+        have.add(t)
+    return out
+
+def add_trait(character: dict, trait_id: str) -> tuple[bool, str]:
+    """
+    Adds a trait; if it has opposites, those are removed.
+    Returns (changed, message)
+    """
+    if trait_id not in TRAITS:
+        return (False, f"Unknown trait '{trait_id}'.")
+
+    character.setdefault("traits", [])
+
+    if trait_id in character["traits"]:
+        return (False, f"{character.get('name','Character')} already has {trait_name(trait_id)}.")
+
+    opposites = TRAITS[trait_id]["opposites"]
+    removed = [t for t in character["traits"] if t in opposites]
+    if removed:
+        character["traits"] = [t for t in character["traits"] if t not in opposites]
+
+    character["traits"].append(trait_id)
+    character["traits"] = normalize_traits(character["traits"])
+
+    if removed:
+        return (True, f"Gained {trait_name(trait_id)} (removed {', '.join(trait_name(x) for x in removed)}).")
+    return (True, f"Gained {trait_name(trait_id)}.")
+
+FAITH_RULES = {
+    "Catholic": {
+        "virtues": {"forgiving", "humble", "charitable", "patient", "chaste", "temperate", "diligent"},
+        "sins":    {"vengeful", "proud", "greedy", "wrathful", "lustful", "gluttonous", "lazy"},
+        "base_piety_rate": 0,
+    },
+    "Orthodox": {
+        "virtues": {"forgiving", "humble", "charitable", "patient", "temperate", "diligent"},
+        "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous", "lazy"},
+        "base_piety_rate": 0,
+    },
+    "Sunni": {
+        "virtues": {"charitable", "patient", "temperate", "diligent"},
+        "sins":    {"greedy", "wrathful", "gluttonous", "lazy"},
+        "base_piety_rate": 0,
+    },
+    # Example: warrior ethos
+    "Pagan": {
+        "virtues": {"vengeful", "wrathful", "diligent"},
+        "sins":    {"forgiving", "lazy"},
+        "base_piety_rate": 0,
+    },
+    "Mozarabic": {
+        "virtues": {"forgiving", "humble", "charitable", "patient", "temperate"},
+        "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous"},
+        "base_piety_rate": 0,
+    },
+}
+
+def trait_alignment(character: dict) -> tuple[list[str], list[str], list[str]]:
+    faith = character.get("faith", "Catholic")
+    rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
+
+    virtues, sins, neutral = [], [], []
+    for t in character.get("traits", []):
+        if t in rules["virtues"]:
+            virtues.append(t)
+        elif t in rules["sins"]:
+            sins.append(t)
+        else:
+            neutral.append(t)
+    return virtues, sins, neutral
+
+def compute_piety_rate(character: dict) -> tuple[int, dict]:
+    faith = character.get("faith", "Catholic")
+    rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
+
+    virtues, sins, neutral = trait_alignment(character)
+
+    VIRTUE_BONUS = 1   # +1 piety/month per virtuous trait
+    SIN_PENALTY  = 1   # -1 piety/month per sinful trait
+
+    rate = int(rules.get("base_piety_rate", 0))
+    rate += VIRTUE_BONUS * len(virtues)
+    rate -= SIN_PENALTY  * len(sins)
+
+    breakdown = {
+        "faith": faith,
+        "base": int(rules.get("base_piety_rate", 0)),
+        "virtues": virtues,
+        "sins": sins,
+        "neutral": neutral,
+        "virtue_bonus": VIRTUE_BONUS * len(virtues),
+        "sin_penalty": SIN_PENALTY * len(sins),
+    }
+    return rate, breakdown
+
 class UIManager:
     def __init__(self, seed=11):
         HEADER_COLOR = (70, 0, 18)
@@ -1724,6 +1860,15 @@ class GameApp:
                 ("Learning", 9), ("Prowess", 10),
             ],
         }
+        self.character["traits"] = normalize_traits(self.character.get("traits", []))
+
+        p_rate, _ = compute_piety_rate(self.character)
+        self.resources["piety_rate"] = p_rate
+
+        # (optional but useful if you want rates to accumulate smoothly later)
+        self._res_accum = {"gold": 0.0, "prestige": 0.0, "piety": 0.0}
+
+
         self.army = {"raised": 928, "max": 1712, "morale": 77}
 
         self.log = [
@@ -2095,151 +2240,6 @@ class GameApp:
                     if not self.modal.open and self._mouse_down_in_map:
                         self.camera.drag_to(event.pos)
 
-            # =========================
-            # Trait / Faith System
-            # =========================
-
-            TRAITS = {
-                # core moral axis examples
-                "forgiving":  {"name": "Forgiving",  "opposites": {"vengeful"}, "desc": "Lets go of slights and seeks reconciliation."},
-                "vengeful":   {"name": "Vengeful",   "opposites": {"forgiving"}, "desc": "Remembers wrongs and pursues retribution."},
-
-                "humble":     {"name": "Humble",     "opposites": {"proud"}, "desc": "Avoids vanity; accepts limitations."},
-                "proud":      {"name": "Proud",      "opposites": {"humble"}, "desc": "Seeks glory; easily offended by disrespect."},
-
-                "charitable": {"name": "Charitable", "opposites": {"greedy"}, "desc": "Gives freely; values mercy over wealth."},
-                "greedy":     {"name": "Greedy",     "opposites": {"charitable"}, "desc": "Hoarder; values wealth and gain."},
-
-                "patient":    {"name": "Patient",    "opposites": {"wrathful"}, "desc": "Slow to anger; endures hardship calmly."},
-                "wrathful":   {"name": "Wrathful",   "opposites": {"patient"}, "desc": "Quick to anger; escalates conflict."},
-
-                # optional extra “7 sins/virtues” style
-                "chaste":     {"name": "Chaste",     "opposites": {"lustful"}, "desc": "Restrained desires."},
-                "lustful":    {"name": "Lustful",    "opposites": {"chaste"}, "desc": "Indulgent desires."},
-
-                "temperate":  {"name": "Temperate",  "opposites": {"gluttonous"}, "desc": "Moderation in appetite."},
-                "gluttonous": {"name": "Gluttonous", "opposites": {"temperate"}, "desc": "Overindulgence in appetite."},
-
-                "diligent":   {"name": "Diligent",   "opposites": {"lazy"}, "desc": "Hard-working and disciplined."},
-                "lazy":       {"name": "Lazy",       "opposites": {"diligent"}, "desc": "Avoids effort; procrastinates."},
-            }
-
-            def trait_name(tid: str) -> str:
-                return TRAITS.get(tid, {}).get("name", tid)
-
-            def normalize_traits(traits):
-                """Ensure no opposites coexist. If they do, keep the first encountered."""
-                out = []
-                have = set()
-                for t in traits:
-                    if t in have:
-                        continue
-                    opp = TRAITS.get(t, {}).get("opposites", set())
-                    if any(o in have for o in opp):
-                        continue
-                    out.append(t)
-                    have.add(t)
-                return out
-
-            def add_trait(character: dict, trait_id: str):
-                """
-                Adds trait to character, removing opposites if present.
-                Returns (changed: bool, message: str)
-                """
-                if trait_id not in TRAITS:
-                    return (False, f"Unknown trait '{trait_id}'.")
-
-                if "traits" not in character:
-                    character["traits"] = []
-
-                if trait_id in character["traits"]:
-                    return (False, f"{character['name']} already has {trait_name(trait_id)}.")
-
-                opposites = TRAITS[trait_id]["opposites"]
-                removed = [t for t in character["traits"] if t in opposites]
-                if removed:
-                    character["traits"] = [t for t in character["traits"] if t not in opposites]
-
-                character["traits"].append(trait_id)
-                character["traits"] = normalize_traits(character["traits"])
-
-                if removed:
-                    return (True, f"Gained {trait_name(trait_id)} (removed {', '.join(trait_name(x) for x in removed)}).")
-                return (True, f"Gained {trait_name(trait_id)}.")
-
-            # Faith rules: which traits are virtues/sins depends on faith
-            FAITH_RULES = {
-                "Catholic": {
-                    "virtues": {"forgiving", "humble", "charitable", "patient", "chaste", "temperate", "diligent"},
-                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "lustful", "gluttonous", "lazy"},
-                    "base_piety_rate": 0,  # monthly baseline
-                },
-                "Orthodox": {
-                    "virtues": {"forgiving", "humble", "charitable", "patient", "temperate", "diligent"},
-                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous", "lazy"},
-                    "base_piety_rate": 0,
-                },
-                "Sunni": {
-                    "virtues": {"charitable", "patient", "temperate", "diligent"},
-                    "sins":    {"greedy", "wrathful", "gluttonous", "lazy"},
-                    "base_piety_rate": 0,
-                },
-                # Example of a faith where “vengeful/wrathful” can be seen as virtuous (warrior ethos)
-                "Pagan": {
-                    "virtues": {"vengeful", "wrathful", "diligent"},
-                    "sins":    {"forgiving", "lazy"},
-                    "base_piety_rate": 0,
-                },
-                "Mozarabic": {
-                    "virtues": {"forgiving", "humble", "charitable", "patient", "temperate"},
-                    "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous"},
-                    "base_piety_rate": 0,
-                },
-            }
-
-            def trait_alignment(character: dict):
-                faith = character.get("faith", "Catholic")
-                rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
-                virtues = []
-                sins = []
-                neutral = []
-                for t in character.get("traits", []):
-                    if t in rules["virtues"]:
-                        virtues.append(t)
-                    elif t in rules["sins"]:
-                        sins.append(t)
-                    else:
-                        neutral.append(t)
-                return virtues, sins, neutral
-
-            def compute_piety_rate(character: dict):
-                """
-                Returns (monthly_piety_rate: int, breakdown: dict)
-                """
-                faith = character.get("faith", "Catholic")
-                rules = FAITH_RULES.get(faith, {"virtues": set(), "sins": set(), "base_piety_rate": 0})
-
-                virtues, sins, neutral = trait_alignment(character)
-
-                # Tuning knobs:
-                VIRTUE_BONUS = 1   # +1 piety/month per virtuous trait
-                SIN_PENALTY  = 1   # -1 piety/month per sinful trait
-
-                rate = int(rules.get("base_piety_rate", 0))
-                rate += VIRTUE_BONUS * len(virtues)
-                rate -= SIN_PENALTY  * len(sins)
-
-                breakdown = {
-                    "faith": faith,
-                    "base": int(rules.get("base_piety_rate", 0)),
-                    "virtues": virtues,
-                    "sins": sins,
-                    "neutral": neutral,
-                    "virtue_bonus": VIRTUE_BONUS * len(virtues),
-                    "sin_penalty": SIN_PENALTY * len(sins),
-                }
-                return rate, breakdown
-
             # Continuous controls
             self._map_controls(dt)
 
@@ -2276,6 +2276,9 @@ class GameApp:
                 "hover_province": self.hover_province,
                 "log": self.log,
             }
+
+            p_rate, _ = compute_piety_rate(self.character)
+            self.resources["piety_rate"] = p_rate
 
             clickables = []
             clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state))
