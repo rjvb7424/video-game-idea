@@ -2459,7 +2459,9 @@ class GameApp:
                             if self.layout.map.collidepoint(event.pos):
                                 self._mouse_down_in_map = True
                                 self._mouse_down_pos = event.pos
-                                self.camera.begin_drag(event.pos)
+                                self._mouse_down_in_map = True
+                                self._mouse_down_pos = event.pos
+                                self._drag_started = False
 
                     # Fallback wheel events (older style 4/5)
                     if not self.modal.open and self.layout.map.collidepoint(event.pos):
@@ -2470,25 +2472,29 @@ class GameApp:
 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
-                        # Click dispatch (modal has priority)
-                        if self.modal.open:
-                            # modal clicks resolved after draw; store event and resolve immediately by redrawing buttons
-                            pass
-                        else:
-                            if self._mouse_down_in_map:
+                        if self._mouse_down_in_map:
+                            if self._drag_started:
                                 self.camera.end_drag()
-                                moved = (abs(event.pos[0] - self._mouse_down_pos[0]) + abs(event.pos[1] - self._mouse_down_pos[1]))
-                                if moved <= self._mouse_drag_threshold and self.layout.map.collidepoint(event.pos):
+                            else:
+                                if self.layout.map.collidepoint(event.pos):
                                     wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
                                     prov = self.world.province_at_world(wp)
                                     if prov is not None:
                                         self.selected_province = prov
                                         self.push_log(f"{self.date}: Selected {prov.name}.")
-                                self._mouse_down_in_map = False
+                            self._mouse_down_in_map = False
+                            self._drag_started = False
 
-                elif event.type == pygame.MOUSEMOTION:
-                    if not self.modal.open and self._mouse_down_in_map:
-                        self.camera.drag_to(event.pos)
+                    elif event.type == pygame.MOUSEMOTION:
+                        if not self.modal.open and self._mouse_down_in_map:
+                            dx = abs(event.pos[0] - self._mouse_down_pos[0])
+                            dy = abs(event.pos[1] - self._mouse_down_pos[1])
+                            if not self._drag_started and (dx + dy) > self._mouse_drag_threshold:
+                                self._drag_started = True
+                                self.camera.begin_drag(self._mouse_down_pos)
+
+                            if self._drag_started:
+                                self.camera.drag_to(event.pos)
 
             # Continuous controls
             self._map_controls(dt)
