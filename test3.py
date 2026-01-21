@@ -98,7 +98,13 @@ def draw_deny_button(surface, text, x, y, width, height):
 # Helpers / Style
 # =========================
 
-UI_GUTTER = 10
+def clip_draw(surface, rect, draw_fn):
+    prev = surface.get_clip()
+    surface.set_clip(rect)
+    draw_fn()
+    surface.set_clip(prev)
+
+UI_GUTTER = 0
 TOP_BAR_H = 60
 BOTTOM_BAR_H = 98
 SIDE_W_L = 310
@@ -180,7 +186,7 @@ def draw_drop_shadow(surface, rect, strength=110, inflate=6, radius=8):
     surface.blit(shadow, (rect.x - inflate, rect.y - inflate))
 
 def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
-    draw_drop_shadow(surface, rect, strength=120, inflate=7, radius=10)
+    draw_drop_shadow(surface, rect, strength=120, inflate=4, radius=10)
     pygame.draw.rect(surface, PANEL_OUTER, rect, border_radius=10)
 
     pygame.draw.rect(surface, BEVEL_DARK, rect, width=2, border_radius=10)
@@ -1341,20 +1347,34 @@ class Layout:
     def __init__(self, w, h):
         self.w = w
         self.h = h
+
         self.top = pygame.Rect(0, 0, w, TOP_BAR_H)
         self.bottom = pygame.Rect(0, h - BOTTOM_BAR_H, w, BOTTOM_BAR_H)
-        self.left = pygame.Rect(UI_GUTTER, TOP_BAR_H + UI_GUTTER, SIDE_W_L, h - TOP_BAR_H - BOTTOM_BAR_H - UI_GUTTER * 2)
-        self.right = pygame.Rect(w - SIDE_W_R - UI_GUTTER, TOP_BAR_H + UI_GUTTER, SIDE_W_R, h - TOP_BAR_H - BOTTOM_BAR_H - UI_GUTTER * 2)
 
-        mx = self.left.right + UI_GUTTER
-        my = TOP_BAR_H + UI_GUTTER
-        mw = self.right.left - UI_GUTTER - mx
-        mh = self.bottom.top - UI_GUTTER - my
+        # FLUSH to edges, and start immediately below top bar
+        self.left = pygame.Rect(
+            0,
+            TOP_BAR_H,
+            SIDE_W_L,
+            h - TOP_BAR_H - BOTTOM_BAR_H
+        )
+
+        self.right = pygame.Rect(
+            w - SIDE_W_R,
+            TOP_BAR_H,
+            SIDE_W_R,
+            h - TOP_BAR_H - BOTTOM_BAR_H
+        )
+
+        # Map fills the space between panels, also flush vertically
+        mx = self.left.right
+        my = TOP_BAR_H
+        mw = self.right.left - mx
+        mh = self.bottom.top - my
         self.map = pygame.Rect(mx, my, mw, mh)
 
     def update(self, w, h):
         self.__init__(w, h)
-
 
 class Modal:
     def __init__(self):
@@ -2010,12 +2030,9 @@ class UIManager:
                         break
 
         # --- Hover box ABOVE the buttons (no overlap) ---
-        if show_hover:
-            box = pygame.Rect(content.left, hover_y, content.w, HOVER_H)
-            pygame.draw.rect(surface, (20, 20, 20), box, border_radius=8)
-            pygame.draw.rect(surface, (0, 0, 0), box, 2, border_radius=8)
-            draw_footer_text(surface, "Hover", box.left + 10, box.top + 8, color=(165, 160, 150))
-            draw_body_text(surface, hov.name, box.left + 10, box.top + 24, color=(235, 228, 210))
+        show_hover = False
+        hover_y = BTN_BAR_Y
+        y_limit = hover_y - 10
 
         # Buttons at bottom (unchanged positioning)
         btns = []
@@ -2355,16 +2372,6 @@ class GameApp:
         # Subtle map overlay/vignette
         draw_vignette(view, view.get_rect(), strength=85)
 
-        # Tooltip plate (in-map)
-        if self.hover_province is not None:
-            tip = self.hover_province.name
-            plate = pygame.Rect(10, 10, min(420, map_rect.w - 20), 52)
-            pygame.draw.rect(view, (18, 18, 18), plate, border_radius=10)
-            pygame.draw.rect(view, (0, 0, 0), plate, 2, border_radius=10)
-            draw_body_text(view, tip, plate.left + 12, plate.top + 8, color=(235, 228, 210))
-
-        surface.blit(view, map_rect.topleft)
-
         # --------------------------
         # Screen-space overlays (CRISP at any zoom) — FIXED ORDER
         # shield (back) -> banner -> text (front)
@@ -2451,24 +2458,29 @@ class GameApp:
                         self.camera.zoom_at(factor, (mx, my), self.layout.map)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:
-                        if self.modal.open:
-                            # modal button handling happens via returned button list on draw
-                            pass
-                        else:
-                            if self.layout.map.collidepoint(event.pos):
-                                self._mouse_down_in_map = True
-                                self._mouse_down_pos = event.pos
-                                self._mouse_down_in_map = True
-                                self._mouse_down_pos = event.pos
-                                self._drag_started = False
+                    if event.button == 1 and not self.modal.open:
+                        if self.layout.map.collidepoint(event.pos):
+                            self._mouse_down_in_map = True
+                            self._mouse_down_pos = event.pos
+                            self._drag_started = False
 
-                    # Fallback wheel events (older style 4/5)
+                    # fallback wheel (old style)
                     if not self.modal.open and self.layout.map.collidepoint(event.pos):
                         if event.button == 4:
                             self.camera.zoom_at(1.12, event.pos, self.layout.map)
                         elif event.button == 5:
                             self.camera.zoom_at(0.89, event.pos, self.layout.map)
+
+                elif event.type == pygame.MOUSEMOTION:
+                    if not self.modal.open and self._mouse_down_in_map:
+                        dx = abs(event.pos[0] - self._mouse_down_pos[0])
+                        dy = abs(event.pos[1] - self._mouse_down_pos[1])
+                        if not self._drag_started and (dx + dy) > self._mouse_drag_threshold:
+                            self._drag_started = True
+                            self.camera.begin_drag(self._mouse_down_pos)
+
+                        if self._drag_started:
+                            self.camera.drag_to(event.pos)
 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
@@ -2484,18 +2496,7 @@ class GameApp:
                                         self.push_log(f"{self.date}: Selected {prov.name}.")
                             self._mouse_down_in_map = False
                             self._drag_started = False
-
-                    elif event.type == pygame.MOUSEMOTION:
-                        if not self.modal.open and self._mouse_down_in_map:
-                            dx = abs(event.pos[0] - self._mouse_down_pos[0])
-                            dy = abs(event.pos[1] - self._mouse_down_pos[1])
-                            if not self._drag_started and (dx + dy) > self._mouse_drag_threshold:
-                                self._drag_started = True
-                                self.camera.begin_drag(self._mouse_down_pos)
-
-                            if self._drag_started:
-                                self.camera.drag_to(event.pos)
-
+                            
             # Continuous controls
             self._map_controls(dt)
 
@@ -2538,10 +2539,11 @@ class GameApp:
             }
 
             clickables = []
-            clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state))
-            clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state))
-            clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state))
-            clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state))
+
+            clip_draw(self.screen, self.layout.top,    lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
+            clip_draw(self.screen, self.layout.left,   lambda: clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state)))
+            clip_draw(self.screen, self.layout.right,  lambda: clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state)))
+            clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
 
             # Modal on top
             modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
