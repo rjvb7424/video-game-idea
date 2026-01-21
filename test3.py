@@ -2379,7 +2379,7 @@ class GameApp:
         minimal_set = set(getattr(self.world, "minimal_label_items", []))
 
         # OPTIONAL: only show minimal labels when zoomed in enough (big clutter reduction)
-        MIN_LABEL_ZOOM = 1.15
+        MIN_LABEL_ZOOM = 0.75
         show_minimal = self.camera.zoom >= MIN_LABEL_ZOOM
 
         draw_set = set(capital_set)
