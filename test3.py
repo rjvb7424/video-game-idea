@@ -594,6 +594,9 @@ def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture
 
     return character
 
+def hash2(x, y, seed):
+    return (x * 73856093 ^ y * 19349663 ^ seed * 83492791) & 0xFFFFFFFF
+
 class MapWorld:
     def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
         self.seed = seed
@@ -774,7 +777,7 @@ class MapWorld:
     def _build_land_mask(self):
         w, h = self.gw, self.gh
         # threshold tuned to produce a dominant continent
-        threshold = 0.52
+        threshold = 0.65
         raw = [[self.height[y][x] > threshold for x in range(w)] for y in range(h)]
         comps = _connected_components(raw, w, h)
         if not comps:
@@ -799,7 +802,7 @@ class MapWorld:
 
     def _pick_province_seeds(self, land_cells, target_count):
         # Poisson-ish spacing in cell coordinates
-        min_dist = max(4, int(math.sqrt((len(land_cells) / max(1, target_count))) * 0.45))  # was 0.55 and min 6
+        min_dist = max(7, int(math.sqrt((len(land_cells) / max(1, target_count))) * 0.75))
         seeds = []
         attempts = 0
         max_attempts = 90000
@@ -830,7 +833,9 @@ class MapWorld:
         # province count scales with land area
         # province count scales with land area (MORE provinces)
         scale_factor = (self.cell_scale / 8.0) ** 2
-        target = clamp(int((land_n * scale_factor) // 360), 140, 240)  # was //720, 55..95
+        # province count scales with land area (BIGGER provinces)
+        # NOTE: land_n is in grid-cells, not pixels.
+        target = clamp(int(land_n // 1200), 40, 110)
 
         seeds = self._pick_province_seeds(land_cells, target)
         prov_count = len(seeds)
@@ -992,15 +997,18 @@ class MapWorld:
 
         # Mostly 2–3 provinces, some 1, very rare 4
         # 4: 5%  |  3: 35%  |  2: 45%  |  1: 15%
+        # Bigger realms: mostly 4–6 provinces
         def pick_target_size():
             r = rnd.random()
-            if r < 0.05:
-                return 4
-            if r < 0.40:
-                return 3
+            if r < 0.10:
+                return 7
+            if r < 0.30:
+                return 6
+            if r < 0.60:
+                return 5
             if r < 0.85:
-                return 2
-            return 1
+                return 4
+            return 3
 
         realm_of = [-1] * prov_n
         realm_capitals = []
@@ -1042,12 +1050,23 @@ class MapWorld:
 
         # Generate MANY distinct-but-muted colors (deterministic)
         import colorsys
+
+        # Nordfolken-style: all realms are "kingdom-blue" variants (CK3-ish),
+        # still distinct via hue/sat/value jitter.
+        BASE_BLUE_H = 0.60      # ~216° (deep CK-like blue)
+        H_JITTER    = 0.05      # how wide the blue range is (bigger = more variety)
+        S_MIN, S_MAX = 0.25, 0.42
+        V_MIN, V_MAX = 0.42, 0.62
+
         self.realm_colors = []
         for i in range(realm_n):
             rr = random.Random(self.seed * 10007 + i * 97 + 555)
-            h = rr.random()
-            s = 0.28 + rr.random() * 0.22  # muted saturation
-            v = 0.48 + rr.random() * 0.22  # mid brightness
+
+            # keep hue within a blue band
+            h = clamp(BASE_BLUE_H + (rr.random() - 0.5) * 2.0 * H_JITTER, 0.0, 1.0)
+            s = S_MIN + rr.random() * (S_MAX - S_MIN)
+            v = V_MIN + rr.random() * (V_MAX - V_MIN)
+
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             self.realm_colors.append((int(r * 255), int(g * 255), int(b * 255)))
 
@@ -1107,6 +1126,10 @@ class MapWorld:
         low = pygame.Surface((w, h)).convert()
         px = pygame.PixelArray(low)
 
+        # Terrain texture overlay (grayscale multipliers)
+        tex = pygame.Surface((w, h)).convert()
+        tpx = pygame.PixelArray(tex)
+
         # extra tiny noise for texture variation
         ntex = _value_noise_2d(w, h, cell_w=7, cell_h=7, seed=self.seed + 999)
 
@@ -1119,21 +1142,69 @@ class MapWorld:
                     dv = int((ntex[y][x] - 0.5) * 8)
                     sea = (clamp(sea[0] + dv, 0, 255), clamp(sea[1] + dv, 0, 255), clamp(sea[2] + dv, 0, 255))
                     px[x, y] = sea
+                    tpx[x, y] = (255, 255, 255)  # neutral multiplier for sea
                     continue
-
                 pid = self.prov_id[y][x]
                 if pid < 0:
                     px[x, y] = SEA_DEEP
+                    tpx[x, y] = (255, 255, 255)
                     continue
 
                 prov = self.provinces[pid]
                 rid = prov.realm_id
                 realm_col = self.realm_colors[rid]
 
-                terrain = prov.biome_color
+                # --- Biome texture (multiplier) ---
+                hval = hash2(x, y, self.seed)
+                biome = prov.biome
 
-                # mix realm with terrain (so kingdoms read as colored blocks, but not flat-modern)
-                col = _mix_color(realm_col, terrain, 0.46)
+                # default subtle grain
+                darken = (hval % 9)  # 0..8
+
+                if biome == "Forest":
+                    # "trees": frequent darker specks + occasional deeper blobs
+                    if (hval % 13) == 0:
+                        darken = 42
+                    elif (hval % 5) == 0:
+                        darken = 18
+                    else:
+                        darken = 10
+
+                elif biome == "Mountains":
+                    # ridge lines: diagonal-ish banding + noise
+                    if ((x + y + (hval % 7)) % 6) == 0:
+                        darken = 38
+                    else:
+                        darken = 14 + (hval % 10)
+
+                elif biome == "Hills":
+                    # softer banding
+                    if ((x * 2 + y + (hval % 11)) % 8) == 0:
+                        darken = 22
+                    else:
+                        darken = 10 + (hval % 8)
+
+                elif biome == "Drylands":
+                    # stipple and cracks
+                    if (hval % 17) == 0:
+                        darken = 28
+                    else:
+                        darken = 12 + (hval % 10)
+
+                elif biome in ("Fertile", "Plains"):
+                    # gentle grain only
+                    darken = 4 + (hval % 8)
+
+                # apply fog to texture strength too (so unknown land is less detailed)
+                vis = self.visibility_by_prov.get(pid, 0.45)
+                fog_scale = 0.55 if vis < 0.78 else 1.0
+                darken = int(darken * fog_scale)
+
+                mul = 255 - clamp(darken, 0, 80)
+                tpx[x, y] = (mul, mul, mul)
+
+                # Base fill: purely realm color
+                col = realm_col
 
                 # micro shading
                 dv = int((ntex[y][x] - 0.5) * 10)
@@ -1144,10 +1215,16 @@ class MapWorld:
                 col = _apply_fog(col, vis)
                 px[x, y] = col
 
-        del px
-
         # scale up (keep provinces solid), then add subtle paper/noise veil
+        del px
+        del tpx
+
+        # scale base color fill
         self.base_surface = pygame.transform.smoothscale(low, (self.world_w, self.world_h)).convert()
+
+        # scale and apply texture (darkens base color to create biome detail)
+        tex_big = pygame.transform.smoothscale(tex, (self.world_w, self.world_h)).convert()
+        self.base_surface.blit(tex_big, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
 
         veil = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         tile_fill(veil, veil.get_rect(), self.paper_tile)
@@ -2223,9 +2300,9 @@ class GameApp:
         # outline
         pygame.draw.polygon(surf, (10, 10, 10, int(alpha * 0.9)), pts, 1)
 
-    def _draw_banner_with_text(self, surf, center, text, alpha=220):
-        # Light parchment banner + dark text (solves your "white on white" issue)
-        text_surf = FOOTER_FONT.render(text, True, (20, 20, 20))
+    def _draw_banner_with_text(self, surf, center, text, alpha=220, text_color=(20, 20, 20)):
+        # text surface
+        text_surf = FOOTER_FONT.render(text, True, text_color)
         pad_x, pad_y = 14, 6
 
         w = text_surf.get_width() + pad_x * 2
@@ -2238,14 +2315,22 @@ class GameApp:
         shadow = rect.move(2, 2)
         pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.35)), shadow, border_radius=8)
 
-        # banner fill (parchment)
+        # banner fill
         pygame.draw.rect(surf, (220, 210, 190, alpha), rect, border_radius=8)
 
         # banner border
         pygame.draw.rect(surf, (40, 36, 32, int(alpha * 0.9)), rect, width=1, border_radius=8)
 
-        # text on top
-        surf.blit(text_surf, text_surf.get_rect(center=rect.center))
+        # OPTIONAL: outline for readability (helps gold a lot)
+        outline = FOOTER_FONT.render(text, True, (0, 0, 0))
+        outline.set_alpha(int(alpha * 0.7))
+        tr = text_surf.get_rect(center=rect.center)
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            surf.blit(outline, (tr.x + dx, tr.y + dy))
+
+        # text
+        text_surf.set_alpha(alpha)
+        surf.blit(text_surf, tr)
 
     def _draw_province_label_marker(self, surf, center, prov, vis):
         base = self.world.realm_colors[prov.realm_id]
@@ -2255,9 +2340,19 @@ class GameApp:
         shield_center = (center[0], center[1] - 10)
         self._draw_shield_icon(surf, shield_center, base, alpha=int(a * 0.95))
 
-        # 2) banner (middle) + 3) name (front)
+        # gold text ONLY for the player's capital
+        is_player_capital = (prov.id == getattr(self.world, "player_capital_pid", -1))
+        gold = (210, 175, 70)     # tweak if you want warmer/cooler
+        black = (20, 20, 20)
+
         banner_center = (center[0], center[1] + 14)
-        self._draw_banner_with_text(surf, banner_center, prov.name, alpha=a)
+        self._draw_banner_with_text(
+            surf,
+            banner_center,
+            prov.name,
+            alpha=a,
+            text_color=(gold if is_player_capital else black)
+        )
 
     def _handle_action(self, action):
         if action == "toggle_pause":
