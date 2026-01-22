@@ -760,7 +760,17 @@ class EventSystem:
                 # Disabled: show button but do nothing
                 actions.append((label, "secondary", lambda: None))
 
-        self.app.modal.show(title, lines, actions)
+        if self.app.speed_level > 0:
+            self.app._event_resume_speed = self.app.speed_level
+            self.app.set_speed(0)
+
+        def _resume_speed():
+            prev = getattr(self.app, "_event_resume_speed", None)
+            if prev is not None:
+                self.app._event_resume_speed = None
+                self.app.set_speed(prev)
+
+        self.app.modal.show(title, lines, actions, on_close=_resume_speed)
 
     def _try_fire_pending(self) -> bool:
         if self.app.modal.open:
@@ -1761,15 +1771,21 @@ class Modal:
         self.title = "Menu"
         self.lines = []
         self.actions = []
+        self._on_close = None
 
-    def show(self, title, lines, actions):
+    def show(self, title, lines, actions, on_close=None):
         self.open = True
         self.title = title
         self.lines = lines[:]
         self.actions = actions[:]
+        self._on_close = on_close
 
     def close(self):
         self.open = False
+        if self._on_close:
+            cb = self._on_close
+            self._on_close = None
+            cb()
 
     def draw(self, surface, panel_tile):
         if not self.open:
@@ -1777,7 +1793,7 @@ class Modal:
 
         w, h = surface.get_size()
         overlay = pygame.Surface((w, h), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 160))
+        overlay.fill((0, 0, 0, 0))
         surface.blit(overlay, (0, 0))
 
         rect = pygame.Rect(0, 0, 520, 300)
@@ -2491,7 +2507,8 @@ class GameApp:
         self._event_pending = []    # list[(due_ordinal, event_id)]
 
         self.event_registry = build_default_event_registry(seed=123)
-        self.events = EventSystem(self, self.event_registry, daily_chance=0.010, seed=999)
+        # NOTE: 0.01 = ~1% per day; bump for more visible random events during play.
+        self.events = EventSystem(self, self.event_registry, daily_chance=0.05, seed=999)
 
         self.resources = {
     "gold": 513, "gold_rate": +1,
@@ -2534,6 +2551,7 @@ class GameApp:
         self._mouse_down_in_map = False
         self._mouse_down_pos = (0, 0)
         self._mouse_drag_threshold = 5
+        self._event_resume_speed = None
 
         self.running = True
 
