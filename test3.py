@@ -2693,12 +2693,6 @@ class GameApp:
         self._time_accum += dt * days_per_sec
         whole = int(self._time_accum)
         if whole > 0:
-            self.date.advance_days(whole)
-            self._time_accum -= whole
-            # small, gentle resource drift for life
-            self.resources["gold"] += 1 if (self.date.day % 3 == 0) else 0
-
-        if whole > 0:
             for _ in range(whole):
                 self.date.advance_days(1)
 
