@@ -94,8 +94,10 @@ def draw_deny_button(surface, text, x, y, width, height):
 def clip_draw(surface, rect, draw_fn):
     prev = surface.get_clip()
     surface.set_clip(rect)
-    draw_fn()
-    surface.set_clip(prev)
+    try:
+        draw_fn()
+    finally:
+        surface.set_clip(prev)
 
 UI_GUTTER = 0
 TOP_BAR_H = 60
@@ -173,10 +175,30 @@ def tile_fill(dst, rect, tile):
         for x in range(rect.left, rect.right, tw):
             dst.blit(tile, (x, y))
 
+_DROP_SHADOW_CACHE = {}
+
+def _get_drop_shadow_surface(w, h, strength, inflate, radius):
+    key = (w, h, strength, inflate, radius)
+    surf = _DROP_SHADOW_CACHE.get(key)
+    if surf is None:
+        surf = pygame.Surface((w + inflate * 2, h + inflate * 2), pygame.SRCALPHA)
+        pygame.draw.rect(surf, (0, 0, 0, strength), surf.get_rect(), border_radius=radius)
+        _DROP_SHADOW_CACHE[key] = surf
+    return surf
+
 def draw_drop_shadow(surface, rect, strength=110, inflate=6, radius=8):
-    shadow = pygame.Surface((rect.w + inflate * 2, rect.h + inflate * 2), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, strength), shadow.get_rect(), border_radius=radius)
+    shadow = _get_drop_shadow_surface(rect.w, rect.h, strength, inflate, radius)
     surface.blit(shadow, (rect.x - inflate, rect.y - inflate))
+
+_PANEL_VEIL_CACHE = {}
+
+def _get_panel_veil(size):
+    veil = _PANEL_VEIL_CACHE.get(size)
+    if veil is None:
+        veil = pygame.Surface(size, pygame.SRCALPHA)
+        veil.fill((0, 0, 0, 22))
+        _PANEL_VEIL_CACHE[size] = veil
+    return veil
 
 def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
     draw_drop_shadow(surface, rect, strength=120, inflate=4, radius=10)
@@ -192,9 +214,7 @@ def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
     pygame.draw.rect(surface, PANEL_INNER, inner, border_radius=8)
     if tile is not None:
         tile_fill(surface, inner, tile)
-        veil = pygame.Surface(inner.size, pygame.SRCALPHA)
-        veil.fill((0, 0, 0, 22))
-        surface.blit(veil, inner.topleft)
+        surface.blit(_get_panel_veil(inner.size), inner.topleft)
 
     pygame.draw.rect(surface, (12, 12, 12), inner, width=1, border_radius=8)
 
@@ -215,15 +235,25 @@ def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
 
     return content
 
+_VIGNETTE_CACHE = {}
+
+def _get_vignette_overlay(size, strength):
+    key = (size, strength)
+    overlay = _VIGNETTE_CACHE.get(key)
+    if overlay is None:
+        overlay = pygame.Surface(size, pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 0))
+        cx, cy = size[0] / 2, size[1] / 2
+        max_d = math.hypot(cx, cy)
+        step = 16
+        for r in range(0, int(max_d), step):
+            a = int(clamp((r / max_d) ** 1.8 * strength, 0, strength))
+            pygame.draw.circle(overlay, (0, 0, 0, a), (int(cx), int(cy)), r, width=step)
+        _VIGNETTE_CACHE[key] = overlay
+    return overlay
+
 def draw_vignette(surface, rect, strength=85):
-    overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 0))
-    cx, cy = rect.w / 2, rect.h / 2
-    max_d = math.hypot(cx, cy)
-    step = 16
-    for r in range(0, int(max_d), step):
-        a = int(clamp((r / max_d) ** 1.8 * strength, 0, strength))
-        pygame.draw.circle(overlay, (0, 0, 0, a), (int(cx), int(cy)), r, width=step)
+    overlay = _get_vignette_overlay(rect.size, strength)
     surface.blit(overlay, rect.topleft)
 
 def shield_points(center, size):
@@ -356,28 +386,23 @@ class Camera:
         return pygame.Vector2(sx, sy)
 
     def _clamp_target(self):
-        half_w = (self.vp_w / max(self.target_zoom, 0.001)) / 2
-        half_h = (self.vp_h / max(self.target_zoom, 0.001)) / 2
-        if self.world_w <= 2 * half_w:
-            self.target_center.x = self.world_w / 2
-        else:
-            self.target_center.x = clamp(self.target_center.x, half_w, self.world_w - half_w)
-        if self.world_h <= 2 * half_h:
-            self.target_center.y = self.world_h / 2
-        else:
-            self.target_center.y = clamp(self.target_center.y, half_h, self.world_h - half_h)
+        self._clamp_center(self.target_center, self.target_zoom)
 
     def _clamp_actual(self):
-        half_w = (self.vp_w / max(self.zoom, 0.001)) / 2
-        half_h = (self.vp_h / max(self.zoom, 0.001)) / 2
+        self._clamp_center(self.center, self.zoom)
+
+    def _clamp_center(self, center, zoom):
+        inv_zoom = 1.0 / max(zoom, 0.001)
+        half_w = (self.vp_w * inv_zoom) / 2
+        half_h = (self.vp_h * inv_zoom) / 2
         if self.world_w <= 2 * half_w:
-            self.center.x = self.world_w / 2
+            center.x = self.world_w / 2
         else:
-            self.center.x = clamp(self.center.x, half_w, self.world_w - half_w)
+            center.x = clamp(center.x, half_w, self.world_w - half_w)
         if self.world_h <= 2 * half_h:
-            self.center.y = self.world_h / 2
+            center.y = self.world_h / 2
         else:
-            self.center.y = clamp(self.center.y, half_h, self.world_h - half_h)
+            center.y = clamp(center.y, half_h, self.world_h - half_h)
 
 
 # =========================
@@ -1792,9 +1817,6 @@ class Modal:
             return []
 
         w, h = surface.get_size()
-        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 0))
-        surface.blit(overlay, (0, 0))
 
         rect = pygame.Rect(0, 0, 520, 300)
         rect.center = (w // 2, h // 2)
