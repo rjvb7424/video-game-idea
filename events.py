@@ -22,24 +22,19 @@ class EventRegistry:
     def __init__(self, seed: int = 123):
         self.rng = random.Random(seed)
         self._events: List[EventFactory] = []
+        self._by_id: dict[str, EventFactory] = {}   # NEW
 
     def register(self, factory: EventFactory):
         self._events.append(factory)
+        self._by_id[factory.event_id] = factory     # NEW
 
-    def roll(self, ctx: Any) -> Optional[EventData]:
-        candidates = [e for e in self._events if e.can_fire(ctx)]
-        if not candidates:
+    def build_by_id(self, event_id: str, ctx: Any) -> Optional[EventData]:  # NEW
+        f = self._by_id.get(event_id)
+        if not f:
             return None
-
-        total = sum(e.weight for e in candidates)
-        pick = self.rng.uniform(0, total)
-        upto = 0.0
-        for e in candidates:
-            upto += e.weight
-            if pick <= upto:
-                return e.build(ctx)
-
-        return candidates[-1].build(ctx)
+        if not f.can_fire(ctx):
+            return None
+        return f.build(ctx)
 
 
 # ----------------------------

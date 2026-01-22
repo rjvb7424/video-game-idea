@@ -2,13 +2,6 @@ import math
 import random
 import pygame
 
-# =========================
-# Provided UI Toolkit (Mandatory Base) - DO NOT MODIFY
-# =========================
-
-# external imports
-import pygame
-
 # initialize pygame font module
 pygame.font.init()
 
@@ -596,6 +589,315 @@ def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture
 
 def hash2(x, y, seed):
     return (x * 73856093 ^ y * 19349663 ^ seed * 83492791) & 0xFFFFFFFF
+
+
+# =========================
+# EVENTS CORE (paste as-is)
+# =========================
+
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Any
+
+EventText = str | Callable[[dict], str]
+EnabledFn = bool | Callable[[dict], bool]
+
+def _ev_text(v: EventText, ctx: dict) -> str:
+    return v(ctx) if callable(v) else str(v)
+
+def _ev_bool(v: EnabledFn, ctx: dict) -> bool:
+    return bool(v(ctx)) if callable(v) else bool(v)
+
+def _date_ordinal(date_obj) -> int:
+    """No-leap ordinal for your GameDate (month lengths are fixed)."""
+    month_len = getattr(date_obj, "MONTH_LEN", [31,28,31,30,31,30,31,31,30,31,30,31])
+    y = int(date_obj.year)
+    m = int(date_obj.month)
+    d = int(date_obj.day)
+
+    days_before_month = 0
+    for i in range(m - 1):
+        days_before_month += month_len[i]
+    return y * 365 + days_before_month + d  # simple (no leap years)
+
+@dataclass
+class EventOption:
+    label: EventText
+    kind: str = "primary"   # "primary" | "secondary" | "accept" | "deny"
+    enabled: EnabledFn = True
+    on_choose: Optional[Callable[[dict, "EventAPI"], None]] = None
+    close_on_choose: bool = True
+
+@dataclass
+class EventData:
+    title: EventText
+    body: EventText | list[EventText]
+    options: list[EventOption] = field(default_factory=list)
+    event_id: str = "event"
+    allow_close: bool = False  # if False: no Close button, must pick an option
+
+@dataclass
+class EventFactory:
+    event_id: str
+    weight: int
+    can_fire: Callable[[dict], bool]
+    build: Callable[[dict], EventData]
+
+class EventRegistry:
+    def __init__(self, seed: int = 123):
+        self.rng = random.Random(seed)
+        self._events: list[EventFactory] = []
+        self._by_id: dict[str, EventFactory] = {}
+
+    def register(self, factory: EventFactory):
+        self._events.append(factory)
+        self._by_id[factory.event_id] = factory
+
+    def get(self, event_id: str) -> Optional[EventFactory]:
+        return self._by_id.get(event_id)
+
+    def roll(self, ctx: dict) -> Optional[EventData]:
+        candidates = [e for e in self._events if e.can_fire(ctx)]
+        if not candidates:
+            return None
+
+        total = sum(e.weight for e in candidates)
+        pick = self.rng.uniform(0, total)
+        upto = 0.0
+        for e in candidates:
+            upto += e.weight
+            if pick <= upto:
+                return e.build(ctx)
+        return candidates[-1].build(ctx)
+
+class EventAPI:
+    """
+    What FIXES chain events:
+    options can call api.schedule("event_id", days=7) etc.
+    """
+    def __init__(self, app: Any):
+        self.app = app
+
+    def log(self, text: str):
+        self.app.push_log(text)
+
+    def schedule(self, event_id: str, days: int = 0):
+        due = _date_ordinal(self.app.date) + max(0, int(days))
+        self.app._event_pending.append((due, event_id))
+
+    def push_now(self, event_id: str):
+        self.schedule(event_id, days=0)
+
+    def flag_set(self, key: str, value=True):
+        self.app._event_flags[key] = value
+
+    def flag_get(self, key: str, default=False):
+        return self.app._event_flags.get(key, default)
+
+class EventSystem:
+    """
+    Drives events:
+    - checks pending chain events first
+    - otherwise rolls random events on days
+    - displays via your existing Modal
+    """
+    def __init__(self, app: Any, registry: EventRegistry, daily_chance: float = 0.01, seed: int = 999):
+        self.app = app
+        self.registry = registry
+        self.daily_chance = float(daily_chance)
+        self.rng = random.Random(seed)
+
+    def make_ctx(self) -> dict:
+        # keep this minimal; add more later if you want
+        return {
+            "date": self.app.date,
+            "character": self.app.character,
+            "resources": self.app.resources,
+            "selected_province": self.app.selected_province,
+            "world": self.app.world,
+            "flags": self.app._event_flags,
+            "rng": self.rng,
+        }
+
+    def _open_event(self, ev: EventData):
+        ctx = self.make_ctx()
+        api = EventAPI(self.app)
+
+        title = _ev_text(ev.title, ctx)
+
+        # body can be str or list[str/callable]
+        lines: list[str] = []
+        if isinstance(ev.body, list):
+            for item in ev.body:
+                lines.append(_ev_text(item, ctx))
+        else:
+            lines.append(_ev_text(ev.body, ctx))
+
+        actions = []
+
+        # optional close button (only if allowed)
+        if ev.allow_close:
+            actions.append(("Close", "secondary", lambda: self.app.modal.close()))
+
+        # build option buttons
+        for opt in ev.options:
+            enabled = _ev_bool(opt.enabled, ctx)
+            label = _ev_text(opt.label, ctx)
+
+            def make_cb(_opt: EventOption):
+                def _cb():
+                    # re-make ctx at click time (state may have changed)
+                    ctx2 = self.make_ctx()
+                    api2 = EventAPI(self.app)
+                    if _opt.on_choose:
+                        _opt.on_choose(ctx2, api2)
+                    if _opt.close_on_choose:
+                        self.app.modal.close()
+                return _cb
+
+            if enabled:
+                actions.append((label, opt.kind, make_cb(opt)))
+            else:
+                # Disabled: show button but do nothing
+                actions.append((label, "secondary", lambda: None))
+
+        self.app.modal.show(title, lines, actions)
+
+    def _try_fire_pending(self) -> bool:
+        if self.app.modal.open:
+            return False
+        if not self.app._event_pending:
+            return False
+
+        today = _date_ordinal(self.app.date)
+        # pick the earliest due event
+        self.app._event_pending.sort(key=lambda x: x[0])
+        due_day, eid = self.app._event_pending[0]
+        if due_day > today:
+            return False
+
+        self.app._event_pending.pop(0)
+        fac = self.registry.get(eid)
+        if not fac:
+            self.app.push_log(f"{self.app.date}: Missing event '{eid}'.")
+            return False
+
+        ev = fac.build(self.make_ctx())
+        self._open_event(ev)
+        return True
+
+    def on_day(self):
+        """
+        Call this once per day advanced.
+        """
+        # 1) chain events first
+        if self._try_fire_pending():
+            return
+
+        # 2) random events
+        if self.app.modal.open:
+            return
+        if self.rng.random() >= self.daily_chance:
+            return
+
+        ev = self.registry.roll(self.make_ctx())
+        if ev:
+            self._open_event(ev)
+
+# =========================
+# EVENTS REGISTRY (example + chain)
+# =========================
+
+def build_default_event_registry(seed: int = 123) -> EventRegistry:
+    reg = EventRegistry(seed=seed)
+
+    # --- Event A (starts chain) ---
+    def build_stray_cat(ctx: dict) -> EventData:
+        def adopt(ctx2, api: EventAPI):
+            api.flag_set("has_cat", True)
+            api.log(f"{ctx2['date']}: You adopted a cat.")
+            # CHAIN: follow-up in 7 days
+            api.schedule("cat_followup_001", days=7)
+
+        def ignore(ctx2, api: EventAPI):
+            api.log(f"{ctx2['date']}: You ignored the stray cat.")
+
+        return EventData(
+            title="A Stray Cat Appears",
+            body=[
+                "A small cat slips into your hall. Servants whisper of omens.",
+                "It watches you with unsettling intelligence."
+            ],
+            options=[
+                EventOption("Adopt the cat", kind="accept", on_choose=adopt),
+                EventOption("Ignore it", kind="secondary", on_choose=ignore),
+            ],
+            event_id="stray_cat_001",
+            allow_close=False,
+        )
+
+    # --- Event B (chain follow-up) ---
+    def build_cat_followup(ctx: dict) -> EventData:
+        def keep(ctx2, api: EventAPI):
+            api.log(f"{ctx2['date']}: The cat stays. Court morale improves.")
+            # CHAIN CONTINUES (optional): another follow-up in 14 days
+            api.schedule("cat_finale_001", days=14)
+
+        def send_away(ctx2, api: EventAPI):
+            api.flag_set("has_cat", False)
+            api.log(f"{ctx2['date']}: You sent the cat away. The omens fade.")
+
+        return EventData(
+            title="The Cat’s Omen",
+            body=lambda c: (
+                "The cat has become the court’s obsession. "
+                "Some say it brings fortune. Others say it watches for something."
+            ),
+            options=[
+                EventOption("Keep it close", kind="primary", on_choose=keep),
+                EventOption("Send it away", kind="deny", on_choose=send_away),
+            ],
+            event_id="cat_followup_001",
+            allow_close=False,
+        )
+
+    # --- Event C (chain finale) ---
+    def build_cat_finale(ctx: dict) -> EventData:
+        def accept(ctx2, api: EventAPI):
+            # small resource change example
+            ctx2["resources"]["prestige"] += 5
+            api.log(f"{ctx2['date']}: Tales spread of your ‘witch-cat’. (+5 Prestige)")
+
+        return EventData(
+            title="A Courtly Tale Spreads",
+            body="Travelers whisper of your strange companion. The story grows in every retelling.",
+            options=[
+                EventOption("Let the legend grow", kind="accept", on_choose=accept),
+            ],
+            event_id="cat_finale_001",
+            allow_close=False,
+        )
+
+    # register
+    reg.register(EventFactory(
+        event_id="stray_cat_001",
+        weight=6,
+        can_fire=lambda ctx: not ctx["flags"].get("has_cat", False),
+        build=build_stray_cat
+    ))
+    reg.register(EventFactory(
+        event_id="cat_followup_001",
+        weight=0,  # chain-only (not random)
+        can_fire=lambda ctx: True,
+        build=build_cat_followup
+    ))
+    reg.register(EventFactory(
+        event_id="cat_finale_001",
+        weight=0,  # chain-only
+        can_fire=lambda ctx: True,
+        build=build_cat_finale
+    ))
+
+    return reg
 
 class MapWorld:
     def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
@@ -2184,6 +2486,13 @@ class GameApp:
         self.selected_province = None
         self.hover_province = None
 
+        # --- EVENTS: minimal integration ---
+        self._event_flags = {}      # persistent flags (chain state)
+        self._event_pending = []    # list[(due_ordinal, event_id)]
+
+        self.event_registry = build_default_event_registry(seed=123)
+        self.events = EventSystem(self, self.event_registry, daily_chance=0.010, seed=999)
+
         self.resources = {
     "gold": 513, "gold_rate": +1,
     "prestige": 100, "prestige_rate": 0,
@@ -2388,6 +2697,18 @@ class GameApp:
             self._time_accum -= whole
             # small, gentle resource drift for life
             self.resources["gold"] += 1 if (self.date.day % 3 == 0) else 0
+
+        if whole > 0:
+            for _ in range(whole):
+                self.date.advance_days(1)
+
+                # daily tick for events (random + chain)
+                self.events.on_day()
+
+                # your existing drift can stay here (per-day)
+                self.resources["gold"] += 1 if (self.date.day % 3 == 0) else 0
+
+            self._time_accum -= whole
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
