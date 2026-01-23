@@ -218,7 +218,7 @@ class EventSystem:
                         self.app.modal.close()
                 return _cb
 
-            actions.append((label, opt.kind if enabled else "secondary", make_cb(opt) if enabled else (lambda: None)))
+            actions.append((label, opt.kind if enabled else "disabled", make_cb(opt) if enabled else (lambda: None)))
 
         if self.app.speed_level > 0:
             self.app._event_resume_speed = self.app.speed_level
@@ -231,6 +231,19 @@ class EventSystem:
                 self.app.set_speed(prev)
 
         self.app.modal.show(title, lines, actions, on_close=_resume_speed)
+
+    def open_event_by_id(self, event_id: str) -> bool:
+        if self.app.modal.open:
+            return False
+
+        fac = self.registry.get(event_id)
+        if not fac:
+            self.app.push_log(f"{self.app.date}: Missing event '{event_id}'.")
+            return False
+
+        ev = fac.build(self.make_ctx())
+        self._open_event(ev)
+        return True
 
     def _try_fire_pending(self) -> bool:
         if self.app.modal.open or not self.app._event_pending:

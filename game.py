@@ -432,6 +432,7 @@ class Province:
         self.name = name
         self.realm_id = 0
         self.is_capital = is_capital
+        self.landmark = None
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
@@ -685,6 +686,7 @@ class MapWorld:
 
         self.player_realm_id = 0
         self.visibility_by_prov = {}
+        self.tower_pid = -1
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
@@ -769,6 +771,39 @@ class MapWorld:
                 faith=faith,
             )
             self.realm_rulers[rid] = ruler
+
+    def _assign_tower_of_heaven(self):
+        if not self.provinces:
+            self.tower_pid = -1
+            return
+
+        # Testing: place near player by picking a known province if it exists.
+        for p in self.provinces:
+            if p.name.strip().lower() == "bjornivik":
+                self.tower_pid = p.id
+                p.landmark = "Tower of Heaven"
+                return
+
+        # Prefer a larger province far from the player's capital for narrative weight.
+        cap_pid = getattr(self, "player_capital_pid", -1)
+        if 0 <= cap_pid < len(self.provinces):
+            cap_center = self.provinces[cap_pid].center
+        else:
+            cap_center = pygame.Vector2(self.world_w / 2, self.world_h / 2)
+
+        candidates = [p for p in self.provinces if p.cell_count > 260 and p.id != cap_pid]
+        if not candidates:
+            candidates = [p for p in self.provinces if p.id != cap_pid] or self.provinces[:]
+
+        candidates.sort(
+            key=lambda p: (p.center.x - cap_center.x) ** 2 + (p.center.y - cap_center.y) ** 2,
+            reverse=True,
+        )
+        top_n = max(1, len(candidates) // 3)
+        choice = self.rnd.choice(candidates[:top_n])
+
+        self.tower_pid = choice.id
+        choice.landmark = "Tower of Heaven"
 
     def _name(self):
         a = ["Skal", "Hrafn", "Eir", "Fjall", "Vik", "Bjorn", "Ulf", "Sigr", "Thor", "As", "Hald", "Rim", "Storm", "Frost", "Var"]
@@ -1443,6 +1478,7 @@ class MapWorld:
         self._build_land_mask()
         self._assign_provinces_region_growth()
         self._assign_realms()
+        self._assign_tower_of_heaven()
         self._compute_fog_of_war()
         self._generate_realm_rulers()
 
@@ -1557,20 +1593,29 @@ class Modal:
             y += 2
 
         btns = []
-        btn_w = 140
         btn_h = 36
         gap = 10
-        total = len(self.actions) * btn_w + (len(self.actions) - 1) * gap
+        pad_x = 22
+        min_w = 120
+        widths = [max(min_w, BODY_FONT.size(label)[0] + pad_x * 2) for label, _, _ in self.actions]
+        total = sum(widths) + (len(widths) - 1) * gap
         x = content.centerx - total // 2
         yb = rect.bottom - 58
 
-        for label, kind, cb in self.actions:
+        for (label, kind, cb), btn_w in zip(self.actions, widths):
             if kind == "primary":
                 r = draw_primary_button(surface, label, x, yb, btn_w, btn_h)
             elif kind == "secondary":
                 r = draw_secondary_button(surface, label, x, yb, btn_w, btn_h)
             elif kind == "accept":
                 r = draw_accept_button(surface, label, x, yb, btn_w, btn_h)
+            elif kind == "disabled":
+                # muted, inactive style distinct from Close
+                r = pygame.Rect(x, yb, btn_w, btn_h)
+                pygame.draw.rect(surface, (60, 60, 60), r, border_radius=8)
+                pygame.draw.rect(surface, (20, 20, 20), r, 2, border_radius=8)
+                txt = BODY_FONT.render(label, True, (150, 150, 150))
+                surface.blit(txt, txt.get_rect(center=r.center))
             else:
                 r = draw_deny_button(surface, label, x, yb, btn_w, btn_h)
             btns.append((r, cb))
@@ -2143,6 +2188,10 @@ class UIManager:
                 tag = " (capital)" if i == 0 else ""
                 if not safe_body(f"• {hname}{tag}"):
                     break
+            if sel.landmark and y + 18 < y_limit:
+                y += 8
+                safe_header("Landmarks")
+                safe_body(f"• {sel.landmark}", color=(235, 220, 185))
 
             # --- Realm + ruler (THIS is the part you were confused about) ---
             # Only do this when sel != None.
@@ -2265,9 +2314,9 @@ class GameApp:
         self.events = EventSystem(self, self.event_registry, daily_chance=0.05, seed=999)
 
         self.resources = {
-    "gold": 100, "gold_rate": +1,
+    "gold": 200, "gold_rate": +1,
     "prestige": 100, "prestige_rate": 0,
-    "piety": 100, "piety_rate": -2
+    "piety": 1000, "piety_rate": -2
 }
 
         # Player character = ruler of player realm
@@ -2308,6 +2357,28 @@ class GameApp:
         self._event_resume_speed = None
 
         self.running = True
+
+    def _try_open_tower_event(self, screen_pos):
+        tower_pid = getattr(self.world, "tower_pid", -1)
+        if not (0 <= tower_pid < len(self.world.provinces)):
+            return False
+
+        tprov = self.world.provinces[tower_pid]
+        sp = self.camera.world_to_screen(tprov.center, self.layout.map, use_target=False)
+        x, y = int(sp.x), int(sp.y)
+
+        label = "Tower of Heaven"
+        text = FOOTER_FONT.render(label, True, (0, 0, 0))
+        text_rect = text.get_rect(midtop=(x, y + 8))
+        icon_rect = pygame.Rect(x - 8, y - 28, 16, 30)
+        hit_rect = icon_rect.union(text_rect.inflate(6, 4))
+
+        if hit_rect.collidepoint(screen_pos):
+            opened = self.events.open_event_by_id("tower_of_heaven_approach")
+            if opened:
+                self.selected_province = tprov
+            return opened
+        return False
 
     def push_log(self, text):
         self.log.append(text)
@@ -2455,6 +2526,27 @@ class GameApp:
             border_color=border_color,
             outline=is_player_capital,
         )
+
+    def _draw_tower_marker(self, surf, center, show_text=True):
+        x, y = int(center[0]), int(center[1])
+
+        # tower body
+        body = pygame.Rect(x - 6, y - 18, 12, 20)
+        pygame.draw.rect(surf, (210, 200, 180, 230), body, border_radius=2)
+        pygame.draw.rect(surf, (20, 18, 16, 220), body, 1, border_radius=2)
+
+        # spire
+        spire = [(x, y - 28), (x - 6, y - 18), (x + 6, y - 18)]
+        pygame.draw.polygon(surf, (225, 215, 195, 235), spire)
+        pygame.draw.polygon(surf, (20, 18, 16, 210), spire, 1)
+
+        if show_text:
+            label = "Tower of Heaven"
+            text = FOOTER_FONT.render(label, True, (240, 220, 150))
+            shadow = FOOTER_FONT.render(label, True, (0, 0, 0))
+            tr = text.get_rect(midtop=(x, y + 8))
+            surf.blit(shadow, (tr.x + 1, tr.y + 1))
+            surf.blit(text, tr)
 
     def _handle_action(self, action):
         if action == "toggle_pause":
@@ -2605,6 +2697,10 @@ class GameApp:
         if show_minimal:
             draw_set |= minimal_set
 
+        tower_pid = getattr(self.world, "tower_pid", -1)
+        if tower_pid in draw_set:
+            draw_set.remove(tower_pid)
+
         for pid in sorted(draw_set):
             prov = self.world.provinces[pid]
             vis = self.world.visibility_by_prov.get(pid, 0.45)
@@ -2622,6 +2718,15 @@ class GameApp:
             else:
                 # minimal label for non-capitals
                 self._draw_minimal_province_label(overlay, (lx, ly), prov, vis)
+
+        # Special landmark marker (always visible, even under fog)
+        if 0 <= tower_pid < len(self.world.provinces):
+            tprov = self.world.provinces[tower_pid]
+            sp = self.camera.world_to_screen(tprov.center, map_rect, use_target=False)
+            tx = int(sp.x - map_rect.left)
+            ty = int(sp.y - map_rect.top)
+            if 0 <= tx < map_rect.w and 0 <= ty < map_rect.h:
+                self._draw_tower_marker(overlay, (tx, ty), show_text=True)
 
         # blend onto the map view
         view.blit(overlay, (0, 0))
@@ -2701,11 +2806,12 @@ class GameApp:
                                 self.camera.end_drag()
                             else:
                                 if self.layout.map.collidepoint(event.pos):
-                                    wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
-                                    prov = self.world.province_at_world(wp)
-                                    if prov is not None:
-                                        self.selected_province = prov
-                                        self.push_log(f"{self.date}: Selected {prov.name}.")
+                                    if not self._try_open_tower_event(event.pos):
+                                        wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
+                                        prov = self.world.province_at_world(wp)
+                                        if prov is not None:
+                                            self.selected_province = prov
+                                            self.push_log(f"{self.date}: Selected {prov.name}.")
                             self._mouse_down_in_map = False
                             self._drag_started = False
                             
