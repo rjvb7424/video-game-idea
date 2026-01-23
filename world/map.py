@@ -550,7 +550,7 @@ class MapWorld:
             cy = (sumy[pid] / cnt[pid] + 0.5) * self.cell_scale
             self.provinces[pid].center = pygame.Vector2(cx, cy)
             pr = random.Random(self.seed * 131071 + pid * 17)
-            self.provinces[pid].population = pr.randint(1000, 2000)
+            self.provinces[pid].population = pr.randint(300, 900)
 
     def _build_province_adjacency(self):
         w, h = self.gw, self.gh
@@ -973,3 +973,15 @@ class MapWorld:
 
     def total_population_for_realm(self, realm_id):
         return sum(p.population for p in self.provinces if p.realm_id == realm_id)
+
+    def total_population(self):
+        return sum(p.population for p in self.provinces)
+
+    def adjust_population_for_realm(self, realm_id, rate):
+        if rate == 0:
+            return
+        for p in self.provinces:
+            if p.realm_id != realm_id:
+                continue
+            new_val = int(round(p.population * (1.0 + rate)))
+            p.population = max(1, new_val)

@@ -62,6 +62,20 @@ class UIManager:
             self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120))
             right_edge = pop_rect.left - gap
 
+        # ---------- RIGHT SIDE: Food / Threat bars ----------
+        food = state.get("food")
+        threat = state.get("threat")
+        if food is not None:
+            bar_w = 160
+            food_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
+            self._draw_meter(surface, food_rect, "Food", food, fill_color=(100, 160, 100))
+            right_edge = food_rect.left - gap
+        if threat is not None:
+            bar_w = 160
+            threat_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
+            self._draw_meter(surface, threat_rect, "Threat", threat, fill_color=(170, 90, 90))
+            right_edge = threat_rect.left - gap
+
         # ---------- MIDDLE: Resources fill the remaining space ----------
         res = state["resources"]
         x_left = rect.left + pad
@@ -119,6 +133,32 @@ class UIManager:
         surface.blit(main_surf, (text_x, main_y))
         if rate_surf is not None:
             surface.blit(rate_surf, (text_x + main_surf.get_width(), rate_y))
+
+    def _draw_meter(self, surface, rect, label, value, fill_color=(120, 160, 120)):
+        pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
+        pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
+
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            produced = max(0, int(round(value[0])))
+            consumed = max(0, int(round(value[1])))
+            label_text = f"{label}: {produced:,}/{consumed:,}"
+            if consumed <= 0:
+                value = 100 if produced > 0 else 0
+            else:
+                value = max(0, min(100, int((produced / consumed) * 100)))
+        else:
+            value = max(0, min(100, int(value)))
+            label_text = f"{label}: {value}%"
+        label_surf = FOOTER_FONT.render(label_text, True, (235, 228, 210))
+        surface.blit(label_surf, (rect.left + 10, rect.top + 6))
+
+        bar_h = 6
+        bar_rect = pygame.Rect(rect.left + 10, rect.bottom - 10 - bar_h, rect.w - 20, bar_h)
+        pygame.draw.rect(surface, (45, 45, 45), bar_rect, border_radius=4)
+        fill_w = int(bar_rect.w * (value / 100.0))
+        if fill_w > 0:
+            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
+            pygame.draw.rect(surface, fill_color, fill_rect, border_radius=4)
 
     def draw_left_panel(self, surface, rect, state):
         content = draw_framed_panel(surface, rect, title="Ruler", title_color=INK, tile=self.left_tile)
@@ -386,9 +426,7 @@ class UIManager:
 
     @staticmethod
     def _format_population(value):
-        if value >= 1000:
-            return f"{value / 1000:.1f}k"
-        return str(value)
+        return f"{value:,}"
 
     def _draw_time_controls(self, surface, right_edge, y, bh, state):
         btns = []

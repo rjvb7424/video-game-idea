@@ -3,6 +3,7 @@ import pygame
 import event_content
 from core.camera import Camera
 from core.date import GameDate
+from core.math_utils import clamp
 from core.surfaces import tile_fill
 from events import EventRegistry, EventSystem, register_all
 from rendering.map_view import MapRenderer
@@ -65,6 +66,12 @@ class GameApp:
 
         self.army = {"raised": 928, "max": 1712, "morale": 77}
         self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self.food = (0.0, 0.0)  # (produced, consumed)
+        self.food_production_per_province = 300.0  # monthly production per province
+        self.food_consumption_per_pop = 0.4  # monthly consumption per person
+        self._baseline_population = max(1, self.population)
+        self.food = self._compute_food_values()
+        self.threat = self._compute_threat()
 
         self.log = [
             "January 8, 1067: Rumors of usurpation spread in Carinthia.",
@@ -139,6 +146,27 @@ class GameApp:
     def _exit_game(self):
         self.running = False
 
+    def _compute_threat(self):
+        # Threat rises only when population grows above the starting baseline.
+        growth_threat = int(((self.population - self._baseline_population) / self._baseline_population) * 100)
+        # Always keep a small base threat tied to overall population.
+        base_threat = clamp(int(self.population / 3000), 3, 15)
+        threat = max(base_threat, growth_threat)
+        if self.population > self._baseline_population:
+            threat = max(1, threat)
+        return max(0, min(100, threat))
+
+    def _compute_food_values(self):
+        realm_size = 0
+        if hasattr(self.world, "realm_sizes") and 0 <= self.player_realm_id < len(self.world.realm_sizes):
+            realm_size = self.world.realm_sizes[self.player_realm_id]
+        if realm_size <= 0:
+            realm_size = sum(1 for p in self.world.provinces if p.realm_id == self.player_realm_id)
+
+        production = self.food_production_per_province * realm_size
+        consumption = self.population * self.food_consumption_per_pop
+        return production, consumption
+
     def _handle_action(self, action):
         if action == "toggle_pause":
             self.toggle_pause()
@@ -198,6 +226,27 @@ class GameApp:
             if rate == 0:
                 continue
             self.resources[res] += rate
+        # Food production scales with realm size; consumption scales with population.
+        production, consumption = self._compute_food_values()
+        self.food = (production, consumption)
+
+        # Population growth/decline based on food surplus/deficit.
+        if consumption <= 0:
+            food_balance = 1.0
+        else:
+            food_balance = (production - consumption) / consumption
+        food_balance = max(-1.0, min(1.0, food_balance))
+
+        if food_balance >= 0:
+            pop_rate = 0.002 * food_balance  # up to +0.2% per month
+        else:
+            pop_rate = 0.006 * food_balance  # down to -0.6% per month
+
+        if abs(pop_rate) > 0.00001:
+            self.world.adjust_population_for_realm(self.player_realm_id, pop_rate)
+
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self.threat = self._compute_threat()
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
@@ -334,6 +383,8 @@ class GameApp:
                 "realm_names": self.world.realm_names,
                 "realm_rulers": self.world.realm_rulers,
                 "population": self.population,
+                "food": self.food,
+                "threat": self.threat,
             }
 
             clickables = []
