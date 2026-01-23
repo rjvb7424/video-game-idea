@@ -1748,6 +1748,11 @@ FAITH_RULES = {
         "sins":    {"forgiving", "lazy"},
         "base_piety_rate": 0,
     },
+    "Nordfolken Mythology": {
+        "virtues": {"vengeful", "wrathful", "diligent", "proud"},
+        "sins":    {"forgiving", "lazy", "humble", "patient"},
+        "base_piety_rate": 0,
+    },
     "Mozarabic": {
         "virtues": {"forgiving", "humble", "charitable", "patient", "temperate"},
         "sins":    {"vengeful", "proud", "greedy", "wrathful", "gluttonous"},
@@ -2466,10 +2471,26 @@ class GameApp:
                 # daily tick for events (random + chain)
                 self.events.on_day()
 
+                self._apply_daily_resource_rates()
+
                 # your existing drift can stay here (per-day)
                 self.resources["gold"] += 1 if (self.date.day % 3 == 0) else 0
 
             self._time_accum -= whole
+
+    def _apply_daily_resource_rates(self):
+        days_in_month = GameDate.MONTH_LEN[self.date.month - 1]
+        for res in ("gold", "prestige", "piety"):
+            rate = self.resources.get(f"{res}_rate", 0)
+            if rate == 0:
+                continue
+            daily = rate / days_in_month
+            self._res_accum[res] += daily
+            acc = self._res_accum[res]
+            if acc >= 1 or acc <= -1:
+                whole = math.floor(acc) if acc > 0 else math.ceil(acc)
+                self.resources[res] += whole
+                self._res_accum[res] -= whole
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
