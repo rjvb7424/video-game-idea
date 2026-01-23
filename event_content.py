@@ -57,7 +57,7 @@ def cat_finale(ctx, E):
     .done())
 
 
-@event("tower_of_heaven_approach", weight=0)  # triggered by button
+@event("tower_of_heaven_approach", weight=0)
 def tower_of_heaven(ctx, E):
     stage = int(ctx["flags"].get("tower_repairs", 0))
     completed = bool(ctx["flags"].get("tower_completed", False))
