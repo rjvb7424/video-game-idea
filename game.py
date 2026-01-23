@@ -194,6 +194,7 @@ def draw_drop_shadow(surface, rect, strength=110, inflate=6, radius=8):
     surface.blit(shadow, (rect.x - inflate, rect.y - inflate))
 
 _PANEL_VEIL_CACHE = {}
+_PANEL_MASK_CACHE = {}
 
 def _get_panel_veil(size):
     veil = _PANEL_VEIL_CACHE.get(size)
@@ -202,6 +203,15 @@ def _get_panel_veil(size):
         veil.fill((0, 0, 0, 22))
         _PANEL_VEIL_CACHE[size] = veil
     return veil
+
+def _get_panel_mask(size, radius):
+    key = (size, radius)
+    mask = _PANEL_MASK_CACHE.get(key)
+    if mask is None:
+        mask = pygame.Surface(size, pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=radius)
+        _PANEL_MASK_CACHE[key] = mask
+    return mask
 
 def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
     draw_drop_shadow(surface, rect, strength=120, inflate=4, radius=10)
@@ -216,8 +226,11 @@ def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
     inner = rect.inflate(-14, -14)
     pygame.draw.rect(surface, PANEL_INNER, inner, border_radius=8)
     if tile is not None:
-        tile_fill(surface, inner, tile)
-        surface.blit(_get_panel_veil(inner.size), inner.topleft)
+        tile_surf = pygame.Surface(inner.size, pygame.SRCALPHA)
+        tile_fill(tile_surf, tile_surf.get_rect(), tile)
+        tile_surf.blit(_get_panel_veil(inner.size), (0, 0))
+        tile_surf.blit(_get_panel_mask(inner.size, 8), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(tile_surf, inner.topleft)
 
     pygame.draw.rect(surface, (12, 12, 12), inner, width=1, border_radius=8)
 
@@ -232,8 +245,9 @@ def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
         strip = pygame.Rect(inner.left+6, inner.top+6, inner.w-12, strip_h)
         pygame.draw.rect(surface, PANEL_INNER_2, strip, border_radius=6)
         pygame.draw.rect(surface, (14, 14, 14), strip, width=1, border_radius=6)
-        y = strip.top + 4
-        draw_header_text(surface, title, strip.left + 8, y, color=title_color)
+        title_surf = HEADER_FONT.render(title, True, title_color)
+        title_rect = title_surf.get_rect(midleft=(strip.left + 8, strip.centery))
+        surface.blit(title_surf, title_rect)
         content = pygame.Rect(inner.left+8, strip.bottom+6, inner.w-16, inner.h - strip_h - 14)
 
     return content
