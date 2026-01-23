@@ -37,6 +37,7 @@ class Province:
         self.cell_count = 0
         self.biome = "Plains"
         self.biome_color = LAND_GREEN
+        self.population = 0
 
         self.income = 1 + (pid % 5)
         self.levy = 120 + (pid * 9) % 520
@@ -548,6 +549,8 @@ class MapWorld:
             cx = (sumx[pid] / cnt[pid] + 0.5) * self.cell_scale
             cy = (sumy[pid] / cnt[pid] + 0.5) * self.cell_scale
             self.provinces[pid].center = pygame.Vector2(cx, cy)
+            pr = random.Random(self.seed * 131071 + pid * 17)
+            self.provinces[pid].population = pr.randint(1000, 2000)
 
     def _build_province_adjacency(self):
         w, h = self.gw, self.gh
@@ -967,3 +970,6 @@ class MapWorld:
             else:
                 return True
         return False
+
+    def total_population_for_realm(self, realm_id):
+        return sum(p.population for p in self.provinces if p.realm_id == realm_id)

@@ -46,8 +46,7 @@ def cat_followup(ctx, E):
 @event("cat_finale_001", weight=0)  # chain-only
 def cat_finale(ctx, E):
     def accept(ctx2, api):
-        ctx2["resources"]["prestige"] += 5
-        api.log(f"{ctx2['date']}: Tales spread of your ‘witch-cat’. (+5 Prestige)")
+        api.log(f"{ctx2['date']}: Tales spread of your ‘witch-cat’.")
 
     return (E.make(
         "A Courtly Tale Spreads",

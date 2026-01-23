@@ -50,8 +50,6 @@ class GameApp:
         self.resources = {
             "gold": 200,
             "gold_rate": +1,
-            "prestige": 100,
-            "prestige_rate": 0,
             "piety": 1000,
         }
 
@@ -66,6 +64,7 @@ class GameApp:
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
         self.army = {"raised": 928, "max": 1712, "morale": 77}
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
 
         self.log = [
             "January 8, 1067: Rumors of usurpation spread in Carinthia.",
@@ -194,7 +193,7 @@ class GameApp:
             self._time_accum -= whole
 
     def _apply_monthly_resource_rates(self):
-        for res in ("gold", "prestige", "piety"):
+        for res in ("gold", "piety"):
             rate = self.resources.get(f"{res}_rate", 0)
             if rate == 0:
                 continue
@@ -334,6 +333,7 @@ class GameApp:
                 "log": self.log,
                 "realm_names": self.world.realm_names,
                 "realm_rulers": self.world.realm_rulers,
+                "population": self.population,
             }
 
             clickables = []

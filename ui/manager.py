@@ -15,7 +15,6 @@ from ui.theme import (
     FOOTER_FONT,
     HEADER_FONT,
     INK,
-    UI_GUTTER,
 )
 
 
@@ -54,56 +53,18 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
-        # ---------- RIGHT SIDE: Speed plate + time buttons ----------
-        sp = state["speed_level"]
-        sp_label = "Paused" if sp == 0 else f"Speed {sp}"
-
-        plate_w = max(120, BODY_FONT.size(sp_label)[0] + 36)
-        bw = bh
-        bgap = max(8, bw // 6)
-
-        time_cluster_w = plate_w + gap + (4 * bw + 3 * bgap)
-        x_time = right_edge - time_cluster_w
-
-        # speed plate
-        plate = pygame.Rect(x_time, y, plate_w, bh)
-        pygame.draw.rect(surface, (22, 22, 22), plate, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), plate, 2, border_radius=8)
-
-        sp_surf = BODY_FONT.render(sp_label, True, (220, 214, 198))
-        surface.blit(sp_surf, sp_surf.get_rect(center=plate.center))
-
-        # time buttons
-        bx = plate.right + gap
-        by = y
-        b_pause = draw_secondary_button(surface, "II", bx, by, bw, bh)
-        b_slow = draw_secondary_button(surface, ">", bx + (bw + bgap), by, bw, bh)
-        b_fast = draw_secondary_button(surface, ">>", bx + 2 * (bw + bgap), by, bw, bh)
-        b_ultra = draw_secondary_button(surface, ">>>", bx + 3 * (bw + bgap), by, bw, bh)
-
-        btns.append((b_pause, "toggle_pause"))
-        btns.append((b_slow, "speed_1"))
-        btns.append((b_fast, "speed_2"))
-        btns.append((b_ultra, "speed_3"))
-
-        right_edge = x_time - gap
-
-        # ---------- LEFT SIDE: Date ----------
-        date_text = str(state["date"])
-        date_w = max(220, HEADER_FONT.size(date_text)[0] + 44)
-
-        x_left = rect.left + pad
-        date_block = pygame.Rect(x_left, y, date_w, bh)
-        pygame.draw.rect(surface, (22, 22, 22), date_block, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
-
-        date_surf = HEADER_FONT.render(date_text, True, (230, 224, 208))
-        surface.blit(date_surf, date_surf.get_rect(center=date_block.center))
-
-        x_left = date_block.right + gap
+        # ---------- RIGHT SIDE: Population ----------
+        pop_value = state.get("population")
+        if pop_value is not None:
+            pop_text = self._format_population(pop_value)
+            pop_w = max(190, BODY_FONT.size(f"Population: {pop_text}")[0] + 36)
+            pop_rect = pygame.Rect(right_edge - pop_w, y, pop_w, bh)
+            self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120))
+            right_edge = pop_rect.left - gap
 
         # ---------- MIDDLE: Resources fill the remaining space ----------
         res = state["resources"]
+        x_left = rect.left + pad
         avail = max(0, right_edge - x_left)
 
         min_pill = 150
@@ -112,23 +73,13 @@ class UIManager:
         def pill_rect(x, w):
             return pygame.Rect(x, y, w, bh)
 
-        if avail >= (3 * min_pill + 2 * gap):
-            per_w = min(max_pill, (avail - 2 * gap) // 3)
-            r1 = pill_rect(x_left, per_w)
-            r2 = pill_rect(r1.right + gap, per_w)
-            r3 = pill_rect(r2.right + gap, per_w)
-
-            self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Prestige", res["prestige"], res.get("prestige_rate", 0), icon_color=(150, 150, 165))
-            self._draw_resource(surface, r3, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
-
-        elif avail >= (2 * min_pill + gap):
+        if avail >= (2 * min_pill + gap):
             per_w = min(max_pill, (avail - gap) // 2)
             r1 = pill_rect(x_left, per_w)
             r2 = pill_rect(r1.right + gap, per_w)
 
             self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Prestige", res["prestige"], res.get("prestige_rate", 0), icon_color=(150, 150, 165))
+            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
 
         elif avail >= 120:
             r1 = pill_rect(x_left, min(avail, max_pill))
@@ -136,7 +87,7 @@ class UIManager:
 
         return btns
 
-    def _draw_resource(self, surface, rect, label, value, rate=0, icon_color=(200, 200, 200)):
+    def _draw_resource(self, surface, rect, label, value, rate=None, icon_color=(200, 200, 200)):
         pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
@@ -150,16 +101,19 @@ class UIManager:
         main_text = f"{label}: {value}"
         main_surf = BODY_FONT.render(main_text, True, (235, 228, 210))
 
-        rate_text = f" ({rate:+d})"
-        rate_surf = FOOTER_FONT.render(rate_text, True, (160, 155, 145))
+        if rate is None:
+            rate_surf = None
+        else:
+            rate_text = f" ({rate:+d})"
+            rate_surf = FOOTER_FONT.render(rate_text, True, (160, 155, 145))
 
         text_x = icon_cx + 16
 
         main_y = rect.centery - main_surf.get_height() // 2
-        rate_y = rect.centery - rate_surf.get_height() // 2
+        rate_y = rect.centery - (rate_surf.get_height() // 2 if rate_surf is not None else 0)
 
         max_x = rect.right - 10
-        if text_x + main_surf.get_width() + rate_surf.get_width() > max_x:
+        if rate_surf is not None and (text_x + main_surf.get_width() + rate_surf.get_width() > max_x):
             rate_surf = None
 
         surface.blit(main_surf, (text_x, main_y))
@@ -408,31 +362,66 @@ class UIManager:
         pygame.draw.line(surface, (90, 86, 78), (rect.left, rect.top), (rect.right, rect.top))
         pygame.draw.line(surface, (0, 0, 0), (rect.left, rect.top + 1), (rect.right, rect.top + 1))
 
-        # Corner buttons (CK-like menu strip)
+        pad = max(10, rect.w // 120)
+        gap = max(10, rect.w // 140)
+        bh = max(34, int(rect.h * 0.62))
+        y = rect.centery - bh // 2
+
+        # Time controls on bottom-right corner
+        time_btns, time_left_edge = self._draw_time_controls(surface, rect.right - pad, y, bh, state)
+
+        # Date block just to the left of time controls
+        date_text = str(state["date"])
+        date_w = max(220, HEADER_FONT.size(date_text)[0] + 44)
+        date_x = max(rect.left + pad, time_left_edge - gap - date_w)
+        date_block = pygame.Rect(date_x, y, date_w, bh)
+        pygame.draw.rect(surface, (22, 22, 22), date_block, border_radius=8)
+        pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
+        date_surf = HEADER_FONT.render(date_text, True, (230, 224, 208))
+        surface.blit(date_surf, date_surf.get_rect(center=date_block.center))
+
         btns = []
-        x = rect.left + UI_GUTTER
-        y = rect.top + 12
-        bw = 96
-        bh = 34
-        for label, action in [("Menu", "open_menu"), ("Ledger", "ledger"), ("Realm", "realm"), ("Military", "military")]:
-            r = draw_secondary_button(surface, label, x, y, bw, bh)
-            btns.append((r, action))
-            x += bw + 10
-
-        x2 = rect.right - UI_GUTTER - (bw + 10) * 2
-        for label, action in [("Decisions", "decisions"), ("Court", "court")]:
-            r = draw_secondary_button(surface, label, x2, y, bw + 20, bh)
-            btns.append((r, action))
-            x2 += bw + 30
-
-        # Message log window
-        log_rect = pygame.Rect(rect.left + UI_GUTTER, rect.top + 54, rect.w - UI_GUTTER * 2, rect.h - 62)
-        pygame.draw.rect(surface, (20, 20, 20), log_rect, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), log_rect, 2, border_radius=8)
-
-        lx = log_rect.left + 10
-        ly = log_rect.top + 8
-        for line in state["log"][-3:]:
-            ly = draw_footer_text(surface, line, lx, ly, color=(205, 198, 180))
-
+        btns.extend(time_btns)
         return btns
+
+    @staticmethod
+    def _format_population(value):
+        if value >= 1000:
+            return f"{value / 1000:.1f}k"
+        return str(value)
+
+    def _draw_time_controls(self, surface, right_edge, y, bh, state):
+        btns = []
+        sp = state["speed_level"]
+        sp_label = "Paused" if sp == 0 else f"Speed {sp}"
+
+        gap = 10
+        plate_w = max(120, BODY_FONT.size(sp_label)[0] + 36)
+        bw = bh
+        bgap = max(8, bw // 6)
+
+        time_cluster_w = plate_w + gap + (4 * bw + 3 * bgap)
+        x_time = right_edge - time_cluster_w
+
+        # speed plate
+        plate = pygame.Rect(x_time, y, plate_w, bh)
+        pygame.draw.rect(surface, (22, 22, 22), plate, border_radius=8)
+        pygame.draw.rect(surface, (0, 0, 0), plate, 2, border_radius=8)
+
+        sp_surf = BODY_FONT.render(sp_label, True, (220, 214, 198))
+        surface.blit(sp_surf, sp_surf.get_rect(center=plate.center))
+
+        # time buttons
+        bx = plate.right + gap
+        by = y
+        b_pause = draw_secondary_button(surface, "II", bx, by, bw, bh)
+        b_slow = draw_secondary_button(surface, ">", bx + (bw + bgap), by, bw, bh)
+        b_fast = draw_secondary_button(surface, ">>", bx + 2 * (bw + bgap), by, bw, bh)
+        b_ultra = draw_secondary_button(surface, ">>>", bx + 3 * (bw + bgap), by, bw, bh)
+
+        btns.append((b_pause, "toggle_pause"))
+        btns.append((b_slow, "speed_1"))
+        btns.append((b_fast, "speed_2"))
+        btns.append((b_ultra, "speed_3"))
+
+        return btns, x_time
