@@ -2265,7 +2265,7 @@ class GameApp:
         self.events = EventSystem(self, self.event_registry, daily_chance=0.05, seed=999)
 
         self.resources = {
-    "gold": 513, "gold_rate": +1,
+    "gold": 100, "gold_rate": +1,
     "prestige": 100, "prestige_rate": 0,
     "piety": 100, "piety_rate": -2
 }
@@ -2471,26 +2471,19 @@ class GameApp:
                 # daily tick for events (random + chain)
                 self.events.on_day()
 
-                self._apply_daily_resource_rates()
-
-                # your existing drift can stay here (per-day)
-                self.resources["gold"] += 1 if (self.date.day % 3 == 0) else 0
+                if self.date.day == 1:
+                    self._apply_monthly_resource_rates()
 
             self._time_accum -= whole
 
-    def _apply_daily_resource_rates(self):
-        days_in_month = GameDate.MONTH_LEN[self.date.month - 1]
+    def _apply_monthly_resource_rates(self):
         for res in ("gold", "prestige", "piety"):
             rate = self.resources.get(f"{res}_rate", 0)
             if rate == 0:
                 continue
-            daily = rate / days_in_month
-            self._res_accum[res] += daily
-            acc = self._res_accum[res]
-            if acc >= 1 or acc <= -1:
-                whole = math.floor(acc) if acc > 0 else math.ceil(acc)
-                self.resources[res] += whole
-                self._res_accum[res] -= whole
+            self.resources[res] += rate
+
+        # No extra drift; only apply declared rates.
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
