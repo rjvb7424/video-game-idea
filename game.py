@@ -2381,7 +2381,17 @@ class GameApp:
         # outline
         pygame.draw.polygon(surf, (10, 10, 10, int(alpha * 0.9)), pts, 1)
 
-    def _draw_banner_with_text(self, surf, center, text, alpha=220, text_color=(20, 20, 20)):
+    def _draw_banner_with_text(
+        self,
+        surf,
+        center,
+        text,
+        alpha=220,
+        text_color=(20, 20, 20),
+        banner_fill=(220, 210, 190),
+        border_color=(40, 36, 32),
+        outline=False,
+    ):
         # text surface
         text_surf = FOOTER_FONT.render(text, True, text_color)
         pad_x, pad_y = 14, 6
@@ -2397,17 +2407,23 @@ class GameApp:
         pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.35)), shadow, border_radius=8)
 
         # banner fill
-        pygame.draw.rect(surf, (220, 210, 190, alpha), rect, border_radius=8)
+        pygame.draw.rect(surf, (banner_fill[0], banner_fill[1], banner_fill[2], alpha), rect, border_radius=8)
 
         # banner border
-        pygame.draw.rect(surf, (40, 36, 32, int(alpha * 0.9)), rect, width=1, border_radius=8)
+        pygame.draw.rect(surf, (border_color[0], border_color[1], border_color[2], int(alpha * 0.9)), rect, width=1, border_radius=8)
 
-        # OPTIONAL: outline for readability (helps gold a lot)
-        outline = FOOTER_FONT.render(text, True, (0, 0, 0))
-        outline.set_alpha(int(alpha * 0.7))
         tr = text_surf.get_rect(center=rect.center)
-        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-            surf.blit(outline, (tr.x + dx, tr.y + dy))
+        # subtle text shadow to avoid overly thick lettering
+        shadow_text = FOOTER_FONT.render(text, True, (0, 0, 0))
+        shadow_text.set_alpha(int(alpha * 0.35))
+        surf.blit(shadow_text, (tr.x + 1, tr.y + 1))
+
+        if outline:
+            # optional thin outline for contrast (used for gold text)
+            outline_surf = FOOTER_FONT.render(text, True, (0, 0, 0))
+            outline_surf.set_alpha(int(alpha * 0.45))
+            for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+                surf.blit(outline_surf, (tr.x + dx, tr.y + dy))
 
         # text
         text_surf.set_alpha(alpha)
@@ -2423,8 +2439,10 @@ class GameApp:
 
         # gold text ONLY for the player's capital
         is_player_capital = (prov.id == getattr(self.world, "player_capital_pid", -1))
-        gold = (210, 175, 70)     # tweak if you want warmer/cooler
+        gold = (230, 195, 85)     # brighter gold for better contrast on parchment
         black = (20, 20, 20)
+        banner_fill = (200, 185, 155) if is_player_capital else (220, 210, 190)
+        border_color = (70, 60, 45) if is_player_capital else (40, 36, 32)
 
         banner_center = (center[0], center[1] + 14)
         self._draw_banner_with_text(
@@ -2432,7 +2450,10 @@ class GameApp:
             banner_center,
             prov.name,
             alpha=a,
-            text_color=(gold if is_player_capital else black)
+            text_color=(gold if is_player_capital else black),
+            banner_fill=banner_fill,
+            border_color=border_color,
+            outline=is_player_capital,
         )
 
     def _handle_action(self, action):
