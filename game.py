@@ -66,11 +66,12 @@ class GameApp:
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
         self.army = {"raised": 928, "max": 1712, "morale": 77}
-        self.population = self.world.total_population_for_realm(self.player_realm_id)
         self.food = (0.0, 0.0)  # (produced, consumed)
         farm_def = BUILDINGS.get("farm")
         self.food_production_per_farm = farm_def.food_bonus if farm_def else 0.0
         self.food_consumption_per_pop = 0.4  # monthly consumption per person
+        self._rebalance_population_to_farms()
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
@@ -164,6 +165,32 @@ class GameApp:
         consumption = self.population * self.food_consumption_per_pop
         return production, consumption
 
+    def _rebalance_population_to_farms(self, safety_margin=0.95):
+        if self.food_production_per_farm <= 0 or self.food_consumption_per_pop <= 0:
+            return
+
+        realms = {}
+        for prov in self.world.provinces:
+            rid = prov.realm_id
+            data = realms.setdefault(rid, {"provs": [], "current": 0, "farms": 0})
+            data["provs"].append(prov)
+            data["current"] += prov.population
+            data["farms"] += sum(1 for b in prov.buildings if b == "farm")
+
+        for data in realms.values():
+            current = data["current"]
+            if current <= 0:
+                continue
+            capacity = (data["farms"] * self.food_production_per_farm) / self.food_consumption_per_pop
+            if capacity <= 0:
+                continue
+            target = int(capacity * safety_margin)
+            if current <= target:
+                continue
+            scale = target / current
+            for prov in data["provs"]:
+                prov.population = max(1, int(round(prov.population * scale)))
+
     def _build_selected_building(self, building_id):
         prov = self.selected_province
         if prov is None:
@@ -254,7 +281,7 @@ class GameApp:
         food_balance = max(-1.0, min(1.0, food_balance))
 
         if food_balance >= 0:
-            pop_rate = 0.002 * food_balance  # up to +0.2% per month
+            pop_rate = 0.001 + 0.004 * food_balance  # +0.1% base, up to +0.5% per month
         else:
             pop_rate = 0.006 * food_balance  # down to -0.6% per month
 

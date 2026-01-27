@@ -262,18 +262,37 @@ class MapWorld:
             if prov.buildings.count(None) <= 0:
                 continue
 
-            chance = 0.10
+            chance = 0.20
             if prov.biome in ("Fertile", "Plains"):
-                chance = 0.24
+                chance = 0.38
             elif prov.biome == "Drylands":
-                chance = 0.14
+                chance = 0.26
             elif prov.biome == "Forest":
-                chance = 0.08
+                chance = 0.18
             elif prov.biome in ("Hills", "Mountains"):
-                chance = 0.05
+                chance = 0.12
 
             if rnd.random() < chance:
                 prov.add_building("farm")
+
+        # Ensure each realm starts with a minimum number of farms for a stronger early food base.
+        realm_farms = {rid: 0 for rid in range(len(self.realm_names))}
+        for prov in self.provinces:
+            realm_farms[prov.realm_id] += sum(1 for b in prov.buildings if b == "farm")
+
+        for rid in range(len(self.realm_names)):
+            required = max(1, (self.realm_sizes[rid] + 1) // 2)
+            if realm_farms.get(rid, 0) >= required:
+                continue
+            candidates = [
+                p
+                for p in self.provinces
+                if p.realm_id == rid and p.buildings.count(None) > 0 and "farm" not in p.buildings
+            ]
+            rnd.shuffle(candidates)
+            while realm_farms[rid] < required and candidates:
+                candidates.pop().add_building("farm")
+                realm_farms[rid] += 1
 
     def _generate_realm_rulers(self):
         self.realm_rulers = [None] * len(self.realm_names)
