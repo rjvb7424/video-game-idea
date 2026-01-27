@@ -2,6 +2,7 @@ import pygame
 
 from core.geometry import shield_points
 from core.surfaces import make_noise_tile, tile_fill
+from systems.buildings import BUILDINGS
 from systems.traits import trait_alignment, compute_piety_rate, trait_name
 from ui.buttons import (
     draw_primary_button,
@@ -296,6 +297,7 @@ class UIManager:
         y_limit = btn_bar_y - 10
 
         y = content.top
+        btns = []
 
         def safe_body(text, color=(205, 198, 180)):
             nonlocal y
@@ -351,7 +353,7 @@ class UIManager:
                 safe_header("Landmarks")
                 safe_body(f"• {sel.landmark}", color=(235, 220, 185))
 
-            # Realm + ruler
+            # Buildings + realm + ruler
             rid = sel.realm_id
             realm_name = state["realm_names"][rid]
             ruler = state["realm_rulers"][rid]
@@ -361,6 +363,34 @@ class UIManager:
                 pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
                 pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
                 y += 10
+
+            # Buildings
+            safe_header("Buildings")
+            buildings = getattr(sel, "buildings", [])
+            if buildings:
+                for i, bid in enumerate(buildings):
+                    if bid is None:
+                        label = f"• Slot {i + 1}: Empty"
+                    else:
+                        bdef = BUILDINGS.get(bid)
+                        bname = bdef.name if bdef else bid
+                        label = f"• Slot {i + 1}: {bname}"
+                    if not safe_body(label):
+                        break
+            else:
+                safe_body("No building slots.")
+
+            if buildings:
+                in_player_realm = rid == state.get("player_realm_id")
+                has_empty = any(b is None for b in buildings)
+                build_btn_h = 28
+                build_btn_w = min(140, content.w)
+                if in_player_realm and has_empty and (y + build_btn_h <= y_limit):
+                    btn_rect = draw_primary_button(surface, "Build Farm", content.left, y, build_btn_w, build_btn_h)
+                    btns.append((btn_rect, "build_farm"))
+                    y = btn_rect.bottom + 6
+                elif in_player_realm and not has_empty:
+                    safe_footer("Building slots full.")
 
             safe_header("Realm")
             safe_body(realm_name, color=(235, 228, 210))
@@ -385,7 +415,6 @@ class UIManager:
                         break
 
         # Buttons at bottom
-        btns = []
         bx = content.left
         by = btn_bar_y
         b1 = draw_secondary_button(surface, "View Realm", bx, by, 120, btn_h)

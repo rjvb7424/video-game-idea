@@ -44,6 +44,15 @@ class Province:
         self.control = 55 + (pid * 3) % 45
         self.culture = "Nordfolken"
         self.faith = "Nordfolken Mythology"
+        self.building_slots = 3
+        self.buildings = [None for _ in range(self.building_slots)]
+
+    def add_building(self, building_id):
+        for idx, slot in enumerate(self.buildings):
+            if slot is None:
+                self.buildings[idx] = building_id
+                return idx
+        return -1
 
 
 def _value_noise_2d(w, h, cell_w, cell_h, seed):
@@ -985,3 +994,15 @@ class MapWorld:
                 continue
             new_val = int(round(p.population * (1.0 + rate)))
             p.population = max(1, new_val)
+
+    def count_buildings(self, realm_id=None, building_id=None):
+        count = 0
+        for p in self.provinces:
+            if realm_id is not None and p.realm_id != realm_id:
+                continue
+            for b in getattr(p, "buildings", []):
+                if b is None:
+                    continue
+                if building_id is None or b == building_id:
+                    count += 1
+        return count

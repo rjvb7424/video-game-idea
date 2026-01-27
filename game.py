@@ -7,6 +7,7 @@ from core.math_utils import clamp
 from core.surfaces import tile_fill
 from events import EventRegistry, EventSystem, register_all
 from rendering.map_view import MapRenderer
+from systems.buildings import BUILDINGS
 from systems.traits import _stats_list_to_dict, apply_trait_effects, compute_piety_rate, normalize_traits
 from ui.layout import Layout
 from ui.manager import UIManager
@@ -67,7 +68,8 @@ class GameApp:
         self.army = {"raised": 928, "max": 1712, "morale": 77}
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self.food = (0.0, 0.0)  # (produced, consumed)
-        self.food_production_per_province = 300.0  # monthly production per province
+        farm_def = BUILDINGS.get("farm")
+        self.food_production_per_farm = farm_def.food_bonus if farm_def else 0.0
         self.food_consumption_per_pop = 0.4  # monthly consumption per person
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
@@ -157,15 +159,27 @@ class GameApp:
         return max(0, min(100, threat))
 
     def _compute_food_values(self):
-        realm_size = 0
-        if hasattr(self.world, "realm_sizes") and 0 <= self.player_realm_id < len(self.world.realm_sizes):
-            realm_size = self.world.realm_sizes[self.player_realm_id]
-        if realm_size <= 0:
-            realm_size = sum(1 for p in self.world.provinces if p.realm_id == self.player_realm_id)
-
-        production = self.food_production_per_province * realm_size
+        farm_count = self.world.count_buildings(self.player_realm_id, "farm")
+        production = self.food_production_per_farm * farm_count
         consumption = self.population * self.food_consumption_per_pop
         return production, consumption
+
+    def _build_selected_building(self, building_id):
+        prov = self.selected_province
+        if prov is None:
+            self.push_log("No province selected.")
+            return
+        if prov.realm_id != self.player_realm_id:
+            self.push_log("Cannot build outside your realm.")
+            return
+        slot = prov.add_building(building_id)
+        if slot < 0:
+            self.push_log(f"{prov.name} has no empty building slots.")
+            return
+        bdef = BUILDINGS.get(building_id)
+        bname = bdef.name if bdef else building_id
+        self.push_log(f"{self.date}: Built {bname} in {prov.name} (slot {slot + 1}).")
+        self.food = self._compute_food_values()
 
     def _handle_action(self, action):
         if action == "toggle_pause":
@@ -178,6 +192,8 @@ class GameApp:
             self.set_speed(3)
         elif action == "open_menu":
             self.open_menu()
+        elif action == "build_farm":
+            self._build_selected_building("farm")
         elif action in (
             "ledger",
             "realm",
@@ -226,7 +242,7 @@ class GameApp:
             if rate == 0:
                 continue
             self.resources[res] += rate
-        # Food production scales with realm size; consumption scales with population.
+        # Food production comes from farms; consumption scales with population.
         production, consumption = self._compute_food_values()
         self.food = (production, consumption)
 
@@ -382,6 +398,7 @@ class GameApp:
                 "log": self.log,
                 "realm_names": self.world.realm_names,
                 "realm_rulers": self.world.realm_rulers,
+                "player_realm_id": self.player_realm_id,
                 "population": self.population,
                 "food": self.food,
                 "threat": self.threat,
