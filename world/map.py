@@ -253,6 +253,28 @@ class MapWorld:
             self.provinces[pid].biome = biome
             self.provinces[pid].biome_color = col
 
+    def _seed_starting_buildings(self):
+        if not self.provinces:
+            return
+
+        rnd = random.Random(self.seed * 31337 + 123)
+        for prov in self.provinces:
+            if prov.buildings.count(None) <= 0:
+                continue
+
+            chance = 0.10
+            if prov.biome in ("Fertile", "Plains"):
+                chance = 0.24
+            elif prov.biome == "Drylands":
+                chance = 0.14
+            elif prov.biome == "Forest":
+                chance = 0.08
+            elif prov.biome in ("Hills", "Mountains"):
+                chance = 0.05
+
+            if rnd.random() < chance:
+                prov.add_building("farm")
+
     def _generate_realm_rulers(self):
         self.realm_rulers = [None] * len(self.realm_names)
 
@@ -949,6 +971,7 @@ class MapWorld:
         self._generate_realm_rulers()
 
         self._assign_biomes_per_province()
+        self._seed_starting_buildings()
 
         self._render_base()
         self._render_borders_and_coast()
