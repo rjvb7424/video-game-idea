@@ -69,7 +69,19 @@ class UIManager:
         if food is not None:
             bar_w = 160
             food_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
-            self._draw_meter(surface, food_rect, "Food", food, fill_color=(100, 160, 100))
+            food_color = (190, 140, 70)  # balanced (orange)
+            if isinstance(food, (tuple, list)) and len(food) == 2:
+                produced, consumed = float(food[0]), float(food[1])
+                if consumed <= 0:
+                    if produced > 0:
+                        food_color = (100, 170, 100)  # surplus
+                else:
+                    ratio = produced / consumed
+                    if ratio >= 1.05:
+                        food_color = (100, 170, 100)  # surplus
+                    elif ratio <= 0.95:
+                        food_color = (170, 80, 80)  # deficit
+            self._draw_meter(surface, food_rect, "Food", food, fill_color=food_color)
             right_edge = food_rect.left - gap
         if threat is not None:
             bar_w = 160

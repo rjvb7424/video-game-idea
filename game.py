@@ -165,7 +165,7 @@ class GameApp:
         consumption = self.population * self.food_consumption_per_pop
         return production, consumption
 
-    def _rebalance_population_to_farms(self, safety_margin=0.95):
+    def _rebalance_population_to_farms(self, target_ratio=1.0):
         if self.food_production_per_farm <= 0 or self.food_consumption_per_pop <= 0:
             return
 
@@ -184,8 +184,8 @@ class GameApp:
             capacity = (data["farms"] * self.food_production_per_farm) / self.food_consumption_per_pop
             if capacity <= 0:
                 continue
-            target = int(capacity * safety_margin)
-            if current <= target:
+            target = int(capacity * target_ratio)
+            if target <= 0 or current == target:
                 continue
             scale = target / current
             for prov in data["provs"]:
@@ -280,10 +280,7 @@ class GameApp:
             food_balance = (production - consumption) / consumption
         food_balance = max(-1.0, min(1.0, food_balance))
 
-        if food_balance >= 0:
-            pop_rate = 0.001 + 0.004 * food_balance  # +0.1% base, up to +0.5% per month
-        else:
-            pop_rate = 0.006 * food_balance  # down to -0.6% per month
+        pop_rate = 0.003 * food_balance  # up to +/-0.3% per month
 
         if abs(pop_rate) > 0.00001:
             self.world.adjust_population_for_realm(self.player_realm_id, pop_rate)
