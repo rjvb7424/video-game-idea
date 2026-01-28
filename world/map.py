@@ -6,6 +6,7 @@ import pygame
 from core.math_utils import clamp, lerp
 from core.surfaces import make_noise_tile, tile_fill
 from systems.characters import generate_ruler
+from systems.buildings import make_building, get_building_id
 
 # Map palette (subdued, CK1-ish)
 SEA_DEEP = (10, 22, 40)
@@ -46,7 +47,7 @@ class Province:
     def add_building(self, building_id):
         for idx, slot in enumerate(self.buildings):
             if slot is None:
-                self.buildings[idx] = building_id
+                self.buildings[idx] = make_building(building_id, level=1)
                 return idx
         return -1
 
@@ -213,7 +214,7 @@ class MapWorld:
         # Ensure each realm starts with a minimum number of farms for a stronger early food base.
         realm_farms = {rid: 0 for rid in range(len(self.realm_names))}
         for prov in self.provinces:
-            realm_farms[prov.realm_id] += sum(1 for b in prov.buildings if b == "farm")
+            realm_farms[prov.realm_id] += sum(1 for b in prov.buildings if get_building_id(b) == "farm")
 
         for rid in range(len(self.realm_names)):
             required = max(1, (self.realm_sizes[rid] + 1) // 2)
@@ -222,7 +223,9 @@ class MapWorld:
             candidates = [
                 p
                 for p in self.provinces
-                if p.realm_id == rid and p.buildings.count(None) > 0 and "farm" not in p.buildings
+                if p.realm_id == rid
+                and p.buildings.count(None) > 0
+                and not any(get_building_id(b) == "farm" for b in p.buildings)
             ]
             rnd.shuffle(candidates)
             while realm_farms[rid] < required and candidates:
@@ -978,8 +981,9 @@ class MapWorld:
             if realm_id is not None and p.realm_id != realm_id:
                 continue
             for b in getattr(p, "buildings", []):
-                if b is None:
+                bid = get_building_id(b)
+                if bid is None:
                     continue
-                if building_id is None or b == building_id:
+                if building_id is None or bid == building_id:
                     count += 1
         return count

@@ -7,7 +7,14 @@ from core.math_utils import clamp
 from core.surfaces import tile_fill
 from events import EventRegistry, EventSystem, register_all
 from rendering.map_view import MapRenderer
-from systems.buildings import BUILDINGS
+from systems.buildings import (
+    BUILDINGS,
+    make_building,
+    get_building_id,
+    get_building_level,
+    building_food_output,
+    building_max_level,
+)
 from systems.traits import _stats_list_to_dict, apply_trait_effects, compute_piety_rate, normalize_traits
 from ui.layout import Layout
 from ui.manager import UIManager
@@ -39,6 +46,7 @@ class GameApp:
         self._time_accum = 0.0
 
         self.selected_province = None
+        self._building_menu_slot = None
 
         # --- EVENTS: minimal integration ---
         self._event_flags = {}
@@ -67,8 +75,6 @@ class GameApp:
 
         self.army = {"raised": 928, "max": 1712, "morale": 77}
         self.food = (0, 0)  # (produced, consumed)
-        farm_def = BUILDINGS.get("farm")
-        self.food_production_per_farm = farm_def.food_bonus if farm_def else 0.0
         self.food_consumption_per_pop = 0.39  # monthly consumption per person
         self._rebalance_population_to_farms()
         self.population = self.world.total_population_for_realm(self.player_realm_id)
@@ -110,6 +116,7 @@ class GameApp:
             opened = self.events.open_event_by_id("tower_of_heaven_approach")
             if opened:
                 self.selected_province = tprov
+                self._building_menu_slot = None
             return opened
         return False
 
@@ -159,28 +166,35 @@ class GameApp:
         return int(clamp(round(threat), 0, 100))
 
     def _compute_food_values(self):
-        farm_count = self.world.count_buildings(self.player_realm_id, "farm")
-        production = int(round(self.food_production_per_farm * farm_count))
-        consumption = int(round(self.population * self.food_consumption_per_pop))
+        production = 0.0
+        for prov in self.world.provinces:
+            if prov.realm_id != self.player_realm_id:
+                continue
+            for b in getattr(prov, "buildings", []):
+                production += building_food_output(b)
+        consumption = self.population * self.food_consumption_per_pop
+        production = int(round(production))
+        consumption = int(round(consumption))
         return max(0, production), max(0, consumption)
 
     def _rebalance_population_to_farms(self, target_ratio=1.0):
-        if self.food_production_per_farm <= 0 or self.food_consumption_per_pop <= 0:
+        if self.food_consumption_per_pop <= 0:
             return
 
         realms = {}
         for prov in self.world.provinces:
             rid = prov.realm_id
-            data = realms.setdefault(rid, {"provs": [], "current": 0, "farms": 0})
+            data = realms.setdefault(rid, {"provs": [], "current": 0, "food_output": 0.0})
             data["provs"].append(prov)
             data["current"] += prov.population
-            data["farms"] += sum(1 for b in prov.buildings if b == "farm")
+            for b in getattr(prov, "buildings", []):
+                data["food_output"] += building_food_output(b)
 
         for data in realms.values():
             current = data["current"]
             if current <= 0:
                 continue
-            capacity = (data["farms"] * self.food_production_per_farm) / self.food_consumption_per_pop
+            capacity = data["food_output"] / self.food_consumption_per_pop
             if capacity <= 0:
                 continue
             target = int(capacity * target_ratio)
@@ -190,7 +204,7 @@ class GameApp:
             for prov in data["provs"]:
                 prov.population = max(1, int(round(prov.population * scale)))
 
-    def _build_selected_building(self, building_id):
+    def _build_selected_building(self, building_id, slot_idx=None):
         prov = self.selected_province
         if prov is None:
             self.push_log("No province selected.")
@@ -198,14 +212,78 @@ class GameApp:
         if prov.realm_id != self.player_realm_id:
             self.push_log("Cannot build outside your realm.")
             return
-        slot = prov.add_building(building_id)
-        if slot < 0:
-            self.push_log(f"{prov.name} has no empty building slots.")
-            return
+        if slot_idx is None:
+            slot = prov.add_building(building_id)
+            if slot < 0:
+                self.push_log(f"{prov.name} has no empty building slots.")
+                return
+        else:
+            if not (0 <= slot_idx < len(prov.buildings)):
+                self.push_log("Invalid building slot.")
+                return
+            if prov.buildings[slot_idx] is not None:
+                self.push_log(f"Slot {slot_idx + 1} is already occupied.")
+                return
+            prov.buildings[slot_idx] = make_building(building_id, level=1)
+            slot = slot_idx
         bdef = BUILDINGS.get(building_id)
         bname = bdef.name if bdef else building_id
         self.push_log(f"{self.date}: Built {bname} in {prov.name} (slot {slot + 1}).")
         self.food = self._compute_food_values()
+        self._building_menu_slot = None
+
+    def _upgrade_selected_building(self, slot_idx):
+        prov = self.selected_province
+        if prov is None:
+            self.push_log("No province selected.")
+            return
+        if prov.realm_id != self.player_realm_id:
+            self.push_log("Cannot build outside your realm.")
+            return
+        if not (0 <= slot_idx < len(prov.buildings)):
+            self.push_log("Invalid building slot.")
+            return
+        entry = prov.buildings[slot_idx]
+        if entry is None:
+            self.push_log(f"Slot {slot_idx + 1} is empty.")
+            return
+        level = get_building_level(entry)
+        max_level = building_max_level(entry)
+        if max_level and level >= max_level:
+            self.push_log("Building is already at max level.")
+            return
+        new_level = level + 1
+        if isinstance(entry, dict):
+            entry["level"] = new_level
+        else:
+            prov.buildings[slot_idx] = make_building(get_building_id(entry), level=new_level)
+        bdef = BUILDINGS.get(get_building_id(entry))
+        bname = bdef.name if bdef else get_building_id(entry)
+        self.push_log(f"{self.date}: Upgraded {bname} in {prov.name} (slot {slot_idx + 1}).")
+        self.food = self._compute_food_values()
+        self._building_menu_slot = None
+
+    def _demolish_selected_building(self, slot_idx):
+        prov = self.selected_province
+        if prov is None:
+            self.push_log("No province selected.")
+            return
+        if prov.realm_id != self.player_realm_id:
+            self.push_log("Cannot build outside your realm.")
+            return
+        if not (0 <= slot_idx < len(prov.buildings)):
+            self.push_log("Invalid building slot.")
+            return
+        entry = prov.buildings[slot_idx]
+        if entry is None:
+            self.push_log(f"Slot {slot_idx + 1} is already empty.")
+            return
+        bdef = BUILDINGS.get(get_building_id(entry))
+        bname = bdef.name if bdef else get_building_id(entry)
+        prov.buildings[slot_idx] = None
+        self.push_log(f"{self.date}: Demolished {bname} in {prov.name} (slot {slot_idx + 1}).")
+        self.food = self._compute_food_values()
+        self._building_menu_slot = None
 
     def _handle_action(self, action):
         if action == "toggle_pause":
@@ -220,6 +298,25 @@ class GameApp:
             self.open_menu()
         elif action == "build_farm":
             self._build_selected_building("farm")
+        elif action.startswith("building_slot:"):
+            parts = action.split(":")
+            if len(parts) >= 3:
+                try:
+                    slot_idx = int(parts[1])
+                except ValueError:
+                    return
+                verb = parts[2]
+                if verb == "toggle":
+                    if self._building_menu_slot == slot_idx:
+                        self._building_menu_slot = None
+                    else:
+                        self._building_menu_slot = slot_idx
+                elif verb == "build" and len(parts) >= 4:
+                    self._build_selected_building(parts[3], slot_idx=slot_idx)
+                elif verb == "upgrade":
+                    self._upgrade_selected_building(slot_idx)
+                elif verb == "demolish":
+                    self._demolish_selected_building(slot_idx)
         elif action in (
             "ledger",
             "realm",
@@ -388,6 +485,7 @@ class GameApp:
                                         prov = self.world.province_at_world(wp)
                                         if prov is not None:
                                             self.selected_province = prov
+                                            self._building_menu_slot = None
                                             self.push_log(f"{self.date}: Selected {prov.name}.")
                             self._mouse_down_in_map = False
                             self._drag_started = False
@@ -428,6 +526,7 @@ class GameApp:
                 "population": self.population,
                 "food": self.food,
                 "threat": self.threat,
+                "building_menu_slot": self._building_menu_slot,
             }
 
             clickables = []

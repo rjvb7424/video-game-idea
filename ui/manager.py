@@ -3,7 +3,15 @@ import pygame
 
 from core.geometry import shield_points
 from core.surfaces import make_noise_tile, tile_fill
-from systems.buildings import BUILDINGS
+from systems.buildings import (
+    BUILDINGS,
+    make_building,
+    get_building_id,
+    get_building_level,
+    building_food_output,
+    building_gold_upkeep,
+    building_max_level,
+)
 from systems.traits import trait_alignment, compute_piety_rate, trait_name
 from ui.buttons import (
     draw_primary_button,
@@ -88,6 +96,46 @@ class UIManager:
         pygame.draw.rect(surface, (0, 0, 0), frame, 1, border_radius=6)
         surface.blit(thumb, img_rect.topleft)
         return img_rect.bottom + 8
+
+    @staticmethod
+    def _roman_numeral(value):
+        if value <= 0:
+            return ""
+        mapping = [
+            (1000, "M"),
+            (900, "CM"),
+            (500, "D"),
+            (400, "CD"),
+            (100, "C"),
+            (90, "XC"),
+            (50, "L"),
+            (40, "XL"),
+            (10, "X"),
+            (9, "IX"),
+            (5, "V"),
+            (4, "IV"),
+            (1, "I"),
+        ]
+        out = []
+        n = int(value)
+        for val, sym in mapping:
+            while n >= val:
+                out.append(sym)
+                n -= val
+        return "".join(out)
+
+    def _draw_building_info(self, surface, x, y, y_limit, entry):
+        food = building_food_output(entry)
+        gold = building_gold_upkeep(entry)
+        lines = [
+            f"Food: +{food:,.0f} / mo",
+            f"Upkeep: {gold:,.1f}g / mo",
+        ]
+        for line in lines:
+            if y + FOOTER_FONT.get_height() + 6 > y_limit:
+                break
+            y = draw_footer_text(surface, line, x, y, color=(175, 168, 150))
+        return y
 
     def draw_top_bar(self, surface, rect, state):
         btns = []
@@ -422,30 +470,71 @@ class UIManager:
             # Buildings
             safe_header("Buildings")
             buildings = getattr(sel, "buildings", [])
-            if buildings:
-                for i, bid in enumerate(buildings):
-                    if bid is None:
-                        label = f"• Slot {i + 1}: Empty"
-                    else:
+            if not buildings:
+                safe_body("No building slots.")
+            else:
+                slot_h = 30
+                slot_gap = 6
+                dropdown_gap = 4
+                open_slot = state.get("building_menu_slot")
+
+                for i, entry in enumerate(buildings):
+                    if y + slot_h > y_limit:
+                        break
+                    bid = get_building_id(entry)
+                    level = get_building_level(entry)
+                    if bid:
                         bdef = BUILDINGS.get(bid)
                         bname = bdef.name if bdef else bid
-                        label = f"• Slot {i + 1}: {bname}"
-                    if not safe_body(label):
-                        break
-            else:
-                safe_body("No building slots.")
+                        numeral = self._roman_numeral(level)
+                        if numeral:
+                            label = f"Slot {i + 1}: {bname} {numeral}"
+                        else:
+                            label = f"Slot {i + 1}: {bname}"
+                    else:
+                        label = f"Slot {i + 1}: Empty"
 
-            if buildings:
-                in_player_realm = rid == state.get("player_realm_id")
-                has_empty = any(b is None for b in buildings)
-                build_btn_h = 28
-                build_btn_w = min(140, content.w)
-                if in_player_realm and has_empty and (y + build_btn_h <= y_limit):
-                    btn_rect = draw_primary_button(surface, "Build Farm", content.left, y, build_btn_w, build_btn_h)
-                    btns.append((btn_rect, "build_farm"))
-                    y = btn_rect.bottom + 6
-                elif in_player_realm and not has_empty:
-                    safe_footer("Building slots full.")
+                    is_open = open_slot == i
+                    if is_open:
+                        slot_rect = draw_primary_button(surface, label, content.left, y, content.w, slot_h)
+                    else:
+                        slot_rect = draw_secondary_button(surface, label, content.left, y, content.w, slot_h)
+                    btns.append((slot_rect, f"building_slot:{i}:toggle"))
+                    y = slot_rect.bottom + slot_gap
+
+                    if not is_open:
+                        continue
+
+                    drop_left = content.left + 12
+                    drop_w = max(120, content.w - 12)
+
+                    if entry is None:
+                        btn_h = 26
+                        if y + btn_h <= y_limit:
+                            build_rect = draw_primary_button(surface, "Build Farm", drop_left, y, min(150, drop_w), btn_h)
+                            btns.append((build_rect, f"building_slot:{i}:build:farm"))
+                            y = build_rect.bottom + dropdown_gap
+                        preview = make_building("farm", level=1)
+                        y = self._draw_building_info(surface, drop_left, y, y_limit, preview)
+                    else:
+                        btn_h = 26
+                        level = get_building_level(entry)
+                        max_level = building_max_level(entry)
+                        can_upgrade = (max_level == 0) or (level < max_level)
+                        if can_upgrade and y + btn_h <= y_limit:
+                            up_rect = draw_secondary_button(surface, "Upgrade", drop_left, y, min(140, drop_w), btn_h)
+                            btns.append((up_rect, f"building_slot:{i}:upgrade"))
+                            y = up_rect.bottom + dropdown_gap
+                        elif not can_upgrade:
+                            if y + FOOTER_FONT.get_height() + 6 <= y_limit:
+                                y = draw_footer_text(surface, "Max level reached.", drop_left, y, color=(165, 150, 140))
+
+                        if y + btn_h <= y_limit:
+                            dem_rect = draw_deny_button(surface, "Demolish", drop_left, y, min(140, drop_w), btn_h)
+                            btns.append((dem_rect, f"building_slot:{i}:demolish"))
+                            y = dem_rect.bottom + dropdown_gap
+
+                        y = self._draw_building_info(surface, drop_left, y, y_limit, entry)
 
             safe_header("Realm")
             safe_body(realm_name, color=(235, 228, 210))
