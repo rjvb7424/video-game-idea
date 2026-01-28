@@ -414,27 +414,10 @@ class UIManager:
                 pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
                 y += 10
 
-            # Holdings
-            safe_header("Holdings")
-            for i, hname in enumerate(["Castle", "City", "Temple"]):
-                tag = " (capital)" if i == 0 else ""
-                if not safe_body(f"• {hname}{tag}"):
-                    break
-            if sel.landmark and y + 18 < y_limit:
-                y += 8
-                safe_header("Landmarks")
-                safe_body(f"• {sel.landmark}", color=(235, 220, 185))
-
             # Buildings + realm + ruler
             rid = sel.realm_id
             realm_name = state["realm_names"][rid]
             ruler = state["realm_rulers"][rid]
-
-            if y + 18 < y_limit:
-                y += 8
-                pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
-                pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
-                y += 10
 
             # Buildings
             safe_header("Buildings")
