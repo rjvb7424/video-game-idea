@@ -77,9 +77,9 @@ class UIManager:
                         food_color = (100, 170, 100)  # surplus
                 else:
                     ratio = produced / consumed
-                    if ratio >= 1.05:
+                    if ratio >= 1.02:
                         food_color = (100, 170, 100)  # surplus
-                    elif ratio <= 0.95:
+                    elif ratio <= 0.98:
                         food_color = (170, 80, 80)  # deficit
             self._draw_meter(surface, food_rect, "Food", food, fill_color=food_color)
             right_edge = food_rect.left - gap
@@ -152,13 +152,15 @@ class UIManager:
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
         if isinstance(value, (tuple, list)) and len(value) == 2:
-            produced = max(0, int(round(value[0])))
-            consumed = max(0, int(round(value[1])))
-            label_text = f"{label}: {produced:,}/{consumed:,}"
+            produced = max(0.0, float(value[0]))
+            consumed = max(0.0, float(value[1]))
+            label_text = f"{label}: {produced:,.1f}/{consumed:,.1f}"
             if consumed <= 0:
-                value = 100 if produced > 0 else 0
+                ratio = 2.0 if produced > 0 else 0.0
             else:
-                value = max(0, min(100, int((produced / consumed) * 100)))
+                ratio = produced / consumed
+            # Centered meter: 1.0 ratio sits at 50%
+            value = int(max(0.0, min(2.0, ratio)) * 50.0)
         else:
             value = max(0, min(100, int(value)))
             label_text = f"{label}: {value}%"

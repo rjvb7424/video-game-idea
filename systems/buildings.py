@@ -12,6 +12,6 @@ BUILDINGS = {
     "farm": BuildingDef(
         id="farm",
         name="Farm",
-        food_bonus=400.0,
+        food_bonus=387.5,
     ),
 }

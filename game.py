@@ -69,7 +69,7 @@ class GameApp:
         self.food = (0.0, 0.0)  # (produced, consumed)
         farm_def = BUILDINGS.get("farm")
         self.food_production_per_farm = farm_def.food_bonus if farm_def else 0.0
-        self.food_consumption_per_pop = 0.4  # monthly consumption per person
+        self.food_consumption_per_pop = 0.39  # monthly consumption per person
         self._rebalance_population_to_farms()
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self._baseline_population = max(1, self.population)
@@ -280,7 +280,10 @@ class GameApp:
             food_balance = (production - consumption) / consumption
         food_balance = max(-1.0, min(1.0, food_balance))
 
-        pop_rate = 0.003 * food_balance  # up to +/-0.3% per month
+        if food_balance >= 0:
+            pop_rate = 0.001 + 0.004 * food_balance  # base growth + surplus bonus
+        else:
+            pop_rate = 0.001 + 0.010 * food_balance  # stronger penalty for deficits
 
         if abs(pop_rate) > 0.00001:
             self.world.adjust_population_for_realm(self.player_realm_id, pop_rate)
