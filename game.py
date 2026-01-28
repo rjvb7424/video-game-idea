@@ -66,7 +66,7 @@ class GameApp:
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
         self.army = {"raised": 928, "max": 1712, "morale": 77}
-        self.food = (0.0, 0.0)  # (produced, consumed)
+        self.food = (0, 0)  # (produced, consumed)
         farm_def = BUILDINGS.get("farm")
         self.food_production_per_farm = farm_def.food_bonus if farm_def else 0.0
         self.food_consumption_per_pop = 0.39  # monthly consumption per person
@@ -150,20 +150,19 @@ class GameApp:
         self.running = False
 
     def _compute_threat(self):
-        # Threat rises only when population grows above the starting baseline.
-        growth_threat = int(((self.population - self._baseline_population) / self._baseline_population) * 100)
-        # Always keep a small base threat tied to overall population.
-        base_threat = clamp(int(self.population / 3000), 3, 15)
-        threat = max(base_threat, growth_threat)
-        if self.population > self._baseline_population:
-            threat = max(1, threat)
-        return max(0, min(100, threat))
+        # Base threat comes from population size; growth adds a slow pressure on top.
+        growth_ratio = (self.population - self._baseline_population) / self._baseline_population
+        growth_ratio = max(0.0, growth_ratio)
+        base_threat = clamp(self.population / 3000.0, 3.0, 15.0)
+        growth_threat = growth_ratio * 30.0  # scaled so growth adds slowly
+        threat = base_threat + growth_threat
+        return int(clamp(round(threat), 0, 100))
 
     def _compute_food_values(self):
         farm_count = self.world.count_buildings(self.player_realm_id, "farm")
-        production = self.food_production_per_farm * farm_count
-        consumption = self.population * self.food_consumption_per_pop
-        return production, consumption
+        production = int(round(self.food_production_per_farm * farm_count))
+        consumption = int(round(self.population * self.food_consumption_per_pop))
+        return max(0, production), max(0, consumption)
 
     def _rebalance_population_to_farms(self, target_ratio=1.0):
         if self.food_production_per_farm <= 0 or self.food_consumption_per_pop <= 0:

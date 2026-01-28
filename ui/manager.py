@@ -152,9 +152,9 @@ class UIManager:
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
         if isinstance(value, (tuple, list)) and len(value) == 2:
-            produced = max(0.0, float(value[0]))
-            consumed = max(0.0, float(value[1]))
-            label_text = f"{label}: {produced:,.1f}/{consumed:,.1f}"
+            produced = max(0, int(round(value[0])))
+            consumed = max(0, int(round(value[1])))
+            label_text = f"{label}: {produced:,}/{consumed:,}"
             if consumed <= 0:
                 ratio = 2.0 if produced > 0 else 0.0
             else:
