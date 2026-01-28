@@ -1,3 +1,4 @@
+import os
 import pygame
 
 from core.geometry import shield_points
@@ -27,6 +28,66 @@ class UIManager:
         self.top_tile = make_noise_tile((128, 64), header_color, variance=10, alpha=255, seed=seed + 1)
         self.bottom_tile = make_noise_tile((96, 96), (26, 26, 28), variance=10, alpha=255, seed=seed + 2)
         self.left_tile = make_noise_tile((96, 96), (52, 36, 26), variance=12, alpha=255, seed=seed + 3)
+        self.biome_images = {}
+        self._biome_image_cache = {}
+        self._load_biome_images()
+
+    def _load_biome_images(self):
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
+        path = os.path.join(base_dir, "boreal_forest.png")
+        if os.path.exists(path):
+            self.biome_images["boreal_forest"] = pygame.image.load(path).convert_alpha()
+
+    @staticmethod
+    def _biome_key(biome):
+        if not biome:
+            return None
+        key = str(biome).strip().lower().replace(" ", "_")
+        if key == "forest":
+            key = "boreal_forest"
+        return key
+
+    @staticmethod
+    def _biome_label(biome):
+        if not biome:
+            return "Unknown"
+        key = str(biome).strip().lower().replace(" ", "_")
+        if key in ("forest", "boreal_forest"):
+            return "Boreal Forest"
+        return str(biome).replace("_", " ").title()
+
+    def _get_biome_thumb(self, biome_key, max_w, max_h):
+        if not biome_key:
+            return None
+        img = self.biome_images.get(biome_key)
+        if img is None:
+            return None
+        max_w = max(1, int(max_w))
+        max_h = max(1, int(max_h))
+        cache_key = (biome_key, max_w, max_h)
+        cached = self._biome_image_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        w, h = img.get_size()
+        scale = min(max_w / w, max_h / h)
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        thumb = pygame.transform.smoothscale(img, (new_w, new_h))
+        self._biome_image_cache[cache_key] = thumb
+        return thumb
+
+    def _draw_biome_image(self, surface, x, y, max_w, y_limit, biome_key):
+        thumb = self._get_biome_thumb(biome_key, max_w, 96)
+        if thumb is None:
+            return y
+        img_rect = thumb.get_rect(topleft=(x, y))
+        if img_rect.bottom + 8 > y_limit:
+            return y
+        frame = img_rect.inflate(6, 6)
+        pygame.draw.rect(surface, (18, 18, 18), frame, border_radius=6)
+        pygame.draw.rect(surface, (0, 0, 0), frame, 1, border_radius=6)
+        surface.blit(thumb, img_rect.topleft)
+        return img_rect.bottom + 8
 
     def draw_top_bar(self, surface, rect, state):
         btns = []
@@ -300,9 +361,9 @@ class UIManager:
         draw_footer_text(surface, house, inner.left + 10, inner.bottom - 18, color=(200, 190, 175))
 
     def draw_right_panel(self, surface, rect, state):
-        content = draw_framed_panel(surface, rect, title="Province / Realm", title_color=INK, tile=self.panel_tile)
-
         sel = state["selected_province"]
+        title = sel.name if sel is not None else "Province"
+        content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=self.panel_tile)
 
         # Reserve bottom space so nothing overlaps buttons
         btn_bar_y = rect.bottom - 56
@@ -339,7 +400,11 @@ class UIManager:
             safe_footer("Click a province on the map to inspect it.")
         else:
             # Province info
-            safe_header(sel.name, color=(235, 228, 210))
+            biome_key = self._biome_key(sel.biome)
+            biome_label = self._biome_label(sel.biome)
+            safe_header("Biome", color=(235, 228, 210))
+            y = self._draw_biome_image(surface, content.left, y, content.w - 6, y_limit, biome_key)
+            safe_body(biome_label, color=(220, 214, 198))
             safe_body(f"Culture: {sel.culture}")
             safe_body(f"Faith: {sel.faith}")
 
@@ -347,13 +412,6 @@ class UIManager:
                 y += 6
                 pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
                 pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
-                y += 10
-
-            safe_body(f"Income: {sel.income} / mo", color=(220, 214, 198))
-            safe_body(f"Levies: {sel.levy}", color=(220, 214, 198))
-            safe_body(f"Control: {sel.control}%", color=(220, 214, 198))
-
-            if y + 18 < y_limit:
                 y += 10
 
             # Holdings

@@ -35,13 +35,9 @@ class Province:
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
-        self.biome = "Plains"
-        self.biome_color = LAND_GREEN
+        self.biome = "boreal_forest"
+        self.biome_color = FOREST
         self.population = 0
-
-        self.income = 1 + (pid % 5)
-        self.levy = 120 + (pid * 9) % 520
-        self.control = 55 + (pid * 3) % 45
         self.culture = "Nordfolken"
         self.faith = "Nordfolken Mythology"
         self.building_slots = 3
@@ -195,63 +191,10 @@ class MapWorld:
         self._generate()
 
     def _assign_biomes_per_province(self):
-        """Assign a single biome per province based on average height + a macro noise field."""
-        w, h = self.gw, self.gh
-        prov_n = len(self.provinces)
-
-        # macro noise: big shapes (NOT per-cell speckle)
-        macro = _value_noise_2d(w, h, cell_w=18, cell_h=18, seed=self.seed + 4242)
-
-        sum_h = [0.0] * prov_n
-        sum_n = [0.0] * prov_n
-        cnt = [0] * prov_n
-
-        for y in range(h):
-            for x in range(w):
-                if not self.land[y][x]:
-                    continue
-                pid = self.prov_id[y][x]
-                if pid < 0:
-                    continue
-                sum_h[pid] += self.height[y][x]
-                sum_n[pid] += macro[y][x]
-                cnt[pid] += 1
-
-        for pid in range(prov_n):
-            if cnt[pid] <= 0:
-                continue
-
-            ah = sum_h[pid] / cnt[pid]   # avg height
-            an = sum_n[pid] / cnt[pid]   # avg macro noise
-
-            # Deterministic province variation (so it doesn't look uniform)
-            pr = random.Random(self.seed * 99991 + pid * 31)
-            jitter = (pr.random() - 0.5) * 0.08
-
-            # Biome rules (province-wide)
-            if ah > 0.82:
-                biome = "Mountains"
-                col = MOUNTAIN
-            elif ah > 0.74:
-                biome = "Hills"
-                col = HILLS
-            else:
-                # Forest vs plains vs dryland using macro noise + slight jitter
-                forestiness = an * 0.75 + ah * 0.25 + jitter
-                dryness = (1.0 - ah) * 0.55 + (an - 0.5) * 0.35 - jitter
-
-                if forestiness > 0.63:
-                    biome = "Forest"
-                    col = FOREST
-                elif dryness > 0.58:
-                    biome = "Drylands"
-                    col = LAND_DRY
-                else:
-                    biome = "Fertile" if ah > 0.60 else "Plains"
-                    col = LAND_RICH if ah > 0.60 else LAND_GREEN
-
-            self.provinces[pid].biome = biome
-            self.provinces[pid].biome_color = col
+        """Assign a single biome per province (currently only boreal_forest)."""
+        for prov in self.provinces:
+            prov.biome = "boreal_forest"
+            prov.biome_color = FOREST
 
     def _seed_starting_buildings(self):
         if not self.provinces:
@@ -262,15 +205,7 @@ class MapWorld:
             if prov.buildings.count(None) <= 0:
                 continue
 
-            chance = 0.20
-            if prov.biome in ("Fertile", "Plains"):
-                chance = 0.38
-            elif prov.biome == "Drylands":
-                chance = 0.26
-            elif prov.biome == "Forest":
-                chance = 0.18
-            elif prov.biome in ("Hills", "Mountains"):
-                chance = 0.12
+            chance = 0.18
 
             if rnd.random() < chance:
                 prov.add_building("farm")
@@ -789,7 +724,7 @@ class MapWorld:
                 # default subtle grain
                 darken = (hval % 9)  # 0..8
 
-                if biome == "Forest":
+                if biome in ("Forest", "boreal_forest"):
                     # "trees": frequent darker specks + occasional deeper blobs
                     if (hval % 13) == 0:
                         darken = 42
