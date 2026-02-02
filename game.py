@@ -1,3 +1,4 @@
+import os
 import pygame
 
 import event_content
@@ -30,6 +31,14 @@ class GameApp:
         pygame.display.set_caption("CK1-Inspired Grand Strategy UI (Pygame)")
         self.screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
+
+        self.mode = "menu"
+        self._menu_bg = self._load_menu_background()
+        self._menu_bg_cache = {}
+        font_path = pygame.font.match_font("arial")
+        self.menu_title_font = pygame.font.Font(font_path, 72)
+        self.menu_subtitle_font = pygame.font.Font(font_path, 26)
+        self.menu_button_font = pygame.font.Font(font_path, 22)
 
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
@@ -96,6 +105,93 @@ class GameApp:
         self._prev_mouse_down = False
 
         self.running = True
+
+    def _load_menu_background(self):
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "assets"))
+        path = os.path.join(base_dir, "boreal_forest.png")
+        if os.path.exists(path):
+            return pygame.image.load(path).convert()
+        return None
+
+    def _get_menu_bg_scaled(self, size):
+        if self._menu_bg is None:
+            return None, (0, 0)
+        cache_key = (int(size[0]), int(size[1]))
+        cached = self._menu_bg_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        bg_w, bg_h = self._menu_bg.get_size()
+        scale = max(size[0] / bg_w, size[1] / bg_h)
+        new_w = max(1, int(bg_w * scale))
+        new_h = max(1, int(bg_h * scale))
+        scaled = pygame.transform.smoothscale(self._menu_bg, (new_w, new_h))
+        offset = ((size[0] - new_w) // 2, (size[1] - new_h) // 2)
+        cached = (scaled, offset)
+        self._menu_bg_cache[cache_key] = cached
+        return cached
+
+    def _draw_menu_background(self, surface):
+        size = surface.get_size()
+        if self._menu_bg is None:
+            surface.fill(BG_COLOR)
+            return
+        scaled, offset = self._get_menu_bg_scaled(size)
+        if scaled is None:
+            surface.fill(BG_COLOR)
+            return
+        surface.blit(scaled, offset)
+
+    def _draw_menu_button(self, surface, rect, text):
+        mx, my = pygame.mouse.get_pos()
+        hovered = rect.collidepoint(mx, my)
+        bg = (55, 55, 60) if not hovered else (80, 80, 90)
+        border = (10, 10, 10)
+        pygame.draw.rect(surface, bg, rect, border_radius=6)
+        pygame.draw.rect(surface, border, rect, width=2, border_radius=6)
+        label = self.menu_button_font.render(text, True, (235, 228, 210))
+        surface.blit(label, label.get_rect(center=rect.center))
+        return rect
+
+    def _draw_main_menu(self, surface):
+        self._draw_menu_background(surface)
+
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 95))
+        surface.blit(overlay, (0, 0))
+
+        w, h = surface.get_size()
+        title = "Ascention"
+        subtitle = "northen lords"
+
+        title_surf = self.menu_title_font.render(title, True, (235, 228, 210))
+        subtitle_surf = self.menu_subtitle_font.render(subtitle, True, (210, 202, 185))
+
+        title_rect = title_surf.get_rect(center=(w // 2, int(h * 0.18)))
+        subtitle_rect = subtitle_surf.get_rect(center=(w // 2, title_rect.bottom + 18))
+
+        shadow = self.menu_title_font.render(title, True, (0, 0, 0))
+        surface.blit(shadow, (title_rect.x + 3, title_rect.y + 3))
+        surface.blit(title_surf, title_rect)
+        surface.blit(subtitle_surf, subtitle_rect)
+
+        btn_w = min(420, int(w * 0.55))
+        btn_h = 46
+        gap = 12
+        start_y = int(h * 0.45)
+        left = (w - btn_w) // 2
+
+        labels = [
+            ("Start Game", "menu_start"),
+            ("Load Game", "menu_load"),
+            ("Settings", "menu_settings"),
+        ]
+
+        clickables = []
+        for i, (label, action) in enumerate(labels):
+            rect = pygame.Rect(left, start_y + i * (btn_h + gap), btn_w, btn_h)
+            self._draw_menu_button(surface, rect, label)
+            clickables.append((rect, action))
+        return clickables
 
     def _try_open_tower_event(self, screen_pos):
         tower_pid = getattr(self.world, "tower_pid", -1)
@@ -286,6 +382,32 @@ class GameApp:
         self._building_menu_slot = None
 
     def _handle_action(self, action):
+        if action == "menu_start":
+            self.mode = "game"
+            self.modal.close()
+            return
+        if action == "menu_load":
+            self.modal.show(
+                "Not Implemented",
+                [
+                    "Load game is a placeholder action.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        if action == "menu_settings":
+            self.modal.show(
+                "Not Implemented",
+                [
+                    "Settings is a placeholder action.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
         if action == "toggle_pause":
             self.toggle_pause()
         elif action == "speed_1":
@@ -435,35 +557,35 @@ class GameApp:
                     if event.key == pygame.K_ESCAPE:
                         if self.modal.open:
                             self.modal.close()
-                        else:
+                        elif self.mode == "game":
                             self.open_menu()
                     elif event.key == pygame.K_SPACE:
-                        if not self.modal.open:
+                        if not self.modal.open and self.mode == "game":
                             self.toggle_pause()
 
                 # Mouse wheel zoom (pygame 2)
-                elif event.type == pygame.MOUSEWHEEL and not self.modal.open:
+                elif event.type == pygame.MOUSEWHEEL and not self.modal.open and self.mode == "game":
                     mx, my = pygame.mouse.get_pos()
                     if self.layout.map.collidepoint((mx, my)):
                         factor = 1.12 if event.y > 0 else 0.89
                         self.camera.zoom_at(factor, (mx, my), self.layout.map)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1 and not self.modal.open:
+                    if event.button == 1 and not self.modal.open and self.mode == "game":
                         if self.layout.map.collidepoint(event.pos):
                             self._mouse_down_in_map = True
                             self._mouse_down_pos = event.pos
                             self._drag_started = False
 
                     # fallback wheel (old style)
-                    if not self.modal.open and self.layout.map.collidepoint(event.pos):
+                    if not self.modal.open and self.mode == "game" and self.layout.map.collidepoint(event.pos):
                         if event.button == 4:
                             self.camera.zoom_at(1.12, event.pos, self.layout.map)
                         elif event.button == 5:
                             self.camera.zoom_at(0.89, event.pos, self.layout.map)
 
                 elif event.type == pygame.MOUSEMOTION:
-                    if not self.modal.open and self._mouse_down_in_map:
+                    if not self.modal.open and self.mode == "game" and self._mouse_down_in_map:
                         dx = abs(event.pos[0] - self._mouse_down_pos[0])
                         dy = abs(event.pos[1] - self._mouse_down_pos[1])
                         if not self._drag_started and (dx + dy) > self._mouse_drag_threshold:
@@ -475,7 +597,7 @@ class GameApp:
 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
-                        if self._mouse_down_in_map:
+                        if self.mode == "game" and self._mouse_down_in_map:
                             if self._drag_started:
                                 self.camera.end_drag()
                             else:
@@ -491,53 +613,58 @@ class GameApp:
                             self._drag_started = False
 
             # Continuous controls
-            self._map_controls(dt)
+            if self.mode == "game":
+                self._map_controls(dt)
 
             # Time + camera easing
-            self._update_time(dt)
-            self.camera.update(dt)
+            if self.mode == "game":
+                self._update_time(dt)
+                self.camera.update(dt)
 
             # Draw
-            self.screen.fill(BG_COLOR)
-
-            # Decorative background panels behind everything
-            bg = pygame.Surface(self.screen.get_size())
-            bg.fill(BG_COLOR)
-            tile = self.ui.bottom_tile
-            tile_fill(bg, bg.get_rect(), tile)
-            bg.set_alpha(70)
-            self.screen.blit(bg, (0, 0))
-
-            # Map
-            self.map_renderer.draw(self.screen, self.layout.map)
-
-            # UI panels
-            state = {
-                "date": self.date,
-                "resources": self.resources,
-                "speed_level": self.speed_level,
-                "character": self.character,
-                "army": self.army,
-                "selected_province": self.selected_province,
-                "log": self.log,
-                "realm_names": self.world.realm_names,
-                "realm_rulers": self.world.realm_rulers,
-                "player_realm_id": self.player_realm_id,
-                "population": self.population,
-                "food": self.food,
-                "threat": self.threat,
-                "building_menu_slot": self._building_menu_slot,
-            }
-
             clickables = []
+            if self.mode == "menu":
+                clickables = self._draw_main_menu(self.screen)
+                modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
+            else:
+                self.screen.fill(BG_COLOR)
 
-            clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
-            clip_draw(self.screen, self.layout.left, lambda: clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state)))
-            clip_draw(self.screen, self.layout.right, lambda: clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state)))
-            clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
+                # Decorative background panels behind everything
+                bg = pygame.Surface(self.screen.get_size())
+                bg.fill(BG_COLOR)
+                tile = self.ui.bottom_tile
+                tile_fill(bg, bg.get_rect(), tile)
+                bg.set_alpha(70)
+                self.screen.blit(bg, (0, 0))
 
-            # Modal on top
-            modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
+                # Map
+                self.map_renderer.draw(self.screen, self.layout.map)
+
+                # UI panels
+                state = {
+                    "date": self.date,
+                    "resources": self.resources,
+                    "speed_level": self.speed_level,
+                    "character": self.character,
+                    "army": self.army,
+                    "selected_province": self.selected_province,
+                    "log": self.log,
+                    "realm_names": self.world.realm_names,
+                    "realm_rulers": self.world.realm_rulers,
+                    "player_realm_id": self.player_realm_id,
+                    "population": self.population,
+                    "food": self.food,
+                    "threat": self.threat,
+                    "building_menu_slot": self._building_menu_slot,
+                }
+
+                clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
+                clip_draw(self.screen, self.layout.left, lambda: clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state)))
+                clip_draw(self.screen, self.layout.right, lambda: clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state)))
+                clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
+
+                # Modal on top
+                modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
 
             # Edge-triggered click dispatch
             now_down = pygame.mouse.get_pressed(num_buttons=3)[0]
