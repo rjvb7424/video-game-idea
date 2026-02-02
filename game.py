@@ -65,7 +65,7 @@ class GameApp:
 
         # Player character = ruler of player realm
         self.player_realm_id = self.world.player_realm_id
-        self.character = dict(self.world.realm_rulers[self.player_realm_id])
+        self.character = self.world.realm_rulers[self.player_realm_id]
 
         if "base_stats" not in self.character:
             self.character["base_stats"] = _stats_list_to_dict(self.character.get("stats", []))

@@ -305,12 +305,43 @@ class UIManager:
         y = draw_header_text(surface, c["name"], content.left, y, color=(235, 228, 210))
         y = draw_body_text(surface, c["title"], content.left, y, color=(185, 175, 160))
         y = draw_footer_text(surface, c["house"], content.left, y, color=(170, 160, 145))
+        gender_label = c.get("gender", "—")
+        if isinstance(gender_label, str):
+            gender_label = gender_label.title()
+        age_label = c.get("age", "—")
+        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(210, 202, 185))
+        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(210, 202, 185))
         y += 8
 
         # Identity: Faith + Culture
         y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
         y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        y += 6
+
+        # Family
+        y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
+        spouse = c.get("spouse")
+        if isinstance(spouse, dict):
+            spouse_gender = spouse.get("gender", "—")
+            if isinstance(spouse_gender, str):
+                spouse_gender = spouse_gender.title()
+            spouse_age = spouse.get("age", "—")
+            y = draw_body_text(surface, f"Spouse: {spouse.get('name','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_footer_text(surface, f"{spouse_gender}, age {spouse_age}", content.left, y, color=(185, 175, 160))
+        else:
+            y = draw_body_text(surface, "Spouse: —", content.left, y, color=(185, 175, 160))
+
+        heir = c.get("heir")
+        if isinstance(heir, dict):
+            heir_gender = heir.get("gender", "—")
+            if isinstance(heir_gender, str):
+                heir_gender = heir_gender.title()
+            heir_age = heir.get("age", "—")
+            y = draw_body_text(surface, f"Heir: {heir.get('name','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_footer_text(surface, f"{heir_gender}, age {heir_age}", content.left, y, color=(185, 175, 160))
+        else:
+            y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
         y += 6
 
         # Trait alignment + piety rate
@@ -547,6 +578,23 @@ class UIManager:
             safe_footer(ruler["title"], color=(185, 175, 160))
             safe_body(f"Faith: {ruler.get('faith','—')}")
             safe_body(f"Culture: {ruler.get('culture','—')}")
+            r_gender = ruler.get("gender", "—")
+            if isinstance(r_gender, str):
+                r_gender = r_gender.title()
+            safe_body(f"Gender: {r_gender}")
+            safe_body(f"Age: {ruler.get('age','—')}")
+
+            spouse = ruler.get("spouse")
+            if isinstance(spouse, dict):
+                safe_body(f"Spouse: {spouse.get('name','—')}")
+            else:
+                safe_body("Spouse: —")
+
+            heir = ruler.get("heir")
+            if isinstance(heir, dict):
+                safe_body(f"Heir: {heir.get('name','—')}")
+            else:
+                safe_body("Heir: —")
 
             pr, _ = compute_piety_rate(ruler)
             safe_body(f"Piety from traits: {pr:+d} / mo")

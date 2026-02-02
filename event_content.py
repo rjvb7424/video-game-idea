@@ -1,8 +1,17 @@
 # event_content.py
 from events import event
+from systems.characters import ensure_ruler_identity, generate_heir, generate_spouse
 
 TOWER_REPAIR_COSTS = [250, 350, 500]
 TOWER_ACTIVATE_PIETY = 350
+
+
+def _player_realm_info(ctx):
+    world = ctx.get("world")
+    rid = getattr(world, "player_realm_id", 0)
+    realm_name = world.realm_names[rid] if world and world.realm_names else "Realm"
+    realm_size = world.realm_sizes[rid] if world and hasattr(world, "realm_sizes") else 1
+    return realm_name, realm_size
 
 @event("stray_cat_001", weight=6, can_fire=lambda ctx: not ctx["flags"].get("has_cat", False))
 def stray_cat(ctx, E):
@@ -126,3 +135,69 @@ def tower_of_heaven(ctx, E):
         )
 
     return builder.done()
+
+
+@event("ruler_marriage_001", weight=5, can_fire=lambda ctx: not ctx["character"].get("spouse"))
+def ruler_marriage(ctx, E):
+    def accept(ctx2, api):
+        ruler = ctx2["character"]
+        realm_name, realm_size = _player_realm_info(ctx2)
+        ensure_ruler_identity(ctx2["rng"], ruler, culture=ruler.get("culture", "Nordfolken"))
+        spouse = generate_spouse(
+            ctx2["rng"],
+            realm_name=realm_name,
+            realm_size=realm_size,
+            culture=ruler.get("culture", "Nordfolken"),
+            faith=ruler.get("faith", "Nordfolken Mythology"),
+            house=ruler.get("house", "House"),
+            ruler_gender=ruler.get("gender", "male"),
+        )
+        ruler["spouse"] = spouse
+        api.log(f"{ctx2['date']}: You wed {spouse['name']}.")
+
+    def decline(ctx2, api):
+        api.log(f"{ctx2['date']}: You remain unwed.")
+
+    return (E.make(
+        "A Match for the Throne",
+        [
+            "The council urges you to secure the dynasty with a marriage.",
+            "A suitable match is presented before your court."
+        ]
+    )
+    .option("Arrange the marriage", kind="accept", on_choose=accept)
+    .option("Decline for now", kind="secondary", on_choose=decline)
+    .done())
+
+
+@event("ruler_heir_001", weight=5, can_fire=lambda ctx: ctx["character"].get("spouse") and not ctx["character"].get("heir"))
+def ruler_heir(ctx, E):
+    def celebrate(ctx2, api):
+        ruler = ctx2["character"]
+        realm_name, realm_size = _player_realm_info(ctx2)
+        ensure_ruler_identity(ctx2["rng"], ruler, culture=ruler.get("culture", "Nordfolken"))
+        heir = generate_heir(
+            ctx2["rng"],
+            realm_name=realm_name,
+            realm_size=realm_size,
+            culture=ruler.get("culture", "Nordfolken"),
+            faith=ruler.get("faith", "Nordfolken Mythology"),
+            house=ruler.get("house", "House"),
+        )
+        ruler["heir"] = heir
+        api.log(f"{ctx2['date']}: An heir is born: {heir['name']}.")
+
+    spouse_name = "your spouse"
+    spouse = ctx.get("character", {}).get("spouse")
+    if isinstance(spouse, dict):
+        spouse_name = spouse.get("name", spouse_name)
+
+    return (E.make(
+        "A New Heir",
+        [
+            f"Joy fills the hall as {spouse_name} gives birth.",
+            "The line is secured, and the court celebrates."
+        ]
+    )
+    .option("Celebrate the birth", kind="accept", on_choose=celebrate)
+    .done())
