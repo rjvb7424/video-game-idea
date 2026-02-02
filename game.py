@@ -36,6 +36,8 @@ class GameApp:
         self.mode = "menu"
         self.storyteller = None
         self.realm_select_page = 0
+        self.realm_candidate_id = None
+        self._realm_ui_rects = []
         self.storytellers = [
             {
                 "id": "cassius_classic",
@@ -156,14 +158,20 @@ class GameApp:
             return
         surface.blit(scaled, offset)
 
-    def _draw_menu_button(self, surface, rect, text):
+    def _draw_menu_button(self, surface, rect, text, enabled=True):
         mx, my = pygame.mouse.get_pos()
-        hovered = rect.collidepoint(mx, my)
-        bg = (55, 55, 60) if not hovered else (80, 80, 90)
-        border = (10, 10, 10)
+        hovered = enabled and rect.collidepoint(mx, my)
+        if enabled:
+            bg = (55, 55, 60) if not hovered else (80, 80, 90)
+            border = (10, 10, 10)
+            text_color = (235, 228, 210)
+        else:
+            bg = (35, 35, 38)
+            border = (18, 18, 20)
+            text_color = (140, 135, 125)
         pygame.draw.rect(surface, bg, rect, border_radius=6)
         pygame.draw.rect(surface, border, rect, width=2, border_radius=6)
-        label = self.menu_button_font.render(text, True, (235, 228, 210))
+        label = self.menu_button_font.render(text, True, text_color)
         surface.blit(label, label.get_rect(center=rect.center))
         return rect
 
@@ -274,71 +282,81 @@ class GameApp:
         return clickables
 
     def _draw_realm_menu(self, surface):
-        self._draw_menu_background(surface)
+        surface.fill(BG_COLOR)
 
-        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 120))
-        surface.blit(overlay, (0, 0))
+        # Decorative background panels behind everything
+        bg = pygame.Surface(surface.get_size())
+        bg.fill(BG_COLOR)
+        tile_fill(bg, bg.get_rect(), self.ui.bottom_tile)
+        bg.set_alpha(60)
+        surface.blit(bg, (0, 0))
+
+        # Map (clickable selection)
+        self.map_renderer.draw(surface, self.layout.map)
+
+        # Highlight selected province / realm capital
+        if self.realm_candidate_id is not None and 0 <= self.realm_candidate_id < len(self.world.realm_capitals):
+            cap_pid = self.world.realm_capitals[self.realm_candidate_id]
+            if 0 <= cap_pid < len(self.world.provinces):
+                cap = self.world.provinces[cap_pid]
+                sp = self.camera.world_to_screen(cap.center, self.layout.map, use_target=False)
+                pygame.draw.circle(surface, (240, 210, 120), (int(sp.x), int(sp.y)), 18, 3)
+
+        if self.selected_province is not None:
+            sp = self.camera.world_to_screen(self.selected_province.center, self.layout.map, use_target=False)
+            pygame.draw.circle(surface, (230, 230, 230), (int(sp.x), int(sp.y)), 10, 2)
 
         w, h = surface.get_size()
-        title_surf = self.menu_header_font.render("Choose Starting Realm", True, (235, 228, 210))
-        surface.blit(title_surf, title_surf.get_rect(center=(w // 2, int(h * 0.16))))
-
         st_name = self.storyteller["name"] if self.storyteller else "None"
-        subtitle = self.menu_caption_font.render(f"Storyteller: {st_name}", True, (200, 192, 175))
-        surface.blit(subtitle, subtitle.get_rect(center=(w // 2, int(h * 0.22))))
 
-        btn_w = min(620, int(w * 0.75))
-        btn_h = 40
-        gap = 10
-        list_top = int(h * 0.28)
-        max_list_h = int(h * 0.50)
-        per_page = max(4, int(max_list_h // (btn_h + gap)))
+        header_rect = pygame.Rect(int(w * 0.18), 16, int(w * 0.64), 96)
+        pygame.draw.rect(surface, (18, 18, 20), header_rect, border_radius=8)
+        pygame.draw.rect(surface, (5, 5, 6), header_rect, 2, border_radius=8)
+        title_surf = self.menu_subtitle_font.render("Choose Your Realm", True, (235, 228, 210))
+        surface.blit(title_surf, (header_rect.left + 16, header_rect.top + 10))
+        sub_surf = self.menu_caption_font.render(f"Storyteller: {st_name}", True, (200, 192, 175))
+        surface.blit(sub_surf, (header_rect.left + 16, header_rect.top + 40))
+        hint = "Click a realm on the map, then confirm to begin."
+        for i, line in enumerate(wrap_text(hint, self.menu_caption_font, header_rect.w - 32)):
+            line_surf = self.menu_caption_font.render(line, True, (180, 172, 160))
+            surface.blit(line_surf, (header_rect.left + 16, header_rect.top + 64 + i * 18))
 
-        realms = self.world.realm_names
-        total = len(realms)
-        pages = max(1, (total + per_page - 1) // per_page)
-        self.realm_select_page = max(0, min(self.realm_select_page, pages - 1))
-
-        start_idx = self.realm_select_page * per_page
-        end_idx = min(total, start_idx + per_page)
+        info_rect = pygame.Rect(int(w * 0.2), h - 150, int(w * 0.6), 110)
+        pygame.draw.rect(surface, (20, 20, 22), info_rect, border_radius=8)
+        pygame.draw.rect(surface, (6, 6, 7), info_rect, 2, border_radius=8)
+        self._realm_ui_rects = [header_rect, info_rect]
 
         clickables = []
-        left = (w - btn_w) // 2
-        for row, rid in enumerate(range(start_idx, end_idx)):
-            realm_name = realms[rid]
-            ruler = self.world.realm_rulers[rid].get("name", "Ruler")
-            label = f"{realm_name} — {ruler}"
-            label = self._ellipsize(label, self.menu_button_font, btn_w - 20)
-            rect = pygame.Rect(left, list_top + row * (btn_h + gap), btn_w, btn_h)
-            self._draw_menu_button(surface, rect, label)
-            clickables.append((rect, f"realm_select:{rid}"))
+        if self.realm_candidate_id is None:
+            msg = self.menu_caption_font.render("No realm selected.", True, (190, 182, 168))
+            surface.blit(msg, (info_rect.left + 16, info_rect.top + 16))
+        else:
+            realm_name = self.world.realm_names[self.realm_candidate_id]
+            ruler = self.world.realm_rulers[self.realm_candidate_id].get("name", "Ruler")
+            r1 = self.menu_caption_font.render(realm_name, True, (235, 228, 210))
+            r2 = self.menu_caption_font.render(f"Ruler: {ruler}", True, (200, 192, 175))
+            surface.blit(r1, (info_rect.left + 16, info_rect.top + 16))
+            surface.blit(r2, (info_rect.left + 16, info_rect.top + 40))
 
-        nav_y = list_top + per_page * (btn_h + gap) + 10
-        if pages > 1:
-            prev_rect = pygame.Rect(left, nav_y, 120, 32)
-            next_rect = pygame.Rect(left + btn_w - 120, nav_y, 120, 32)
-            self._draw_menu_button(surface, prev_rect, "Prev")
-            self._draw_menu_button(surface, next_rect, "Next")
-            clickables.append((prev_rect, "realm_prev"))
-            clickables.append((next_rect, "realm_next"))
-
-            page_label = self.menu_caption_font.render(f"Page {self.realm_select_page + 1} / {pages}", True, (200, 192, 175))
-            surface.blit(page_label, page_label.get_rect(center=(w // 2, nav_y + 16)))
-
-        hint = "After choosing a realm, the game begins."
-        hint_surf = self.menu_caption_font.render(hint, True, (180, 172, 160))
-        surface.blit(hint_surf, hint_surf.get_rect(center=(w // 2, h - 84)))
-
-        back_rect = pygame.Rect(20, h - 56, 140, 36)
+        back_rect = pygame.Rect(info_rect.left + 12, info_rect.bottom - 40, 120, 30)
         self._draw_menu_button(surface, back_rect, "Back")
         clickables.append((back_rect, "realm_back"))
+
+        confirm_rect = pygame.Rect(info_rect.right - 220, info_rect.bottom - 40, 200, 30)
+        enabled = self.realm_candidate_id is not None
+        self._draw_menu_button(surface, confirm_rect, "Start Game", enabled=enabled)
+        if enabled:
+            clickables.append((confirm_rect, "realm_confirm"))
+
         return clickables
 
     def _apply_storyteller(self, storyteller):
         self.storyteller = storyteller
         mult = storyteller.get("event_chance_mult", 1.0)
         self.events.daily_chance = self.base_event_daily_chance * float(mult)
+
+    def _set_full_visibility(self):
+        self.world.visibility_by_prov = {p.id: 1.0 for p in self.world.provinces}
 
     def _start_game_for_realm(self, rid):
         rid = max(0, min(int(rid), len(self.world.realm_names) - 1))
@@ -569,6 +587,7 @@ class GameApp:
         if action == "menu_start":
             self.storyteller = None
             self.realm_select_page = 0
+            self.realm_candidate_id = None
             self.mode = "storyteller"
             self.modal.close()
             return
@@ -595,6 +614,8 @@ class GameApp:
             )
             return
         if action == "storyteller_back":
+            self.realm_candidate_id = None
+            self.selected_province = None
             self.mode = "menu"
             return
         if action.startswith("storyteller:"):
@@ -603,24 +624,20 @@ class GameApp:
             if st:
                 self._apply_storyteller(st)
                 self.realm_select_page = 0
+                self.realm_candidate_id = None
+                self.selected_province = None
+                self._set_full_visibility()
                 self.mode = "realm_select"
             return
         if action == "realm_back":
+            self.realm_candidate_id = None
+            self.selected_province = None
             self.mode = "storyteller"
             return
-        if action == "realm_prev":
-            self.realm_select_page = max(0, self.realm_select_page - 1)
-            return
-        if action == "realm_next":
-            self.realm_select_page += 1
-            return
-        if action.startswith("realm_select:"):
-            rid = action.split(":", 1)[1]
-            try:
-                rid = int(rid)
-            except ValueError:
+        if action == "realm_confirm":
+            if self.realm_candidate_id is None:
                 return
-            self._start_game_for_realm(rid)
+            self._start_game_for_realm(self.realm_candidate_id)
             self.mode = "game"
             return
         if action == "toggle_pause":
@@ -783,28 +800,35 @@ class GameApp:
                             self.toggle_pause()
 
                 # Mouse wheel zoom (pygame 2)
-                elif event.type == pygame.MOUSEWHEEL and not self.modal.open and self.mode == "game":
+                elif event.type == pygame.MOUSEWHEEL and not self.modal.open and self.mode in ("game", "realm_select"):
                     mx, my = pygame.mouse.get_pos()
                     if self.layout.map.collidepoint((mx, my)):
                         factor = 1.12 if event.y > 0 else 0.89
                         self.camera.zoom_at(factor, (mx, my), self.layout.map)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1 and not self.modal.open and self.mode == "game":
+                    if event.button == 1 and not self.modal.open and self.mode in ("game", "realm_select"):
                         if self.layout.map.collidepoint(event.pos):
-                            self._mouse_down_in_map = True
-                            self._mouse_down_pos = event.pos
-                            self._drag_started = False
+                            if self.mode == "realm_select":
+                                in_ui = any(r.collidepoint(event.pos) for r in self._realm_ui_rects)
+                                if not in_ui:
+                                    self._mouse_down_in_map = True
+                                    self._mouse_down_pos = event.pos
+                                    self._drag_started = False
+                            else:
+                                self._mouse_down_in_map = True
+                                self._mouse_down_pos = event.pos
+                                self._drag_started = False
 
                     # fallback wheel (old style)
-                    if not self.modal.open and self.mode == "game" and self.layout.map.collidepoint(event.pos):
+                    if not self.modal.open and self.mode in ("game", "realm_select") and self.layout.map.collidepoint(event.pos):
                         if event.button == 4:
                             self.camera.zoom_at(1.12, event.pos, self.layout.map)
                         elif event.button == 5:
                             self.camera.zoom_at(0.89, event.pos, self.layout.map)
 
                 elif event.type == pygame.MOUSEMOTION:
-                    if not self.modal.open and self.mode == "game" and self._mouse_down_in_map:
+                    if not self.modal.open and self.mode in ("game", "realm_select") and self._mouse_down_in_map:
                         dx = abs(event.pos[0] - self._mouse_down_pos[0])
                         dy = abs(event.pos[1] - self._mouse_down_pos[1])
                         if not self._drag_started and (dx + dy) > self._mouse_drag_threshold:
@@ -816,28 +840,36 @@ class GameApp:
 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
-                        if self.mode == "game" and self._mouse_down_in_map:
+                        if self.mode in ("game", "realm_select") and self._mouse_down_in_map:
                             if self._drag_started:
                                 self.camera.end_drag()
                             else:
                                 if self.layout.map.collidepoint(event.pos):
-                                    if not self._try_open_tower_event(event.pos):
+                                    if self.mode == "game":
+                                        if not self._try_open_tower_event(event.pos):
+                                            wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
+                                            prov = self.world.province_at_world(wp)
+                                            if prov is not None:
+                                                self.selected_province = prov
+                                                self._building_menu_slot = None
+                                                self.push_log(f"{self.date}: Selected {prov.name}.")
+                                    elif self.mode == "realm_select":
                                         wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
                                         prov = self.world.province_at_world(wp)
                                         if prov is not None:
                                             self.selected_province = prov
-                                            self._building_menu_slot = None
-                                            self.push_log(f"{self.date}: Selected {prov.name}.")
+                                            self.realm_candidate_id = prov.realm_id
                             self._mouse_down_in_map = False
                             self._drag_started = False
 
             # Continuous controls
-            if self.mode == "game":
+            if self.mode in ("game", "realm_select"):
                 self._map_controls(dt)
 
             # Time + camera easing
             if self.mode == "game":
                 self._update_time(dt)
+            if self.mode in ("game", "realm_select"):
                 self.camera.update(dt)
 
             # Draw
