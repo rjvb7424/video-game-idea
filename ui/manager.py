@@ -300,15 +300,9 @@ class UIManager:
 
         y = content.top
 
-        # Portrait frame
-        pf = pygame.Rect(content.left, y, content.w, 90)
-        self._draw_portrait(surface, pf, state)
-        y = pf.bottom + 10
-
         # Identity
         y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
         y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Dynasty: {c.get('house','—')}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
         gender_label = c.get("gender", "—")
