@@ -20,6 +20,7 @@ from systems.traits import _stats_list_to_dict, apply_trait_effects, compute_pie
 from ui.layout import Layout
 from ui.manager import UIManager
 from ui.modal import Modal
+from ui.text import wrap_text
 from ui.theme import BG_COLOR, FOOTER_FONT
 from ui.utils import clip_draw
 from world.map import MapWorld
@@ -33,12 +34,25 @@ class GameApp:
         self.clock = pygame.time.Clock()
 
         self.mode = "menu"
+        self.storyteller = None
+        self.realm_select_page = 0
+        self.storytellers = [
+            {
+                "id": "cassius_classic",
+                "name": "Cassius Classic",
+                "desc": "A steady, classic cadence of events with no strong bias.",
+                "event_chance_mult": 1.0,
+            }
+        ]
+
         self._menu_bg = self._load_menu_background()
         self._menu_bg_cache = {}
         font_path = pygame.font.match_font("arial")
         self.menu_title_font = pygame.font.Font(font_path, 72)
-        self.menu_subtitle_font = pygame.font.Font(font_path, 26)
+        self.menu_header_font = pygame.font.Font(font_path, 40)
+        self.menu_subtitle_font = pygame.font.Font(font_path, 24)
         self.menu_button_font = pygame.font.Font(font_path, 22)
+        self.menu_caption_font = pygame.font.Font(font_path, 18)
 
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
@@ -64,7 +78,8 @@ class GameApp:
 
         self.event_registry = EventRegistry(seed=123)
         register_all(self.event_registry, event_content)
-        self.events = EventSystem(self, self.event_registry, daily_chance=0.05, seed=999)
+        self.base_event_daily_chance = 0.05
+        self.events = EventSystem(self, self.event_registry, daily_chance=self.base_event_daily_chance, seed=999)
 
         self.resources = {
             "gold": 200,
@@ -152,6 +167,19 @@ class GameApp:
         surface.blit(label, label.get_rect(center=rect.center))
         return rect
 
+    @staticmethod
+    def _ellipsize(text, font, max_w):
+        if font.size(text)[0] <= max_w:
+            return text
+        ell = "..."
+        max_w -= font.size(ell)[0]
+        if max_w <= 0:
+            return ell
+        trimmed = text
+        while trimmed and font.size(trimmed)[0] > max_w:
+            trimmed = trimmed[:-1]
+        return trimmed.rstrip() + ell
+
     def _draw_main_menu(self, surface):
         self._draw_menu_background(surface)
 
@@ -192,6 +220,162 @@ class GameApp:
             self._draw_menu_button(surface, rect, label)
             clickables.append((rect, action))
         return clickables
+
+    def _draw_storyteller_menu(self, surface):
+        self._draw_menu_background(surface)
+
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 110))
+        surface.blit(overlay, (0, 0))
+
+        w, h = surface.get_size()
+        title_surf = self.menu_header_font.render("Choose Storyteller", True, (235, 228, 210))
+        subtitle_surf = self.menu_subtitle_font.render(
+            "Storytellers shape how often events appear.",
+            True,
+            (210, 202, 185),
+        )
+        surface.blit(title_surf, title_surf.get_rect(center=(w // 2, int(h * 0.16))))
+        surface.blit(subtitle_surf, subtitle_surf.get_rect(center=(w // 2, int(h * 0.22))))
+
+        card_w = min(520, int(w * 0.7))
+        card_h = 200
+        card_rect = pygame.Rect((w - card_w) // 2, int(h * 0.32), card_w, card_h)
+        pygame.draw.rect(surface, (26, 26, 30), card_rect, border_radius=10)
+        pygame.draw.rect(surface, (8, 8, 8), card_rect, 2, border_radius=10)
+
+        st = self.storytellers[0]
+        name_surf = self.menu_subtitle_font.render(st["name"], True, (235, 228, 210))
+        surface.blit(name_surf, (card_rect.left + 18, card_rect.top + 18))
+
+        desc_lines = wrap_text(st["desc"], self.menu_caption_font, card_rect.w - 36)
+        y = card_rect.top + 60
+        for line in desc_lines:
+            line_surf = self.menu_caption_font.render(line, True, (200, 192, 175))
+            surface.blit(line_surf, (card_rect.left + 18, y))
+            y += line_surf.get_height() + 4
+
+        hint = "After choosing a storyteller, pick your starting realm."
+        hint_lines = wrap_text(hint, self.menu_caption_font, card_rect.w - 36)
+        y = card_rect.bottom - 64
+        for line in hint_lines:
+            line_surf = self.menu_caption_font.render(line, True, (180, 172, 160))
+            surface.blit(line_surf, (card_rect.left + 18, y))
+            y += line_surf.get_height() + 2
+
+        btn_rect = pygame.Rect(card_rect.left + 18, card_rect.bottom - 44, 280, 32)
+        clickables = []
+        self._draw_menu_button(surface, btn_rect, "Select Cassius Classic")
+        clickables.append((btn_rect, "storyteller:cassius_classic"))
+
+        back_rect = pygame.Rect(20, h - 56, 140, 36)
+        self._draw_menu_button(surface, back_rect, "Back")
+        clickables.append((back_rect, "storyteller_back"))
+        return clickables
+
+    def _draw_realm_menu(self, surface):
+        self._draw_menu_background(surface)
+
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        surface.blit(overlay, (0, 0))
+
+        w, h = surface.get_size()
+        title_surf = self.menu_header_font.render("Choose Starting Realm", True, (235, 228, 210))
+        surface.blit(title_surf, title_surf.get_rect(center=(w // 2, int(h * 0.16))))
+
+        st_name = self.storyteller["name"] if self.storyteller else "None"
+        subtitle = self.menu_caption_font.render(f"Storyteller: {st_name}", True, (200, 192, 175))
+        surface.blit(subtitle, subtitle.get_rect(center=(w // 2, int(h * 0.22))))
+
+        btn_w = min(620, int(w * 0.75))
+        btn_h = 40
+        gap = 10
+        list_top = int(h * 0.28)
+        max_list_h = int(h * 0.50)
+        per_page = max(4, int(max_list_h // (btn_h + gap)))
+
+        realms = self.world.realm_names
+        total = len(realms)
+        pages = max(1, (total + per_page - 1) // per_page)
+        self.realm_select_page = max(0, min(self.realm_select_page, pages - 1))
+
+        start_idx = self.realm_select_page * per_page
+        end_idx = min(total, start_idx + per_page)
+
+        clickables = []
+        left = (w - btn_w) // 2
+        for row, rid in enumerate(range(start_idx, end_idx)):
+            realm_name = realms[rid]
+            ruler = self.world.realm_rulers[rid].get("name", "Ruler")
+            label = f"{realm_name} — {ruler}"
+            label = self._ellipsize(label, self.menu_button_font, btn_w - 20)
+            rect = pygame.Rect(left, list_top + row * (btn_h + gap), btn_w, btn_h)
+            self._draw_menu_button(surface, rect, label)
+            clickables.append((rect, f"realm_select:{rid}"))
+
+        nav_y = list_top + per_page * (btn_h + gap) + 10
+        if pages > 1:
+            prev_rect = pygame.Rect(left, nav_y, 120, 32)
+            next_rect = pygame.Rect(left + btn_w - 120, nav_y, 120, 32)
+            self._draw_menu_button(surface, prev_rect, "Prev")
+            self._draw_menu_button(surface, next_rect, "Next")
+            clickables.append((prev_rect, "realm_prev"))
+            clickables.append((next_rect, "realm_next"))
+
+            page_label = self.menu_caption_font.render(f"Page {self.realm_select_page + 1} / {pages}", True, (200, 192, 175))
+            surface.blit(page_label, page_label.get_rect(center=(w // 2, nav_y + 16)))
+
+        hint = "After choosing a realm, the game begins."
+        hint_surf = self.menu_caption_font.render(hint, True, (180, 172, 160))
+        surface.blit(hint_surf, hint_surf.get_rect(center=(w // 2, h - 84)))
+
+        back_rect = pygame.Rect(20, h - 56, 140, 36)
+        self._draw_menu_button(surface, back_rect, "Back")
+        clickables.append((back_rect, "realm_back"))
+        return clickables
+
+    def _apply_storyteller(self, storyteller):
+        self.storyteller = storyteller
+        mult = storyteller.get("event_chance_mult", 1.0)
+        self.events.daily_chance = self.base_event_daily_chance * float(mult)
+
+    def _start_game_for_realm(self, rid):
+        rid = max(0, min(int(rid), len(self.world.realm_names) - 1))
+        self.player_realm_id = rid
+        self.world.player_realm_id = rid
+
+        cap_pid = None
+        if 0 <= rid < len(self.world.realm_capitals):
+            cap_pid = self.world.realm_capitals[rid]
+            self.world.player_capital_pid = cap_pid
+
+        if hasattr(self.world, "_compute_fog_of_war"):
+            self.world._compute_fog_of_war()
+
+        self.character = self.world.realm_rulers[rid]
+        if "base_stats" not in self.character:
+            self.character["base_stats"] = _stats_list_to_dict(self.character.get("stats", []))
+        apply_trait_effects(self.character)
+        self.character["traits"] = normalize_traits(self.character.get("traits", []))
+        self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self._baseline_population = max(1, self.population)
+        self.food = self._compute_food_values()
+        self.threat = self._compute_threat()
+
+        if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
+            self.selected_province = self.world.provinces[cap_pid]
+            center = self.selected_province.center
+            self.camera.center = center.copy()
+            self.camera.target_center = center.copy()
+            self.camera.zoom = 1.0
+            self.camera.target_zoom = 1.0
+            self.camera._clamp_target()
+            self.camera._clamp_actual()
+        else:
+            self.selected_province = None
 
     def _try_open_tower_event(self, screen_pos):
         tower_pid = getattr(self.world, "tower_pid", -1)
@@ -383,7 +567,9 @@ class GameApp:
 
     def _handle_action(self, action):
         if action == "menu_start":
-            self.mode = "game"
+            self.storyteller = None
+            self.realm_select_page = 0
+            self.mode = "storyteller"
             self.modal.close()
             return
         if action == "menu_load":
@@ -407,6 +593,35 @@ class GameApp:
                     ("OK", "accept", lambda: self.modal.close()),
                 ],
             )
+            return
+        if action == "storyteller_back":
+            self.mode = "menu"
+            return
+        if action.startswith("storyteller:"):
+            sid = action.split(":", 1)[1]
+            st = next((s for s in self.storytellers if s["id"] == sid), None)
+            if st:
+                self._apply_storyteller(st)
+                self.realm_select_page = 0
+                self.mode = "realm_select"
+            return
+        if action == "realm_back":
+            self.mode = "storyteller"
+            return
+        if action == "realm_prev":
+            self.realm_select_page = max(0, self.realm_select_page - 1)
+            return
+        if action == "realm_next":
+            self.realm_select_page += 1
+            return
+        if action.startswith("realm_select:"):
+            rid = action.split(":", 1)[1]
+            try:
+                rid = int(rid)
+            except ValueError:
+                return
+            self._start_game_for_realm(rid)
+            self.mode = "game"
             return
         if action == "toggle_pause":
             self.toggle_pause()
@@ -559,6 +774,10 @@ class GameApp:
                             self.modal.close()
                         elif self.mode == "game":
                             self.open_menu()
+                        elif self.mode == "storyteller":
+                            self.mode = "menu"
+                        elif self.mode == "realm_select":
+                            self.mode = "storyteller"
                     elif event.key == pygame.K_SPACE:
                         if not self.modal.open and self.mode == "game":
                             self.toggle_pause()
@@ -625,6 +844,12 @@ class GameApp:
             clickables = []
             if self.mode == "menu":
                 clickables = self._draw_main_menu(self.screen)
+                modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
+            elif self.mode == "storyteller":
+                clickables = self._draw_storyteller_menu(self.screen)
+                modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
+            elif self.mode == "realm_select":
+                clickables = self._draw_realm_menu(self.screen)
                 modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)
             else:
                 self.screen.fill(BG_COLOR)
