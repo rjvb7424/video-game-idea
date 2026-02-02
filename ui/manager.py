@@ -285,7 +285,13 @@ class UIManager:
             pygame.draw.rect(surface, fill_color, fill_rect, border_radius=4)
 
     def draw_left_panel(self, surface, rect, state):
-        content = draw_framed_panel(surface, rect, title="Ruler", title_color=INK, tile=self.left_tile)
+        c = state["character"]
+        house = c.get("house", "")
+        dynasty = house.replace("House ", "").strip() if isinstance(house, str) else ""
+        title_name = c.get("name", "Ruler")
+        if dynasty:
+            title_name = f"{title_name} {dynasty}"
+        content = draw_framed_panel(surface, rect, title=title_name, title_color=INK, tile=self.left_tile)
 
         # extra warm tint over the inner area for stronger brown vibe
         tint = pygame.Surface((rect.w - 28, rect.h - 28), pygame.SRCALPHA)
@@ -299,25 +305,51 @@ class UIManager:
         self._draw_portrait(surface, pf, state)
         y = pf.bottom + 10
 
-        c = state["character"]
-
-        # Name + titles
-        y = draw_header_text(surface, c["name"], content.left, y, color=(235, 228, 210))
-        y = draw_body_text(surface, c["title"], content.left, y, color=(185, 175, 160))
-        y = draw_footer_text(surface, c["house"], content.left, y, color=(170, 160, 145))
+        # Identity
+        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
+        y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Dynasty: {c.get('house','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
         gender_label = c.get("gender", "—")
         if isinstance(gender_label, str):
             gender_label = gender_label.title()
         age_label = c.get("age", "—")
-        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(210, 202, 185))
-        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(210, 202, 185))
+        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
         y += 8
 
-        # Identity: Faith + Culture
-        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
-        y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        # Traits (colored by virtue/sin)
+        virtues, sins, _ = trait_alignment(c)
+        y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
+        traits = c.get("traits", [])
+        if not traits:
+            y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
+        else:
+            for t in traits:
+                if t in virtues:
+                    color = (155, 190, 155)
+                elif t in sins:
+                    color = (200, 150, 150)
+                else:
+                    color = (235, 228, 210)
+                y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
         y += 6
+
+        # Attributes (CK-like columns)
+        y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
+        stats = c["stats"]
+        left_x = content.left
+        mid_x = content.left + content.w // 2
+        for i, (k, v) in enumerate(stats):
+            tx = left_x if i % 2 == 0 else mid_x
+            if i % 2 == 0 and i > 0:
+                y += 2
+            yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
+            draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
+            if i % 2 == 1:
+                y += BODY_FONT.get_height() + 6
+        y += 8
 
         # Family
         y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
@@ -344,68 +376,7 @@ class UIManager:
             y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
         y += 6
 
-        # Trait alignment + piety rate
-        virtues, sins, _ = trait_alignment(c)
-        p_rate, _breakdown = compute_piety_rate(c)
-
-        y = draw_body_text(surface, f"Piety from traits: {p_rate:+d} / mo", content.left, y, color=(220, 214, 198))
-
-        if virtues:
-            y = draw_footer_text(surface, "Virtues: " + ", ".join(trait_name(t) for t in virtues),
-                                 content.left, y, color=(155, 190, 155))
-        if sins:
-            y = draw_footer_text(surface, "Sins: " + ", ".join(trait_name(t) for t in sins),
-                                 content.left, y, color=(200, 150, 150))
-        y += 6
-
-        # Stats (CK-like columns)
-        y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
-        stats = c["stats"]
-        left_x = content.left
-        mid_x = content.left + content.w // 2
-        for i, (k, v) in enumerate(stats):
-            tx = left_x if i % 2 == 0 else mid_x
-            if i % 2 == 0 and i > 0:
-                y += 2
-            yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
-            draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
-            if i % 2 == 1:
-                y += BODY_FONT.get_height() + 6
-
-        y += 10
-        pygame.draw.line(surface, (0, 0, 0), (content.left, y), (content.right, y))
-        pygame.draw.line(surface, (80, 74, 66), (content.left, y + 1), (content.right, y + 1))
-        y += 10
-
-        # Traits list (all traits, including neutral)
-        y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
-        traits = c.get("traits", [])
-        if not traits:
-            y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
-        else:
-            trait_text = " • " + " • ".join(trait_name(t) for t in traits)
-            for ln in wrap_text(trait_text.strip(), BODY_FONT, content.w - 10):
-                y = draw_body_text(surface, ln, content.left, y, color=(205, 198, 180))
-        y += 6
-
-        # Army block
-        y = draw_header_text(surface, "Levy & Army", content.left, y, color=(230, 224, 208))
-        y = draw_body_text(surface, f"Raised: {state['army']['raised']}", content.left, y, color=(205, 198, 180))
-        y = draw_body_text(surface, f"Max: {state['army']['max']}", content.left, y, color=(205, 198, 180))
-        y = draw_body_text(surface, f"Morale: {state['army']['morale']}%", content.left, y, color=(205, 198, 180))
-        y += 6
-
-        # Buttons at bottom
-        btns = []
-        bx = content.left
-        by = rect.bottom - 56
-        b1 = draw_primary_button(surface, "Raise", bx, by, 90, 34)
-        b2 = draw_secondary_button(surface, "Rally", bx + 100, by, 90, 34)
-        b3 = draw_deny_button(surface, "Disband", bx + 200, by, 90, 34)
-        btns.append((b1, "raise_army"))
-        btns.append((b2, "rally"))
-        btns.append((b3, "disband"))
-        return btns
+        return []
 
     def _draw_portrait(self, surface, rect, state):
         # Heraldry plate (NO avatar/head)
