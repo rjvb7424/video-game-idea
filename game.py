@@ -355,8 +355,15 @@ class GameApp:
         mult = storyteller.get("event_chance_mult", 1.0)
         self.events.daily_chance = self.base_event_daily_chance * float(mult)
 
+    def _refresh_fog_visuals(self):
+        if hasattr(self.world, "_render_base"):
+            self.world._render_base()
+        if hasattr(self.world, "_render_labels_and_markers"):
+            self.world._render_labels_and_markers()
+
     def _set_full_visibility(self):
         self.world.visibility_by_prov = {p.id: 1.0 for p in self.world.provinces}
+        self._refresh_fog_visuals()
 
     def _start_game_for_realm(self, rid):
         rid = max(0, min(int(rid), len(self.world.realm_names) - 1))
@@ -370,6 +377,7 @@ class GameApp:
 
         if hasattr(self.world, "_compute_fog_of_war"):
             self.world._compute_fog_of_war()
+            self._refresh_fog_visuals()
 
         self.character = self.world.realm_rulers[rid]
         if "base_stats" not in self.character:
