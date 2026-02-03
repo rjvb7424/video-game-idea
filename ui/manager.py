@@ -409,11 +409,8 @@ class UIManager:
         title = sel.name if sel is not None else "Province"
         content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=self.panel_tile)
 
-        # Reserve bottom space so nothing overlaps buttons
-        btn_bar_y = rect.bottom - 56
-        btn_h = 34
-        gap = 8
-        y_limit = btn_bar_y - 10
+        # Use full panel height (no bottom action buttons).
+        y_limit = content.bottom - 6
 
         y = content.top
         btns = []
@@ -571,15 +568,6 @@ class UIManager:
                     if not safe_body(ln):
                         break
 
-        # Buttons at bottom
-        bx = content.left
-        by = btn_bar_y
-        b1 = draw_secondary_button(surface, "View Realm", bx, by, 120, btn_h)
-        b2 = draw_primary_button(surface, "Set Rally", bx + 130, by, 120, btn_h)
-        b3 = draw_secondary_button(surface, "Council", bx + 260, by, 120, btn_h)
-        btns.append((b1, "view_realm"))
-        btns.append((b2, "set_rally"))
-        btns.append((b3, "council"))
         return btns
 
     def draw_bottom_bar(self, surface, rect, state):
