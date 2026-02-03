@@ -230,6 +230,41 @@ class GameApp:
         pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
+    def _draw_army_muster_marker(self, surface, map_rect):
+        max_army = int(self.army.get("max", 0))
+        if max_army <= 0:
+            return
+        raised = int(self.army.get("raised", 0))
+        ratio = 0.0 if max_army <= 0 else max(0.0, min(1.0, raised / max_army))
+
+        cap_pid = getattr(self.world, "player_capital_pid", None)
+        if cap_pid is None or not (0 <= cap_pid < len(self.world.provinces)):
+            if 0 <= self.player_realm_id < len(self.world.realm_capitals):
+                cap_pid = self.world.realm_capitals[self.player_realm_id]
+        if cap_pid is None or not (0 <= cap_pid < len(self.world.provinces)):
+            return
+
+        prov = self.world.provinces[cap_pid]
+        sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
+        x, y = int(sp.x), int(sp.y)
+        if not map_rect.collidepoint(x, y):
+            return
+
+        # Small pennant + progress bar
+        flag_rect = pygame.Rect(x - 6, y - 30, 12, 16)
+        pygame.draw.rect(surface, (30, 30, 36), flag_rect, border_radius=2)
+        pygame.draw.rect(surface, (140, 160, 210), flag_rect.inflate(-2, -2), border_radius=2)
+        pygame.draw.rect(surface, (10, 10, 12), flag_rect, 1, border_radius=2)
+
+        bar_w, bar_h = 64, 7
+        bar_rect = pygame.Rect(x - bar_w // 2, y - 12, bar_w, bar_h)
+        pygame.draw.rect(surface, (20, 20, 22), bar_rect, border_radius=4)
+        fill_w = int(bar_rect.w * ratio)
+        if fill_w > 0:
+            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
+            pygame.draw.rect(surface, (160, 190, 230), fill_rect, border_radius=4)
+        pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=4)
+
     def _get_desktop_size(self):
         if hasattr(pygame.display, "get_desktop_sizes"):
             sizes = pygame.display.get_desktop_sizes()
@@ -1143,6 +1178,7 @@ class GameApp:
                 # Map
                 self.map_renderer.draw(self.screen, self.layout.map)
                 self._draw_selected_province_highlight(self.screen, self.layout.map)
+                self._draw_army_muster_marker(self.screen, self.layout.map)
 
                 # UI panels
                 state = {

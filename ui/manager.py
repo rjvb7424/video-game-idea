@@ -163,28 +163,14 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
-        # ---------- RIGHT SIDE: Raise Army ----------
-        if state.get("army") is not None:
-            raising = bool(state.get("army_raising"))
-            raise_label = "Raising..." if raising else "Raise Army"
-            raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
-            raise_rect = pygame.Rect(right_edge - raise_w, y, raise_w, bh)
-            if raising:
-                b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
-            else:
-                b_raise = draw_primary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
-            btns.append((b_raise, "raise_army"))
-            right_edge = raise_rect.left - gap
-
-        # ---------- RIGHT SIDE: Army ----------
+        # ---------- RIGHT SIDE: Manpower ----------
         army = state.get("army")
         if isinstance(army, dict):
-            raised = int(army.get("raised", 0))
             max_army = int(army.get("max", 0))
-            army_text = f"{raised:,}/{max_army:,}"
-            army_w = max(190, BODY_FONT.size(f"Army: {army_text}")[0] + 36)
+            army_text = f"{max_army:,}"
+            army_w = max(190, BODY_FONT.size(f"Manpower: {army_text}")[0] + 36)
             army_rect = pygame.Rect(right_edge - army_w, y, army_w, bh)
-            self._draw_resource(surface, army_rect, "Army", army_text, rate=None, icon_color=(140, 150, 200))
+            self._draw_resource(surface, army_rect, "Manpower", army_text, rate=None, icon_color=(140, 150, 200))
             right_edge = army_rect.left - gap
 
         # ---------- RIGHT SIDE: Population ----------
@@ -605,8 +591,24 @@ class UIManager:
         bh = max(34, int(rect.h * 0.62))
         y = rect.centery - bh // 2
 
+        btns = []
+        right_edge = rect.right - pad
+
+        # Raise army button (before time controls)
+        if state.get("army") is not None:
+            raising = bool(state.get("army_raising"))
+            raise_label = "Raising..." if raising else "Raise Army"
+            raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
+            raise_rect = pygame.Rect(right_edge - raise_w, y, raise_w, bh)
+            if raising:
+                b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            else:
+                b_raise = draw_primary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            btns.append((b_raise, "raise_army"))
+            right_edge = raise_rect.left - gap
+
         # Time controls on bottom-right corner
-        time_btns, time_left_edge = self._draw_time_controls(surface, rect.right - pad, y, bh, state)
+        time_btns, time_left_edge = self._draw_time_controls(surface, right_edge, y, bh, state)
 
         # Date block just to the left of time controls
         date_text = str(state["date"])
@@ -618,7 +620,6 @@ class UIManager:
         date_surf = HEADER_FONT.render(date_text, True, (230, 224, 208))
         surface.blit(date_surf, date_surf.get_rect(center=date_block.center))
 
-        btns = []
         btns.extend(time_btns)
         return btns
 
