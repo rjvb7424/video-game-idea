@@ -6,7 +6,7 @@ from core.camera import Camera
 from core.date import GameDate
 from core.math_utils import clamp
 from core.surfaces import tile_fill
-from events import EventRegistry, EventSystem, register_all
+from events import EventRegistry, EventSystem, register_all, date_ordinal
 from rendering.map_view import MapRenderer
 from systems.buildings import (
     BUILDINGS,
@@ -35,6 +35,7 @@ class GameApp:
 
         self.mode = "menu"
         self.storyteller = None
+        self._storyteller_start_day = None
         self.realm_select_page = 0
         self.realm_candidate_id = None
         self._realm_ui_rects = []
@@ -42,10 +43,22 @@ class GameApp:
             {
                 "id": "cassius_classic",
                 "name": "Cassius Classic",
-                "desc": "A steady, classic cadence of events with no strong bias.",
+                "desc": "Vanilla and fair. A steady cadence of events with no strong bias.",
                 "event_chance_mult": 1.0,
+                "event_chance_ramp_per_year": 0.0,
+                "event_chance_max_mult": 1.0,
+            },
+            {
+                "id": "edgar_extinction",
+                "name": "Edgar Extinction",
+                "desc": "Harsher events and a rising tempo as the years pass.",
+                "event_chance_mult": 1.25,
+                "event_chance_ramp_per_year": 0.15,
+                "event_chance_max_mult": 2.0,
             }
         ]
+        self._storyteller_portraits = self._load_storyteller_portraits()
+        self._storyteller_portrait_cache = {}
 
         self._menu_bg = self._load_menu_background()
         self._menu_bg_cache = {}
@@ -129,6 +142,33 @@ class GameApp:
         if os.path.exists(path):
             return pygame.image.load(path).convert()
         return None
+
+    def _load_storyteller_portraits(self):
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "assets", "storytellers"))
+        portraits = {}
+        for st in self.storytellers:
+            path = os.path.join(base_dir, f"{st['id']}.png")
+            if os.path.exists(path):
+                portraits[st["id"]] = pygame.image.load(path).convert_alpha()
+        return portraits
+
+    def _get_storyteller_portrait(self, storyteller_id, size):
+        src = self._storyteller_portraits.get(storyteller_id)
+        if src is None:
+            return None
+        key = (storyteller_id, int(size[0]), int(size[1]))
+        cached = self._storyteller_portrait_cache.get(key)
+        if cached is not None:
+            return cached
+        sw, sh = src.get_size()
+        if sw <= 0 or sh <= 0:
+            return None
+        scale = min(size[0] / sw, size[1] / sh)
+        new_w = max(1, int(sw * scale))
+        new_h = max(1, int(sh * scale))
+        scaled = pygame.transform.smoothscale(src, (new_w, new_h))
+        self._storyteller_portrait_cache[key] = scaled
+        return scaled
 
     def _get_menu_bg_scaled(self, size):
         if self._menu_bg is None:
@@ -246,35 +286,74 @@ class GameApp:
         surface.blit(title_surf, title_surf.get_rect(center=(w // 2, int(h * 0.16))))
         surface.blit(subtitle_surf, subtitle_surf.get_rect(center=(w // 2, int(h * 0.22))))
 
-        card_w = min(520, int(w * 0.7))
-        card_h = 200
-        card_rect = pygame.Rect((w - card_w) // 2, int(h * 0.32), card_w, card_h)
-        pygame.draw.rect(surface, (26, 26, 30), card_rect, border_radius=10)
-        pygame.draw.rect(surface, (8, 8, 8), card_rect, 2, border_radius=10)
+        clickables = []
+        total = max(1, len(self.storytellers))
+        gap = 16
+        top = int(h * 0.3)
+        bottom_margin = 70
+        available_h = max(0, h - top - bottom_margin)
+        card_h = int((available_h - gap * (total - 1)) / total) if total > 0 else 180
+        card_h = max(140, min(220, card_h))
+        card_w = min(720, int(w * 0.82))
+        left = (w - card_w) // 2
 
-        st = self.storytellers[0]
-        name_surf = self.menu_subtitle_font.render(st["name"], True, (235, 228, 210))
-        surface.blit(name_surf, (card_rect.left + 18, card_rect.top + 18))
+        for idx, st in enumerate(self.storytellers):
+            card_rect = pygame.Rect(left, top + idx * (card_h + gap), card_w, card_h)
+            pygame.draw.rect(surface, (26, 26, 30), card_rect, border_radius=10)
+            pygame.draw.rect(surface, (8, 8, 8), card_rect, 2, border_radius=10)
 
-        desc_lines = wrap_text(st["desc"], self.menu_caption_font, card_rect.w - 36)
-        y = card_rect.top + 60
-        for line in desc_lines:
-            line_surf = self.menu_caption_font.render(line, True, (200, 192, 175))
-            surface.blit(line_surf, (card_rect.left + 18, y))
-            y += line_surf.get_height() + 4
+            portrait_size = max(60, card_h - 32)
+            portrait_rect = pygame.Rect(card_rect.left + 16, card_rect.top + 16, portrait_size, portrait_size)
+            pygame.draw.rect(surface, (18, 18, 22), portrait_rect, border_radius=6)
+            pygame.draw.rect(surface, (8, 8, 10), portrait_rect, 2, border_radius=6)
+
+            portrait = self._get_storyteller_portrait(st["id"], portrait_rect.size)
+            if portrait is not None:
+                pr = portrait.get_rect(center=portrait_rect.center)
+                surface.blit(portrait, pr)
+
+            text_x = portrait_rect.right + 16
+            text_w = card_rect.right - text_x - 16
+            name_surf = self.menu_subtitle_font.render(st["name"], True, (235, 228, 210))
+            surface.blit(name_surf, (text_x, card_rect.top + 14))
+
+            desc_lines = wrap_text(st["desc"], self.menu_caption_font, text_w)
+            y = card_rect.top + 48
+            desc_limit = card_rect.bottom - 52
+            for line in desc_lines:
+                line_surf = self.menu_caption_font.render(line, True, (200, 192, 175))
+                if y + line_surf.get_height() > desc_limit:
+                    break
+                surface.blit(line_surf, (text_x, y))
+                y += line_surf.get_height() + 3
+
+            mult = float(st.get("event_chance_mult", 1.0))
+            ramp = float(st.get("event_chance_ramp_per_year", 0.0))
+            max_mult = float(st.get("event_chance_max_mult", mult))
+            if ramp > 0 and max_mult > mult:
+                detail = f"Event rate: x{mult:.2f} -> x{max_mult:.2f} over time"
+            else:
+                detail = f"Event rate: x{mult:.2f}"
+            detail_surf = self.menu_caption_font.render(detail, True, (178, 170, 156))
+            detail_y = min(desc_limit - 18, card_rect.bottom - 70)
+            surface.blit(detail_surf, (text_x, detail_y))
+
+            label = f"Select {st['name']}"
+            label_w = self.menu_button_font.size(label)[0] + 24
+            btn_w = min(card_rect.w - 40, max(160, label_w))
+            btn_rect = pygame.Rect(card_rect.right - btn_w - 16, card_rect.bottom - 40, btn_w, 30)
+            self._draw_menu_button(surface, btn_rect, label)
+            clickables.append((btn_rect, f"storyteller:{st['id']}"))
 
         hint = "After choosing a storyteller, pick your starting realm."
-        hint_lines = wrap_text(hint, self.menu_caption_font, card_rect.w - 36)
-        y = card_rect.bottom - 64
+        hint_lines = wrap_text(hint, self.menu_caption_font, int(card_w * 0.9))
+        hint_y = top + total * (card_h + gap) + 6
         for line in hint_lines:
+            if hint_y > h - 70:
+                break
             line_surf = self.menu_caption_font.render(line, True, (180, 172, 160))
-            surface.blit(line_surf, (card_rect.left + 18, y))
-            y += line_surf.get_height() + 2
-
-        btn_rect = pygame.Rect(card_rect.left + 18, card_rect.bottom - 44, 280, 32)
-        clickables = []
-        self._draw_menu_button(surface, btn_rect, "Select Cassius Classic")
-        clickables.append((btn_rect, "storyteller:cassius_classic"))
+            surface.blit(line_surf, line_surf.get_rect(center=(w // 2, hint_y)))
+            hint_y += line_surf.get_height() + 2
 
         back_rect = pygame.Rect(20, h - 56, 140, 36)
         self._draw_menu_button(surface, back_rect, "Back")
@@ -352,8 +431,23 @@ class GameApp:
 
     def _apply_storyteller(self, storyteller):
         self.storyteller = storyteller
-        mult = storyteller.get("event_chance_mult", 1.0)
-        self.events.daily_chance = self.base_event_daily_chance * float(mult)
+        self._storyteller_start_day = date_ordinal(self.date)
+        self._update_storyteller_event_chance()
+
+    def _update_storyteller_event_chance(self):
+        if not self.storyteller:
+            self.events.daily_chance = self.base_event_daily_chance
+            return
+        mult = float(self.storyteller.get("event_chance_mult", 1.0))
+        ramp = float(self.storyteller.get("event_chance_ramp_per_year", 0.0))
+        max_mult = float(self.storyteller.get("event_chance_max_mult", mult))
+        if ramp > 0.0 and self._storyteller_start_day is not None:
+            days = max(0, date_ordinal(self.date) - self._storyteller_start_day)
+            years = days / 365.0
+            mult = min(max_mult, mult + ramp * years)
+        else:
+            mult = min(mult, max_mult)
+        self.events.daily_chance = self.base_event_daily_chance * mult
 
     def _refresh_fog_visuals(self):
         if hasattr(self.world, "_render_base"):
@@ -594,6 +688,7 @@ class GameApp:
     def _handle_action(self, action):
         if action == "menu_start":
             self.storyteller = None
+            self._storyteller_start_day = None
             self.realm_select_page = 0
             self.realm_candidate_id = None
             self.mode = "storyteller"
@@ -714,6 +809,7 @@ class GameApp:
                 self.date.advance_days(1)
 
                 # daily tick for events (random + chain)
+                self._update_storyteller_event_chance()
                 self.events.on_day()
 
                 if self.date.day == 1:
