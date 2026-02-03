@@ -85,6 +85,30 @@ def _roll_age(rnd: random.Random, role: str) -> int:
     return rnd.randint(18, 60)
 
 
+def _starting_spouse_chance(age: int) -> float:
+    if age < 20:
+        return 0.20
+    if age < 25:
+        return 0.45
+    if age < 35:
+        return 0.70
+    if age < 45:
+        return 0.75
+    return 0.55
+
+
+def _starting_heir_chance(age: int, has_spouse: bool) -> float:
+    if age < 20:
+        return 0.05
+    if age < 25:
+        return 0.20 if has_spouse else 0.10
+    if age < 35:
+        return 0.50 if has_spouse else 0.25
+    if age < 45:
+        return 0.65 if has_spouse else 0.40
+    return 0.60 if has_spouse else 0.35
+
+
 def _heir_title(realm_size: int, gender: str) -> str:
     if realm_size >= 3:
         return "Prince" if gender == "male" else "Princess"
@@ -210,23 +234,25 @@ def generate_ruler(rnd: random.Random, realm_name: str, realm_size: int, culture
         "stats": stats,
     }
 
-    character["spouse"] = generate_spouse(
-        rnd,
-        realm_name=realm_name,
-        realm_size=realm_size,
-        culture=culture,
-        faith=faith,
-        house=character["house"],
-        ruler_gender=gender,
-    )
-    character["heir"] = generate_heir(
-        rnd,
-        realm_name=realm_name,
-        realm_size=realm_size,
-        culture=culture,
-        faith=faith,
-        house=character["house"],
-    )
+    if rnd.random() < _starting_spouse_chance(age):
+        character["spouse"] = generate_spouse(
+            rnd,
+            realm_name=realm_name,
+            realm_size=realm_size,
+            culture=culture,
+            faith=faith,
+            house=character["house"],
+            ruler_gender=gender,
+        )
+    if rnd.random() < _starting_heir_chance(age, "spouse" in character):
+        character["heir"] = generate_heir(
+            rnd,
+            realm_name=realm_name,
+            realm_size=realm_size,
+            culture=culture,
+            faith=faith,
+            house=character["house"],
+        )
 
     character["base_stats"] = _stats_list_to_dict(character["stats"])
     apply_trait_effects(character)
