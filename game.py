@@ -28,9 +28,12 @@ from world.map import MapWorld
 
 class GameApp:
     def __init__(self):
+        os.environ.setdefault("SDL_VIDEO_CENTERED", "1")
+        os.environ.setdefault("SDL_VIDEO_WINDOW_POS", "center")
         pygame.init()
         pygame.display.set_caption("CK1-Inspired Grand Strategy UI (Pygame)")
-        self.screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
+        self.windowed_size = (1280, 720)
+        self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
         self.clock = pygame.time.Clock()
 
         self.mode = "menu"
@@ -75,6 +78,7 @@ class GameApp:
         self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=4)
         self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
         self.map_renderer = MapRenderer(self.world, self.camera)
+        self.camera.set_viewport(self._get_map_rect().size)
 
         self.modal = Modal()
 
@@ -135,6 +139,9 @@ class GameApp:
         self._prev_mouse_down = False
 
         self.running = True
+
+        # Start maximized but still resizable.
+        self._apply_window_size_desktop()
 
     def _load_menu_background(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "assets"))
@@ -203,6 +210,49 @@ class GameApp:
             w, h = self.screen.get_size()
             return pygame.Rect(0, 0, w, h)
         return self.layout.map
+
+    def _get_desktop_size(self):
+        if hasattr(pygame.display, "get_desktop_sizes"):
+            sizes = pygame.display.get_desktop_sizes()
+            if sizes:
+                w, h = sizes[0]
+                if w > 0 and h > 0:
+                    return int(w), int(h)
+        info = pygame.display.Info()
+        if info.current_w > 0 and info.current_h > 0:
+            return int(info.current_w), int(info.current_h)
+        return self.windowed_size
+
+    def _apply_window_size_desktop(self):
+        # Let SDL pick the desktop-sized window, but keep it resizable.
+        self.screen = pygame.display.set_mode((0, 0), pygame.RESIZABLE)
+        w, h = self.screen.get_size()
+        if w <= 0 or h <= 0:
+            w, h = self._get_desktop_size()
+            self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
+        self.windowed_size = (w, h)
+        self._center_window()
+        self.layout.update(w, h)
+        self.camera.set_viewport(self._get_map_rect().size)
+
+    def _apply_window_size(self, size, remember=True):
+        w = max(1024, int(size[0]))
+        h = max(640, int(size[1]))
+        if remember:
+            self.windowed_size = (w, h)
+        self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
+        self._center_window()
+        self.layout.update(w, h)
+        self.camera.set_viewport(self._get_map_rect().size)
+
+    def _center_window(self):
+        if not hasattr(pygame.display, "set_window_position"):
+            return
+        w, h = self.screen.get_size()
+        sw, sh = self._get_desktop_size()
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        pygame.display.set_window_position(x, y)
 
     def _draw_menu_button(self, surface, rect, text, enabled=True):
         mx, my = pygame.mouse.get_pos()
@@ -892,11 +942,7 @@ class GameApp:
                     self.running = False
 
                 elif event.type == pygame.VIDEORESIZE:
-                    w = max(1024, event.w)
-                    h = max(640, event.h)
-                    self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
-                    self.layout.update(w, h)
-                    self.camera.set_viewport(self._get_map_rect().size)
+                    self._apply_window_size((event.w, event.h), remember=True)
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
