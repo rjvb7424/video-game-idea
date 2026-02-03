@@ -198,6 +198,12 @@ class GameApp:
             return
         surface.blit(scaled, offset)
 
+    def _get_map_rect(self):
+        if self.mode == "realm_select":
+            w, h = self.screen.get_size()
+            return pygame.Rect(0, 0, w, h)
+        return self.layout.map
+
     def _draw_menu_button(self, surface, rect, text, enabled=True):
         mx, my = pygame.mouse.get_pos()
         hovered = enabled and rect.collidepoint(mx, my)
@@ -371,18 +377,19 @@ class GameApp:
         surface.blit(bg, (0, 0))
 
         # Map (clickable selection)
-        self.map_renderer.draw(surface, self.layout.map)
+        map_rect = self._get_map_rect()
+        self.map_renderer.draw(surface, map_rect)
 
         # Highlight selected province / realm capital
         if self.realm_candidate_id is not None and 0 <= self.realm_candidate_id < len(self.world.realm_capitals):
             cap_pid = self.world.realm_capitals[self.realm_candidate_id]
             if 0 <= cap_pid < len(self.world.provinces):
                 cap = self.world.provinces[cap_pid]
-                sp = self.camera.world_to_screen(cap.center, self.layout.map, use_target=False)
+                sp = self.camera.world_to_screen(cap.center, map_rect, use_target=False)
                 pygame.draw.circle(surface, (240, 210, 120), (int(sp.x), int(sp.y)), 18, 3)
 
         if self.selected_province is not None:
-            sp = self.camera.world_to_screen(self.selected_province.center, self.layout.map, use_target=False)
+            sp = self.camera.world_to_screen(self.selected_province.center, map_rect, use_target=False)
             pygame.draw.circle(surface, (230, 230, 230), (int(sp.x), int(sp.y)), 10, 2)
 
         w, h = surface.get_size()
@@ -503,7 +510,8 @@ class GameApp:
             return False
 
         tprov = self.world.provinces[tower_pid]
-        sp = self.camera.world_to_screen(tprov.center, self.layout.map, use_target=False)
+        map_rect = self._get_map_rect()
+        sp = self.camera.world_to_screen(tprov.center, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
 
         label = "Tower of Heaven"
@@ -849,6 +857,7 @@ class GameApp:
         keys = pygame.key.get_pressed()
         if self.modal.open:
             return
+        map_rect = self._get_map_rect()
 
         # Keyboard panning (weighty due to camera smoothing)
         pan_speed = 720.0 / max(self.camera.target_zoom, 0.001)
@@ -867,12 +876,12 @@ class GameApp:
         # +/- zoom
         if keys[pygame.K_EQUALS] or keys[pygame.K_PLUS]:
             mx, my = pygame.mouse.get_pos()
-            if self.layout.map.collidepoint((mx, my)):
-                self.camera.zoom_at(1.03, (mx, my), self.layout.map)
+            if map_rect.collidepoint((mx, my)):
+                self.camera.zoom_at(1.03, (mx, my), map_rect)
         if keys[pygame.K_MINUS]:
             mx, my = pygame.mouse.get_pos()
-            if self.layout.map.collidepoint((mx, my)):
-                self.camera.zoom_at(0.97, (mx, my), self.layout.map)
+            if map_rect.collidepoint((mx, my)):
+                self.camera.zoom_at(0.97, (mx, my), map_rect)
 
     def run(self):
         while self.running:
@@ -887,7 +896,7 @@ class GameApp:
                     h = max(640, event.h)
                     self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
                     self.layout.update(w, h)
-                    self.camera.set_viewport(self.layout.map.size)
+                    self.camera.set_viewport(self._get_map_rect().size)
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
@@ -906,13 +915,15 @@ class GameApp:
                 # Mouse wheel zoom (pygame 2)
                 elif event.type == pygame.MOUSEWHEEL and not self.modal.open and self.mode in ("game", "realm_select"):
                     mx, my = pygame.mouse.get_pos()
-                    if self.layout.map.collidepoint((mx, my)):
+                    map_rect = self._get_map_rect()
+                    if map_rect.collidepoint((mx, my)):
                         factor = 1.12 if event.y > 0 else 0.89
-                        self.camera.zoom_at(factor, (mx, my), self.layout.map)
+                        self.camera.zoom_at(factor, (mx, my), map_rect)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1 and not self.modal.open and self.mode in ("game", "realm_select"):
-                        if self.layout.map.collidepoint(event.pos):
+                        map_rect = self._get_map_rect()
+                        if map_rect.collidepoint(event.pos):
                             if self.mode == "realm_select":
                                 in_ui = any(r.collidepoint(event.pos) for r in self._realm_ui_rects)
                                 if not in_ui:
@@ -925,11 +936,13 @@ class GameApp:
                                 self._drag_started = False
 
                     # fallback wheel (old style)
-                    if not self.modal.open and self.mode in ("game", "realm_select") and self.layout.map.collidepoint(event.pos):
-                        if event.button == 4:
-                            self.camera.zoom_at(1.12, event.pos, self.layout.map)
-                        elif event.button == 5:
-                            self.camera.zoom_at(0.89, event.pos, self.layout.map)
+                    if not self.modal.open and self.mode in ("game", "realm_select"):
+                        map_rect = self._get_map_rect()
+                        if map_rect.collidepoint(event.pos):
+                            if event.button == 4:
+                                self.camera.zoom_at(1.12, event.pos, map_rect)
+                            elif event.button == 5:
+                                self.camera.zoom_at(0.89, event.pos, map_rect)
 
                 elif event.type == pygame.MOUSEMOTION:
                     if not self.modal.open and self.mode in ("game", "realm_select") and self._mouse_down_in_map:
@@ -948,17 +961,18 @@ class GameApp:
                             if self._drag_started:
                                 self.camera.end_drag()
                             else:
-                                if self.layout.map.collidepoint(event.pos):
+                                map_rect = self._get_map_rect()
+                                if map_rect.collidepoint(event.pos):
                                     if self.mode == "game":
                                         if not self._try_open_tower_event(event.pos):
-                                            wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
+                                            wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
                                                 self.selected_province = prov
                                                 self._building_menu_slot = None
                                                 self.push_log(f"{self.date}: Selected {prov.name}.")
                                     elif self.mode == "realm_select":
-                                        wp = self.camera.screen_to_world(event.pos, self.layout.map, use_target=False)
+                                        wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                         prov = self.world.province_at_world(wp)
                                         if prov is not None:
                                             self.selected_province = prov
