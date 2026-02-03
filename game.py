@@ -117,7 +117,10 @@ class GameApp:
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
-        self.army = {"raised": 928, "max": 1712, "morale": 77}
+        self.army_pop_ratio = 0.05
+        self.army_raise_rate = 0.02  # fraction of max raised per day while mustering
+        self.army = {"raised": 0, "max": 0, "morale": 77}
+        self.army_raising = False
         self.food = (0, 0)  # (produced, consumed)
         self.food_consumption_per_pop = 0.39  # monthly consumption per person
         self._rebalance_population_to_farms()
@@ -125,6 +128,7 @@ class GameApp:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
+        self._update_army_max()
 
         self.log = [
             "January 8, 1067: Rumors of usurpation spread in Carinthia.",
@@ -664,6 +668,29 @@ class GameApp:
         threat = base_threat + growth_threat
         return int(clamp(round(threat), 0, 100))
 
+    def _update_army_max(self):
+        max_army = int(round(self.population * self.army_pop_ratio))
+        max_army = max(0, max_army)
+        self.army["max"] = max_army
+        if self.army["raised"] > max_army:
+            self.army["raised"] = max_army
+        if max_army == 0:
+            self.army_raising = False
+
+    def _update_army_raising(self):
+        if not self.army_raising:
+            return
+        max_army = self.army.get("max", 0)
+        if max_army <= 0:
+            self.army_raising = False
+            return
+        if self.army["raised"] >= max_army:
+            self.army["raised"] = max_army
+            self.army_raising = False
+            return
+        per_day = max(1, int(round(max_army * self.army_raise_rate)))
+        self.army["raised"] = min(max_army, self.army["raised"] + per_day)
+
     def _compute_food_values(self):
         production = 0.0
         for prov in self.world.provinces:
@@ -842,6 +869,19 @@ class GameApp:
             self._start_game_for_realm(self.realm_candidate_id)
             self.mode = "game"
             return
+        if action == "raise_army":
+            if self.army_raising:
+                self.army_raising = False
+                self.push_log("You halt the muster.")
+            else:
+                if self.army.get("max", 0) <= 0:
+                    self.push_log("No population available to raise an army.")
+                elif self.army.get("raised", 0) >= self.army.get("max", 0):
+                    self.push_log("Your army is already fully raised.")
+                else:
+                    self.army_raising = True
+                    self.push_log("Your levies begin to muster.")
+            return
         if action == "toggle_pause":
             self.toggle_pause()
         elif action == "speed_1":
@@ -882,7 +922,6 @@ class GameApp:
             "council",
             "view_realm",
             "set_rally",
-            "raise_army",
             "rally",
             "disband",
         ):
@@ -910,6 +949,7 @@ class GameApp:
                 # daily tick for events (random + chain)
                 self._update_storyteller_event_chance()
                 self.events.on_day()
+                self._update_army_raising()
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
@@ -943,6 +983,7 @@ class GameApp:
 
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self.threat = self._compute_threat()
+        self._update_army_max()
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
@@ -1116,6 +1157,7 @@ class GameApp:
                     "realm_rulers": self.world.realm_rulers,
                     "player_realm_id": self.player_realm_id,
                     "population": self.population,
+                    "army_raising": self.army_raising,
                     "food": self.food,
                     "threat": self.threat,
                     "building_menu_slot": self._building_menu_slot,

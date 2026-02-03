@@ -163,6 +163,30 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
+        # ---------- RIGHT SIDE: Raise Army ----------
+        if state.get("army") is not None:
+            raising = bool(state.get("army_raising"))
+            raise_label = "Raising..." if raising else "Raise Army"
+            raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
+            raise_rect = pygame.Rect(right_edge - raise_w, y, raise_w, bh)
+            if raising:
+                b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            else:
+                b_raise = draw_primary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            btns.append((b_raise, "raise_army"))
+            right_edge = raise_rect.left - gap
+
+        # ---------- RIGHT SIDE: Army ----------
+        army = state.get("army")
+        if isinstance(army, dict):
+            raised = int(army.get("raised", 0))
+            max_army = int(army.get("max", 0))
+            army_text = f"{raised:,}/{max_army:,}"
+            army_w = max(190, BODY_FONT.size(f"Army: {army_text}")[0] + 36)
+            army_rect = pygame.Rect(right_edge - army_w, y, army_w, bh)
+            self._draw_resource(surface, army_rect, "Army", army_text, rate=None, icon_color=(140, 150, 200))
+            right_edge = army_rect.left - gap
+
         # ---------- RIGHT SIDE: Population ----------
         pop_value = state.get("population")
         if pop_value is not None:
