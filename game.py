@@ -445,6 +445,34 @@ class GameApp:
         map_rect = self._get_map_rect()
         self.map_renderer.draw(surface, map_rect)
 
+        # Left panel with ruler details for selected realm
+        if self.realm_candidate_id is not None and 0 <= self.realm_candidate_id < len(self.world.realm_rulers):
+            ruler = self.world.realm_rulers[self.realm_candidate_id]
+        else:
+            ruler = {
+                "name": "No Ruler Selected",
+                "title": "Select a realm",
+                "house": "",
+                "faith": "—",
+                "culture": "—",
+                "gender": "—",
+                "age": "—",
+                "traits": [],
+                "stats": [
+                    ("Diplomacy", "—"),
+                    ("Martial", "—"),
+                    ("Stewardship", "—"),
+                    ("Intrigue", "—"),
+                    ("Learning", "—"),
+                    ("Prowess", "—"),
+                ],
+            }
+        clip_draw(
+            surface,
+            self.layout.left,
+            lambda: self.ui.draw_left_panel(surface, self.layout.left, {"character": ruler}),
+        )
+
         # Highlight selected province / realm capital
         if self.realm_candidate_id is not None and 0 <= self.realm_candidate_id < len(self.world.realm_capitals):
             cap_pid = self.world.realm_capitals[self.realm_candidate_id]
@@ -473,7 +501,7 @@ class GameApp:
         info_rect = pygame.Rect(int(w * 0.2), h - 150, int(w * 0.6), 110)
         pygame.draw.rect(surface, (20, 20, 22), info_rect, border_radius=8)
         pygame.draw.rect(surface, (6, 6, 7), info_rect, 2, border_radius=8)
-        self._realm_ui_rects = [header_rect, info_rect]
+        self._realm_ui_rects = [header_rect, info_rect, self.layout.left]
 
         clickables = []
         if self.realm_candidate_id is None:
