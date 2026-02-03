@@ -1,3 +1,4 @@
+import math
 import os
 import pygame
 
@@ -210,6 +211,20 @@ class GameApp:
             w, h = self.screen.get_size()
             return pygame.Rect(0, 0, w, h)
         return self.layout.map
+
+    def _draw_selected_province_highlight(self, surface, map_rect):
+        if self.selected_province is None:
+            return
+        sp = self.camera.world_to_screen(self.selected_province.center, map_rect, use_target=False)
+        x, y = int(sp.x), int(sp.y)
+        if not map_rect.collidepoint(x, y):
+            return
+        t = pygame.time.get_ticks() / 350.0
+        pulse = 0.5 + 0.5 * math.sin(t)
+        base = 14
+        ring = base + int(8 * pulse)
+        pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
+        pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
     def _get_desktop_size(self):
         if hasattr(pygame.display, "get_desktop_sizes"):
@@ -438,9 +453,7 @@ class GameApp:
                 sp = self.camera.world_to_screen(cap.center, map_rect, use_target=False)
                 pygame.draw.circle(surface, (240, 210, 120), (int(sp.x), int(sp.y)), 18, 3)
 
-        if self.selected_province is not None:
-            sp = self.camera.world_to_screen(self.selected_province.center, map_rect, use_target=False)
-            pygame.draw.circle(surface, (230, 230, 230), (int(sp.x), int(sp.y)), 10, 2)
+        self._draw_selected_province_highlight(surface, map_rect)
 
         w, h = surface.get_size()
         st_name = self.storyteller["name"] if self.storyteller else "None"
@@ -1060,6 +1073,7 @@ class GameApp:
 
                 # Map
                 self.map_renderer.draw(self.screen, self.layout.map)
+                self._draw_selected_province_highlight(self.screen, self.layout.map)
 
                 # UI panels
                 state = {
