@@ -90,6 +90,8 @@ class GameApp:
 
         self.selected_province = None
         self._building_menu_slot = None
+        self.right_panel_open = True
+        self._right_panel_anim = 0.0
 
         # --- EVENTS: minimal integration ---
         self._event_flags = {}
@@ -264,6 +266,22 @@ class GameApp:
             fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
             pygame.draw.rect(surface, (160, 190, 230), fill_rect, border_radius=4)
         pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=4)
+
+    def _draw_right_panel_animated(self, surface, state):
+        if self._right_panel_anim <= 0.01:
+            return []
+        rect = self.layout.right
+        offset = int((1.0 - self._right_panel_anim) * rect.w)
+        draw_rect = rect.move(offset, 0)
+        panel_layer = pygame.Surface(rect.size, pygame.SRCALPHA)
+        btns_local = self.ui.draw_right_panel(panel_layer, panel_layer.get_rect(), state)
+        panel_layer.set_alpha(int(255 * self._right_panel_anim))
+        surface.blit(panel_layer, draw_rect.topleft)
+
+        btns = []
+        for r, action in btns_local:
+            btns.append((r.move(draw_rect.left, draw_rect.top), action))
+        return btns
 
     def _get_desktop_size(self):
         if hasattr(pygame.display, "get_desktop_sizes"):
@@ -654,6 +672,7 @@ class GameApp:
             opened = self.events.open_event_by_id("tower_of_heaven_approach")
             if opened:
                 self.selected_province = tprov
+                self.right_panel_open = True
                 self._building_menu_slot = None
             return opened
         return False
@@ -725,6 +744,20 @@ class GameApp:
             return
         per_day = max(1, int(round(max_army * self.army_raise_rate)))
         self.army["raised"] = min(max_army, self.army["raised"] + per_day)
+
+    def _update_right_panel_anim(self, dt):
+        should_show = (
+            self.mode == "game"
+            and self.selected_province is not None
+            and self.right_panel_open
+        )
+        target = 1.0 if should_show else 0.0
+        speed = 6.0
+        step = speed * dt
+        if self._right_panel_anim < target:
+            self._right_panel_anim = min(target, self._right_panel_anim + step)
+        elif self._right_panel_anim > target:
+            self._right_panel_anim = max(target, self._right_panel_anim - step)
 
     def _compute_food_values(self):
         production = 0.0
@@ -880,6 +913,7 @@ class GameApp:
         if action == "storyteller_back":
             self.realm_candidate_id = None
             self.selected_province = None
+            self.right_panel_open = False
             self.mode = "menu"
             return
         if action.startswith("storyteller:"):
@@ -890,12 +924,14 @@ class GameApp:
                 self.realm_select_page = 0
                 self.realm_candidate_id = None
                 self.selected_province = None
+                self.right_panel_open = False
                 self._set_full_visibility()
                 self.mode = "realm_select"
             return
         if action == "realm_back":
             self.realm_candidate_id = None
             self.selected_province = None
+            self.right_panel_open = False
             self.mode = "storyteller"
             return
         if action == "realm_confirm":
@@ -903,6 +939,9 @@ class GameApp:
                 return
             self._start_game_for_realm(self.realm_candidate_id)
             self.mode = "game"
+            return
+        if action == "right_panel_close":
+            self.right_panel_open = False
             return
         if action == "raise_army":
             if self.army_raising:
@@ -1132,6 +1171,7 @@ class GameApp:
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
                                                 self.selected_province = prov
+                                                self.right_panel_open = True
                                                 self._building_menu_slot = None
                                                 self.push_log(f"{self.date}: Selected {prov.name}.")
                                     elif self.mode == "realm_select":
@@ -1152,6 +1192,7 @@ class GameApp:
                 self._update_time(dt)
             if self.mode in ("game", "realm_select"):
                 self.camera.update(dt)
+            self._update_right_panel_anim(dt)
 
             # Draw
             clickables = []
@@ -1201,7 +1242,7 @@ class GameApp:
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
                 clip_draw(self.screen, self.layout.left, lambda: clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state)))
-                clip_draw(self.screen, self.layout.right, lambda: clickables.extend(self.ui.draw_right_panel(self.screen, self.layout.right, state)))
+                clickables.extend(self._draw_right_panel_animated(self.screen, state))
                 clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
 
                 # Modal on top

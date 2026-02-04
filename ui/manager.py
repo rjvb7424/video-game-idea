@@ -425,6 +425,13 @@ class UIManager:
         y = content.top
         btns = []
 
+        # Close button (top-left)
+        inner = rect.inflate(-14, -14)
+        strip = pygame.Rect(inner.left + 6, inner.top + 6, inner.w - 12, 28)
+        close_rect = pygame.Rect(strip.left + 6, strip.top + 4, 22, strip.h - 8)
+        b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
+        btns.append((b_close, "right_panel_close"))
+
         def safe_body(text, color=(205, 198, 180)):
             nonlocal y
             if y + BODY_FONT.get_height() + 6 > y_limit:
