@@ -720,6 +720,8 @@ class GameApp:
             if opened:
                 self.selected_province = tprov
                 self.right_panel_open = True
+                if tprov.realm_id != self.player_realm_id:
+                    self.left_panel_open = True
                 self._building_menu_slot = None
             return opened
         return False
@@ -1244,6 +1246,8 @@ class GameApp:
                                             if prov is not None:
                                                 self.selected_province = prov
                                                 self.right_panel_open = True
+                                                if prov.realm_id != self.player_realm_id:
+                                                    self.left_panel_open = True
                                                 self._building_menu_slot = None
                                                 self.push_log(f"{self.date}: Selected {prov.name}.")
                                     elif self.mode == "realm_select":
@@ -1315,7 +1319,15 @@ class GameApp:
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
-                clickables.extend(self._draw_left_panel_animated(self.screen, state))
+                left_character = self.character
+                if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
+                    rid = self.selected_province.realm_id
+                    if 0 <= rid < len(self.world.realm_rulers):
+                        left_character = self.world.realm_rulers[rid]
+                left_state = dict(state)
+                left_state["character"] = left_character
+
+                clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
                 clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state))
 
