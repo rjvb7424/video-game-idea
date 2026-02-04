@@ -123,7 +123,8 @@ class GameApp:
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
-        self.army_pop_ratio = 0.05
+        # Approximation: able-bodied levy pool (~12% of total population).
+        self.army_pop_ratio = 0.12
         self.army_raise_rate = 0.02  # fraction of max raised per day while mustering
         self.army = {"raised": 0, "max": 0, "morale": 77}
         self.army_raising = False
@@ -258,6 +259,8 @@ class GameApp:
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
     def _draw_army_muster_marker(self, surface, map_rect):
+        if not self.army_raising:
+            return
         max_army = int(self.army.get("max", 0))
         if max_army <= 0:
             return
