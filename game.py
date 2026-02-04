@@ -95,6 +95,7 @@ class GameApp:
         self.left_panel_open = False
         self._left_panel_anim = 0.0
         self._left_panel_toggle_rect = None
+        self._bottom_bar_rect = None
 
         # --- EVENTS: minimal integration ---
         self._event_flags = {}
@@ -232,7 +233,7 @@ class GameApp:
         if self.mode == "game":
             if self.layout.top.collidepoint(pos):
                 return True
-            if self.layout.bottom.collidepoint(pos):
+            if self._bottom_bar_rect and self._bottom_bar_rect.collidepoint(pos):
                 return True
             if self._left_panel_anim > 0.01 and self._left_panel_draw_rect().collidepoint(pos):
                 return True
@@ -1158,6 +1159,19 @@ class GameApp:
         while self.running:
             dt = self.clock.tick(60) / 1000.0
 
+            if self.mode == "game":
+                self._bottom_bar_rect = self.ui.compute_bottom_bar_rect(
+                    self.layout.bottom,
+                    {
+                        "date": self.date,
+                        "army": self.army,
+                        "army_raising": self.army_raising,
+                        "speed_level": self.speed_level,
+                    },
+                )
+            else:
+                self._bottom_bar_rect = None
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -1303,7 +1317,7 @@ class GameApp:
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
                 clickables.extend(self._draw_left_panel_animated(self.screen, state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
-                clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
+                clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state))
 
                 # Modal on top
                 modal_clickables = self.modal.draw(self.screen, self.ui.panel_tile)

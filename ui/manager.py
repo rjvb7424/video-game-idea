@@ -641,45 +641,73 @@ class UIManager:
 
         return btns
 
-    def draw_bottom_bar(self, surface, rect, state):
-        pygame.draw.rect(surface, (14, 14, 14), rect)
-        tile_fill(surface, rect, self.bottom_tile)
-        pygame.draw.line(surface, (90, 86, 78), (rect.left, rect.top), (rect.right, rect.top))
-        pygame.draw.line(surface, (0, 0, 0), (rect.left, rect.top + 1), (rect.right, rect.top + 1))
-
+    def compute_bottom_bar_rect(self, rect, state):
         pad = max(10, rect.w // 120)
         gap = max(10, rect.w // 140)
         bh = max(34, int(rect.h * 0.62))
-        y = rect.centery - bh // 2
 
-        btns = []
-        right_edge = rect.right - pad
+        sp_label = "Paused" if state.get("speed_level", 0) == 0 else f"Speed {state.get('speed_level', 0)}"
+        plate_w = max(120, BODY_FONT.size(sp_label)[0] + 36)
+        bw = bh
+        bgap = max(8, bw // 6)
+        time_cluster_w = plate_w + gap + (4 * bw + 3 * bgap)
 
-        # Raise army button (before time controls)
+        date_text = str(state.get("date", ""))
+        date_w = max(220, HEADER_FONT.size(date_text)[0] + 44)
+
+        raise_w = 0
         if state.get("army") is not None:
             raising = bool(state.get("army_raising"))
             raise_label = "Raising..." if raising else "Raise Army"
             raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
-            raise_rect = pygame.Rect(right_edge - raise_w, y, raise_w, bh)
-            if raising:
-                b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
-            else:
-                b_raise = draw_primary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
-            btns.append((b_raise, "raise_army"))
-            right_edge = raise_rect.left - gap
+
+        bar_w = pad + time_cluster_w + pad + date_w + gap
+        if raise_w > 0:
+            bar_w += raise_w + gap
+        bar_w = min(rect.w, bar_w)
+        return pygame.Rect(rect.right - bar_w, rect.top, bar_w, rect.h)
+
+    def draw_bottom_bar(self, surface, rect, state):
+        bar_rect = self.compute_bottom_bar_rect(rect, state)
+        pygame.draw.rect(surface, (14, 14, 14), bar_rect)
+        tile_fill(surface, bar_rect, self.bottom_tile)
+        pygame.draw.line(surface, (90, 86, 78), (bar_rect.left, bar_rect.top), (bar_rect.right, bar_rect.top))
+        pygame.draw.line(surface, (0, 0, 0), (bar_rect.left, bar_rect.top + 1), (bar_rect.right, bar_rect.top + 1))
+
+        pad = max(10, rect.w // 120)
+        gap = max(10, rect.w // 140)
+        bh = max(34, int(rect.h * 0.62))
+        y = bar_rect.centery - bh // 2
+
+        btns = []
+
+        # Right edge for time controls
+        right_edge = bar_rect.right - pad
 
         # Time controls on bottom-right corner
         time_btns, time_left_edge = self._draw_time_controls(surface, right_edge, y, bh, state)
 
-        # Date block just to the left of time controls
+        # Date block to the left of time controls
         date_text = str(state["date"])
         date_w = max(220, HEADER_FONT.size(date_text)[0] + 44)
-        date_x = max(rect.left + pad, time_left_edge - gap - date_w)
+        date_x = time_left_edge - gap - date_w
         date_block = pygame.Rect(date_x, y, date_w, bh)
         pygame.draw.rect(surface, (22, 22, 22), date_block, border_radius=8)
         pygame.draw.rect(surface, (0, 0, 0), date_block, 2, border_radius=8)
         date_surf = HEADER_FONT.render(date_text, True, (230, 224, 208))
         surface.blit(date_surf, date_surf.get_rect(center=date_block.center))
+
+        # Raise army button on the left
+        if state.get("army") is not None:
+            raising = bool(state.get("army_raising"))
+            raise_label = "Raising..." if raising else "Raise Army"
+            raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
+            raise_rect = pygame.Rect(bar_rect.left + pad, y, raise_w, bh)
+            if raising:
+                b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            else:
+                b_raise = draw_primary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
+            btns.append((b_raise, "raise_army"))
 
         btns.extend(time_btns)
         return btns
