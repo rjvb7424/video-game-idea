@@ -294,14 +294,61 @@ class UIManager:
             fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
             pygame.draw.rect(surface, fill_color, fill_rect, border_radius=4)
 
-    def draw_left_panel(self, surface, rect, state):
+    @staticmethod
+    def _ellipsize(text, font, max_w):
+        if font.size(text)[0] <= max_w:
+            return text
+        ell = "..."
+        max_w -= font.size(ell)[0]
+        if max_w <= 0:
+            return ell
+        trimmed = text
+        while trimmed and font.size(trimmed)[0] > max_w:
+            trimmed = trimmed[:-1]
+        return trimmed.rstrip() + ell
+
+    @staticmethod
+    def _ruler_short_name(character):
+        name = character.get("name", "Ruler")
+        house = character.get("house", "")
+        dynasty = house.replace("House ", "").strip() if isinstance(house, str) else ""
+        titles = {"Count", "Countess", "Duke", "Duchess", "King", "Queen", "Prince", "Princess", "Baron", "Baroness"}
+        parts = str(name).split()
+        if parts and parts[0] in titles:
+            first = " ".join(parts[1:]) if len(parts) > 1 else parts[0]
+        else:
+            first = str(name)
+        if dynasty:
+            return f"{first} {dynasty}".strip()
+        return first
+
+    def draw_left_panel_toggle(self, surface, rect, state):
+        label = self._ruler_short_name(state["character"])
+        bh = 30
+        max_w = max(140, rect.w - 16)
+        text = self._ellipsize(label, BODY_FONT, max_w - 28)
+        bw = max(120, BODY_FONT.size(text)[0] + 28)
+        bw = min(max_w, bw)
+        bx = rect.left + 8
+        by = rect.top + 8
+        b = draw_secondary_button(surface, text, bx, by, bw, bh)
+        return [(b, "left_panel_open")]
+
+    def draw_left_panel(self, surface, rect, state, show_close=False):
         c = state["character"]
         house = c.get("house", "")
         dynasty = house.replace("House ", "").strip() if isinstance(house, str) else ""
         title_name = c.get("name", "Ruler")
         if dynasty:
             title_name = f"{title_name} {dynasty}"
-        content = draw_framed_panel(surface, rect, title=title_name, title_color=INK, tile=self.left_tile)
+        content = draw_framed_panel(
+            surface,
+            rect,
+            title=title_name,
+            title_color=INK,
+            tile=self.left_tile,
+            title_left_pad=(28 if show_close else 0),
+        )
 
         # extra warm tint over the inner area for stronger brown vibe
         tint = pygame.Surface((rect.w - 28, rect.h - 28), pygame.SRCALPHA)
@@ -309,6 +356,14 @@ class UIManager:
         surface.blit(tint, (rect.left + 14, rect.top + 14))
 
         y = content.top
+        btns = []
+
+        if show_close:
+            inner = rect.inflate(-14, -14)
+            strip = pygame.Rect(inner.left + 6, inner.top + 6, inner.w - 12, 28)
+            close_rect = pygame.Rect(strip.left + 6, strip.top + 4, 22, strip.h - 8)
+            b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
+            btns.append((b_close, "left_panel_close"))
 
         # Identity
         y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
@@ -380,7 +435,7 @@ class UIManager:
             y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
         y += 6
 
-        return []
+        return btns
 
     def _draw_portrait(self, surface, rect, state):
         # Heraldry plate (NO avatar/head)
@@ -417,7 +472,7 @@ class UIManager:
     def draw_right_panel(self, surface, rect, state):
         sel = state["selected_province"]
         title = sel.name if sel is not None else "Province"
-        content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=self.panel_tile)
+        content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=self.panel_tile, title_left_pad=28)
 
         # Use full panel height (no bottom action buttons).
         y_limit = content.bottom - 6

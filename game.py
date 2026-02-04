@@ -92,6 +92,9 @@ class GameApp:
         self._building_menu_slot = None
         self.right_panel_open = True
         self._right_panel_anim = 0.0
+        self.left_panel_open = True
+        self._left_panel_anim = 1.0
+        self._left_panel_toggle_rect = None
 
         # --- EVENTS: minimal integration ---
         self._event_flags = {}
@@ -218,6 +221,11 @@ class GameApp:
             return pygame.Rect(0, 0, w, h)
         return self.layout.map
 
+    def _left_panel_draw_rect(self):
+        rect = self.layout.left
+        offset = -int((1.0 - self._left_panel_anim) * rect.w)
+        return rect.move(offset, 0)
+
     def _point_in_ui(self, pos):
         if self.mode == "realm_select":
             return any(r.collidepoint(pos) for r in self._realm_ui_rects)
@@ -226,7 +234,9 @@ class GameApp:
                 return True
             if self.layout.bottom.collidepoint(pos):
                 return True
-            if self.layout.left.collidepoint(pos):
+            if self._left_panel_anim > 0.01 and self._left_panel_draw_rect().collidepoint(pos):
+                return True
+            if self._left_panel_toggle_rect and self._left_panel_toggle_rect.collidepoint(pos):
                 return True
             if self._right_panel_anim > 0.01 and self.layout.right.collidepoint(pos):
                 return True
@@ -290,6 +300,28 @@ class GameApp:
         panel_layer = pygame.Surface(rect.size, pygame.SRCALPHA)
         btns_local = self.ui.draw_right_panel(panel_layer, panel_layer.get_rect(), state)
         panel_layer.set_alpha(int(255 * self._right_panel_anim))
+        surface.blit(panel_layer, draw_rect.topleft)
+
+        btns = []
+        for r, action in btns_local:
+            btns.append((r.move(draw_rect.left, draw_rect.top), action))
+        return btns
+
+    def _draw_left_panel_animated(self, surface, state):
+        if self._left_panel_anim <= 0.01:
+            self._left_panel_toggle_rect = None
+            btns = self.ui.draw_left_panel_toggle(surface, self.layout.left, state)
+            if btns:
+                self._left_panel_toggle_rect = btns[0][0]
+            return btns
+
+        self._left_panel_toggle_rect = None
+        rect = self.layout.left
+        draw_rect = self._left_panel_draw_rect()
+
+        panel_layer = pygame.Surface(rect.size, pygame.SRCALPHA)
+        btns_local = self.ui.draw_left_panel(panel_layer, panel_layer.get_rect(), state, show_close=True)
+        panel_layer.set_alpha(int(255 * self._left_panel_anim))
         surface.blit(panel_layer, draw_rect.topleft)
 
         btns = []
@@ -773,6 +805,16 @@ class GameApp:
         elif self._right_panel_anim > target:
             self._right_panel_anim = max(target, self._right_panel_anim - step)
 
+    def _update_left_panel_anim(self, dt):
+        should_show = self.mode == "game" and self.left_panel_open
+        target = 1.0 if should_show else 0.0
+        speed = 6.0
+        step = speed * dt
+        if self._left_panel_anim < target:
+            self._left_panel_anim = min(target, self._left_panel_anim + step)
+        elif self._left_panel_anim > target:
+            self._left_panel_anim = max(target, self._left_panel_anim - step)
+
     def _compute_food_values(self):
         production = 0.0
         for prov in self.world.provinces:
@@ -957,6 +999,12 @@ class GameApp:
             return
         if action == "right_panel_close":
             self.right_panel_open = False
+            return
+        if action == "left_panel_close":
+            self.left_panel_open = False
+            return
+        if action == "left_panel_open":
+            self.left_panel_open = True
             return
         if action == "raise_army":
             if self.army_raising:
@@ -1201,6 +1249,7 @@ class GameApp:
             if self.mode in ("game", "realm_select"):
                 self.camera.update(dt)
             self._update_right_panel_anim(dt)
+            self._update_left_panel_anim(dt)
 
             # Draw
             clickables = []
@@ -1250,7 +1299,7 @@ class GameApp:
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
-                clip_draw(self.screen, self.layout.left, lambda: clickables.extend(self.ui.draw_left_panel(self.screen, self.layout.left, state)))
+                clickables.extend(self._draw_left_panel_animated(self.screen, state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
                 clip_draw(self.screen, self.layout.bottom, lambda: clickables.extend(self.ui.draw_bottom_bar(self.screen, self.layout.bottom, state)))
 

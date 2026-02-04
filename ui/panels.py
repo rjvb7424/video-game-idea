@@ -34,7 +34,7 @@ def _get_panel_mask(size, radius):
     return mask
 
 
-def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
+def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None, title_left_pad=0):
     draw_drop_shadow(surface, rect, strength=120, inflate=4, radius=10)
     pygame.draw.rect(surface, PANEL_OUTER, rect, border_radius=10)
 
@@ -72,7 +72,7 @@ def draw_framed_panel(surface, rect, title=None, title_color=INK, tile=None):
         pygame.draw.rect(surface, PANEL_INNER_2, strip, border_radius=6)
         pygame.draw.rect(surface, (14, 14, 14), strip, width=1, border_radius=6)
         title_surf = HEADER_FONT.render(title, True, title_color)
-        title_rect = title_surf.get_rect(midleft=(strip.left + 8, strip.centery))
+        title_rect = title_surf.get_rect(midleft=(strip.left + 8 + int(title_left_pad), strip.centery))
         surface.blit(title_surf, title_rect)
         content = pygame.Rect(inner.left + 8, strip.bottom + 6, inner.w - 16, inner.h - strip_h - 14)
 
