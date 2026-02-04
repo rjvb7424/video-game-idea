@@ -92,8 +92,8 @@ class GameApp:
         self._building_menu_slot = None
         self.right_panel_open = True
         self._right_panel_anim = 0.0
-        self.left_panel_open = True
-        self._left_panel_anim = 1.0
+        self.left_panel_open = False
+        self._left_panel_anim = 0.0
         self._left_panel_toggle_rect = None
 
         # --- EVENTS: minimal integration ---
@@ -996,6 +996,8 @@ class GameApp:
             self._start_game_for_realm(self.realm_candidate_id)
             self.mode = "game"
             self.camera.set_viewport(self._get_map_rect().size)
+            self.left_panel_open = False
+            self._left_panel_anim = 0.0
             return
         if action == "right_panel_close":
             self.right_panel_open = False

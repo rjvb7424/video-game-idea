@@ -347,7 +347,6 @@ class UIManager:
             title=title_name,
             title_color=INK,
             tile=self.left_tile,
-            title_left_pad=(28 if show_close else 0),
         )
 
         # extra warm tint over the inner area for stronger brown vibe
@@ -361,7 +360,7 @@ class UIManager:
         if show_close:
             inner = rect.inflate(-14, -14)
             strip = pygame.Rect(inner.left + 6, inner.top + 6, inner.w - 12, 28)
-            close_rect = pygame.Rect(strip.left + 6, strip.top + 4, 22, strip.h - 8)
+            close_rect = pygame.Rect(strip.right - 6 - 22, strip.top + 4, 22, strip.h - 8)
             b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
             btns.append((b_close, "left_panel_close"))
 
