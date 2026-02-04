@@ -16,7 +16,7 @@ class Layout:
             0,
             TOP_BAR_H,
             SIDE_W_L,
-            h - TOP_BAR_H - BOTTOM_BAR_H,
+            h - TOP_BAR_H,
         )
 
         self.right = pygame.Rect(

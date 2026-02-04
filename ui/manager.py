@@ -673,6 +673,9 @@ class UIManager:
         tile_fill(surface, bar_rect, self.bottom_tile)
         pygame.draw.line(surface, (90, 86, 78), (bar_rect.left, bar_rect.top), (bar_rect.right, bar_rect.top))
         pygame.draw.line(surface, (0, 0, 0), (bar_rect.left, bar_rect.top + 1), (bar_rect.right, bar_rect.top + 1))
+        pygame.draw.line(surface, (90, 86, 78), (bar_rect.left, bar_rect.top), (bar_rect.left, bar_rect.bottom))
+        pygame.draw.line(surface, (0, 0, 0), (bar_rect.left + 1, bar_rect.top), (bar_rect.left + 1, bar_rect.bottom))
+        pygame.draw.line(surface, (0, 0, 0), (bar_rect.left, bar_rect.bottom - 1), (bar_rect.right, bar_rect.bottom - 1))
 
         pad = max(10, rect.w // 120)
         gap = max(10, rect.w // 140)
