@@ -127,8 +127,8 @@ class GameApp:
 
         # Approximation: able-bodied levy pool (~12% of total population).
         self.army_pop_ratio = 0.12
-        self.army_raise_rate = 0.06  # fraction of max raised per day while mustering
-        self.army_move_speed = 140  # world units per day
+        self.army_raise_rate = 0.15  # fraction of max raised per day while mustering
+        self.army_move_speed = 110  # world units per day
         self.army = {"raised": 0, "max": 0, "morale": 77}
         self.army_raising = False
         self.army_selected = False
@@ -300,25 +300,30 @@ class GameApp:
         if not map_rect.collidepoint(x, y):
             return
 
-        # Small pennant + progress bar
-        flag_rect = pygame.Rect(x - 6, y - 30, 12, 16)
-        pygame.draw.rect(surface, (30, 30, 36), flag_rect, border_radius=2)
-        fill_color = (200, 180, 90) if self.army_selected else (140, 160, 210)
-        pygame.draw.rect(surface, fill_color, flag_rect.inflate(-2, -2), border_radius=2)
-        pygame.draw.rect(surface, (10, 10, 12), flag_rect, 1, border_radius=2)
+        # CK2-style stack icon: number + vertical morale/raise bar
+        body_w, body_h = 64, 22
+        bar_w = 7
+        body_rect = pygame.Rect(x - body_w // 2, y - 30, body_w, body_h)
+        pygame.draw.rect(surface, (26, 26, 30), body_rect, border_radius=3)
+        pygame.draw.rect(surface, (8, 8, 10), body_rect, 1, border_radius=3)
 
-        if self.army_raising:
-            bar_w, bar_h = 64, 7
-            bar_rect = pygame.Rect(x - bar_w // 2, y - 12, bar_w, bar_h)
-            pygame.draw.rect(surface, (20, 20, 22), bar_rect, border_radius=4)
-            fill_w = int(bar_rect.w * ratio)
-            if fill_w > 0:
-                fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
-                pygame.draw.rect(surface, (160, 190, 230), fill_rect, border_radius=4)
-            pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=4)
+        # right vertical bar (red background + green fill)
+        bar_rect = pygame.Rect(body_rect.right - bar_w - 2, body_rect.top + 2, bar_w, body_rect.h - 4)
+        pygame.draw.rect(surface, (130, 35, 35), bar_rect, border_radius=2)
+        fill_h = int(bar_rect.h * ratio)
+        if fill_h > 0:
+            fill_rect = pygame.Rect(bar_rect.left, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
+            pygame.draw.rect(surface, (65, 150, 70), fill_rect, border_radius=2)
+        pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=2)
+
+        # troop count
+        raised_text = f"{int(self.army.get('raised', 0)):,}"
+        label = FOOTER_FONT.render(raised_text, True, (235, 228, 210))
+        label_rect = label.get_rect(center=(body_rect.centerx - bar_w // 2, body_rect.centery))
+        surface.blit(label, label_rect)
 
         if self.army_selected:
-            pygame.draw.circle(surface, (230, 210, 120), (x, y - 20), 14, 2)
+            pygame.draw.rect(surface, (230, 210, 120), body_rect.inflate(6, 6), 2, border_radius=4)
 
     def _draw_army_route_arrow(self, surface, map_rect):
         def draw_arrow_head(p0, p1, color, width=3):
@@ -362,7 +367,7 @@ class GameApp:
             return None
         sp = self.camera.world_to_screen(self.army_pos, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
-        return pygame.Rect(x - 10, y - 36, 20, 26)
+        return pygame.Rect(x - 32, y - 30, 64, 22)
 
     def _handle_army_click(self, screen_pos, map_rect):
         icon = self._army_icon_rect(map_rect)
@@ -375,35 +380,38 @@ class GameApp:
                 self._building_menu_slot = None
                 self.push_log(f"{self.date}: Army selected.")
             return True
-        if self.army_selected and self.army_pos is not None:
-            if self.army.get("raised", 0) <= 0:
-                self.push_log("Army is still mustering.")
-                return True
-            wp = self.camera.screen_to_world(screen_pos, map_rect, use_target=False)
-            prov = self.world.province_at_world(wp)
-            if prov is None:
-                return True
-            self._ensure_army_position()
-            start_pid = self.army_prov_id
-            if start_pid is None:
-                return True
-            if prov.id == start_pid:
-                self.army_route = []
-                self.army_step_from = None
-                self.army_step_to = None
-                self.army_step_progress = 0.0
-                return True
-            route = self._find_province_path(start_pid, prov.id)
-            if not route:
-                self.push_log("No route for the army.")
-                return True
-            self.army_route = route
-            self.army_step_from = start_pid
-            self.army_step_to = route[0]
-            self.army_step_progress = 0.0
-            self.push_log(f"{self.date}: Army marching to {prov.name}.")
-            return True
         return False
+
+    def _handle_army_move(self, screen_pos, map_rect):
+        if not self.army_selected:
+            return False
+        if self.army.get("raised", 0) <= 0:
+            self.push_log("Army is still mustering.")
+            return True
+        wp = self.camera.screen_to_world(screen_pos, map_rect, use_target=False)
+        prov = self.world.province_at_world(wp)
+        if prov is None:
+            return True
+        self._ensure_army_position()
+        start_pid = self.army_prov_id
+        if start_pid is None:
+            return True
+        if prov.id == start_pid:
+            self.army_route = []
+            self.army_step_from = None
+            self.army_step_to = None
+            self.army_step_progress = 0.0
+            return True
+        route = self._find_province_path(start_pid, prov.id)
+        if not route:
+            self.push_log("No route for the army.")
+            return True
+        self.army_route = route
+        self.army_step_from = start_pid
+        self.army_step_to = route[0]
+        self.army_step_progress = 0.0
+        self.push_log(f"{self.date}: Army marching to {prov.name}.")
+        return True
 
     def _draw_right_panel_animated(self, surface, state):
         if self._right_panel_anim <= 0.01:
@@ -1508,6 +1516,11 @@ class GameApp:
                                             self.realm_candidate_id = prov.realm_id
                             self._mouse_down_in_map = False
                             self._drag_started = False
+                    elif event.button == 3:
+                        if self.mode == "game" and not self.modal.open:
+                            map_rect = self._get_map_rect()
+                            if map_rect.collidepoint(event.pos) and not self._point_in_ui(event.pos):
+                                self._handle_army_move(event.pos, map_rect)
 
             # Continuous controls
             if self.mode in ("game", "realm_select"):
