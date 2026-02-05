@@ -184,6 +184,7 @@ class MapWorld:
 
         self.player_realm_id = 0
         self.visibility_by_prov = {}
+        self.extra_visible_provs = set()
         self.tower_pid = -1
 
         # UI-ish textures / overlay noise
@@ -669,9 +670,10 @@ class MapWorld:
     def _compute_fog_of_war(self):
         adj = self._build_province_adjacency()
         player_provs = {p.id for p in self.provinces if p.realm_id == self.player_realm_id}
-        seen = set(player_provs)
-        border = set(player_provs)
-        for pid in player_provs:
+        extra = set(getattr(self, "extra_visible_provs", set()))
+        seen = set(player_provs) | extra
+        border = set(seen)
+        for pid in seen:
             for nb in adj[pid]:
                 border.add(nb)
 

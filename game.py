@@ -80,6 +80,7 @@ class GameApp:
         self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
         self.map_renderer = MapRenderer(self.world, self.camera)
         self.camera.set_viewport(self._get_map_rect().size)
+        self._prov_adj = self.world._build_province_adjacency()
 
         self.modal = Modal()
 
@@ -125,9 +126,19 @@ class GameApp:
 
         # Approximation: able-bodied levy pool (~12% of total population).
         self.army_pop_ratio = 0.12
-        self.army_raise_rate = 0.02  # fraction of max raised per day while mustering
+        self.army_raise_rate = 0.06  # fraction of max raised per day while mustering
+        self.army_move_speed = 140  # world units per day
         self.army = {"raised": 0, "max": 0, "morale": 77}
         self.army_raising = False
+        self.army_selected = False
+        self.army_pos = None
+        self.army_prov_id = None
+        self.army_route = []
+        self.army_step_from = None
+        self.army_step_to = None
+        self.army_step_progress = 0.0
+        self.army_step_flash = 0.0
+        self.army_last_step = None
         self.food = (0, 0)  # (produced, consumed)
         self.food_consumption_per_pop = 0.39  # monthly consumption per person
         self._rebalance_population_to_farms()
@@ -259,7 +270,9 @@ class GameApp:
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
     def _draw_army_muster_marker(self, surface, map_rect):
-        if not self.army_raising:
+        if self.army.get("raised", 0) <= 0 and not self.army_raising:
+            return
+        if self.army_pos is None:
             return
         max_army = int(self.army.get("max", 0))
         if max_army <= 0:
@@ -267,15 +280,9 @@ class GameApp:
         raised = int(self.army.get("raised", 0))
         ratio = 0.0 if max_army <= 0 else max(0.0, min(1.0, raised / max_army))
 
-        cap_pid = getattr(self.world, "player_capital_pid", None)
-        if cap_pid is None or not (0 <= cap_pid < len(self.world.provinces)):
-            if 0 <= self.player_realm_id < len(self.world.realm_capitals):
-                cap_pid = self.world.realm_capitals[self.player_realm_id]
-        if cap_pid is None or not (0 <= cap_pid < len(self.world.provinces)):
+        if self.army_pos is None:
             return
-
-        prov = self.world.provinces[cap_pid]
-        sp = self.camera.world_to_screen(prov.center, map_rect, use_target=False)
+        sp = self.camera.world_to_screen(self.army_pos, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
         if not map_rect.collidepoint(x, y):
             return
@@ -283,17 +290,117 @@ class GameApp:
         # Small pennant + progress bar
         flag_rect = pygame.Rect(x - 6, y - 30, 12, 16)
         pygame.draw.rect(surface, (30, 30, 36), flag_rect, border_radius=2)
-        pygame.draw.rect(surface, (140, 160, 210), flag_rect.inflate(-2, -2), border_radius=2)
+        fill_color = (200, 180, 90) if self.army_selected else (140, 160, 210)
+        pygame.draw.rect(surface, fill_color, flag_rect.inflate(-2, -2), border_radius=2)
         pygame.draw.rect(surface, (10, 10, 12), flag_rect, 1, border_radius=2)
 
-        bar_w, bar_h = 64, 7
-        bar_rect = pygame.Rect(x - bar_w // 2, y - 12, bar_w, bar_h)
-        pygame.draw.rect(surface, (20, 20, 22), bar_rect, border_radius=4)
-        fill_w = int(bar_rect.w * ratio)
-        if fill_w > 0:
-            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
-            pygame.draw.rect(surface, (160, 190, 230), fill_rect, border_radius=4)
-        pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=4)
+        if self.army_raising:
+            bar_w, bar_h = 64, 7
+            bar_rect = pygame.Rect(x - bar_w // 2, y - 12, bar_w, bar_h)
+            pygame.draw.rect(surface, (20, 20, 22), bar_rect, border_radius=4)
+            fill_w = int(bar_rect.w * ratio)
+            if fill_w > 0:
+                fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_w, bar_rect.h)
+                pygame.draw.rect(surface, (160, 190, 230), fill_rect, border_radius=4)
+            pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=4)
+
+        if self.army_selected:
+            pygame.draw.circle(surface, (230, 210, 120), (x, y - 20), 14, 2)
+
+    def _draw_army_route_arrow(self, surface, map_rect):
+        def draw_arrow(p0, p1, color, width=3):
+            pygame.draw.line(surface, color, p0, p1, width)
+            # Arrow head
+            vx = p1[0] - p0[0]
+            vy = p1[1] - p0[1]
+            length = max(1.0, math.hypot(vx, vy))
+            ux, uy = vx / length, vy / length
+            left = (p1[0] - ux * 10 - uy * 6, p1[1] - uy * 10 + ux * 6)
+            right = (p1[0] - ux * 10 + uy * 6, p1[1] - uy * 10 - ux * 6)
+            pygame.draw.polygon(surface, color, [p1, left, right])
+
+        if self.army_step_to is not None and self.army_prov_id is not None:
+            start_pid = self.army_step_from if self.army_step_from is not None else self.army_prov_id
+            start = self.world.provinces[start_pid].center
+            end = self.world.provinces[self.army_step_to].center
+            sp0 = self.camera.world_to_screen(start, map_rect, use_target=False)
+            sp1 = self.camera.world_to_screen(end, map_rect, use_target=False)
+            p0 = (int(sp0.x), int(sp0.y))
+            p1 = (int(sp1.x), int(sp1.y))
+            if map_rect.collidepoint(p0) or map_rect.collidepoint(p1):
+                base_color = (40, 40, 45)
+                draw_arrow(p0, p1, base_color, width=2)
+
+                progress = max(0.0, min(1.0, self.army_step_progress))
+                mid = (p0[0] + (p1[0] - p0[0]) * progress, p0[1] + (p1[1] - p0[1]) * progress)
+                start_col = (220, 180, 90)
+                end_col = (200, 60, 60)
+                col = (
+                    int(start_col[0] + (end_col[0] - start_col[0]) * progress),
+                    int(start_col[1] + (end_col[1] - start_col[1]) * progress),
+                    int(start_col[2] + (end_col[2] - start_col[2]) * progress),
+                )
+                draw_arrow(p0, mid, col, width=4)
+
+        if self.army_step_flash > 0.0 and self.army_last_step:
+            a, b = self.army_last_step
+            if 0 <= a < len(self.world.provinces) and 0 <= b < len(self.world.provinces):
+                start = self.world.provinces[a].center
+                end = self.world.provinces[b].center
+                sp0 = self.camera.world_to_screen(start, map_rect, use_target=False)
+                sp1 = self.camera.world_to_screen(end, map_rect, use_target=False)
+                p0 = (int(sp0.x), int(sp0.y))
+                p1 = (int(sp1.x), int(sp1.y))
+                if map_rect.collidepoint(p0) or map_rect.collidepoint(p1):
+                    draw_arrow(p0, p1, (200, 60, 60), width=4)
+
+    def _army_icon_rect(self, map_rect):
+        if self.army_pos is None:
+            return None
+        if self.army.get("raised", 0) <= 0 and not self.army_raising:
+            return None
+        sp = self.camera.world_to_screen(self.army_pos, map_rect, use_target=False)
+        x, y = int(sp.x), int(sp.y)
+        return pygame.Rect(x - 10, y - 36, 20, 26)
+
+    def _handle_army_click(self, screen_pos, map_rect):
+        icon = self._army_icon_rect(map_rect)
+        if icon and icon.collidepoint(screen_pos):
+            if self.army.get("raised", 0) <= 0 and not self.army_raising:
+                return True
+            self.army_selected = not self.army_selected
+            if self.army_selected:
+                self.push_log(f"{self.date}: Army selected.")
+            return True
+        if self.army_selected and self.army_pos is not None:
+            if self.army.get("raised", 0) <= 0:
+                self.push_log("Army is still mustering.")
+                return True
+            wp = self.camera.screen_to_world(screen_pos, map_rect, use_target=False)
+            prov = self.world.province_at_world(wp)
+            if prov is None:
+                return True
+            self._ensure_army_position()
+            start_pid = self.army_prov_id
+            if start_pid is None:
+                return True
+            if prov.id == start_pid:
+                self.army_route = []
+                self.army_step_from = None
+                self.army_step_to = None
+                self.army_step_progress = 0.0
+                return True
+            route = self._find_province_path(start_pid, prov.id)
+            if not route:
+                self.push_log("No route for the army.")
+                return True
+            self.army_route = route
+            self.army_step_from = start_pid
+            self.army_step_to = route[0]
+            self.army_step_progress = 0.0
+            self.push_log(f"{self.date}: Army marching to {prov.name}.")
+            return True
+        return False
 
     def _draw_right_panel_animated(self, surface, state):
         if self._right_panel_anim <= 0.01:
@@ -675,6 +782,8 @@ class GameApp:
             self.world.player_capital_pid = cap_pid
 
         if hasattr(self.world, "_compute_fog_of_war"):
+            if hasattr(self.world, "extra_visible_provs"):
+                self.world.extra_visible_provs = set()
             self.world._compute_fog_of_war()
             self._refresh_fog_visuals()
 
@@ -782,10 +891,107 @@ class GameApp:
             self.army["raised"] = max_army
         if max_army == 0:
             self.army_raising = False
+            self.army_selected = False
+            self.army_route = []
+            self.army_step_from = None
+            self.army_step_to = None
+            self.army_step_progress = 0.0
+            self.army_pos = None
+            self.army_prov_id = None
+            self._update_fog_from_army()
+
+    def _get_player_capital_pid(self):
+        pid = getattr(self.world, "player_capital_pid", None)
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            if 0 <= self.player_realm_id < len(self.world.realm_capitals):
+                pid = self.world.realm_capitals[self.player_realm_id]
+        if pid is not None and 0 <= pid < len(self.world.provinces):
+            return pid
+        return None
+
+    def _get_player_capital_center(self):
+        pid = self._get_player_capital_pid()
+        if pid is not None:
+            return self.world.provinces[pid].center
+        return pygame.Vector2(self.world.world_w * 0.5, self.world.world_h * 0.5)
+
+    def _ensure_army_position(self):
+        if self.army_pos is None or self.army_prov_id is None:
+            pid = self._get_player_capital_pid()
+            if pid is None:
+                self.army_pos = self._get_player_capital_center().copy()
+                return
+            self._set_army_prov(pid)
+
+    def _set_army_prov(self, pid):
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            return
+        self.army_prov_id = pid
+        self.army_pos = self.world.provinces[pid].center.copy()
+
+    def _find_province_path(self, start_pid, target_pid):
+        if start_pid == target_pid:
+            return []
+        adj = self._prov_adj
+        prev = {start_pid: None}
+        queue = [start_pid]
+        head = 0
+        while head < len(queue):
+            cur = queue[head]
+            head += 1
+            if cur == target_pid:
+                break
+            for nb in adj[cur]:
+                if nb in prev:
+                    continue
+                prev[nb] = cur
+                queue.append(nb)
+        if target_pid not in prev:
+            return []
+        path = []
+        cur = target_pid
+        while cur is not None and cur != start_pid:
+            path.append(cur)
+            cur = prev[cur]
+        path.reverse()
+        return path
+
+    def _update_army_movement(self):
+        if not self.army_route or self.army_prov_id is None:
+            return
+        if self.army.get("raised", 0) <= 0:
+            return
+        if self.army_step_to is None:
+            self.army_step_from = self.army_prov_id
+            self.army_step_to = self.army_route[0]
+            self.army_step_progress = 0.0
+        if self.army_step_to is None:
+            return
+        start = self.world.provinces[self.army_step_from].center
+        end = self.world.provinces[self.army_step_to].center
+        dist = max(1.0, (end - start).length())
+        self.army_step_progress += self.army_move_speed / dist
+        if self.army_step_progress >= 1.0:
+            self.army_step_progress = 1.0
+            self.army_last_step = (self.army_step_from, self.army_step_to)
+            self.army_step_flash = 0.25
+            self._set_army_prov(self.army_step_to)
+            self.army_route.pop(0)
+            if self.army_route:
+                self.army_step_from = self.army_prov_id
+                self.army_step_to = self.army_route[0]
+                self.army_step_progress = 0.0
+            else:
+                self.army_step_from = None
+                self.army_step_to = None
+                self.army_step_progress = 0.0
+            self._update_fog_from_army()
 
     def _update_army_raising(self):
         if not self.army_raising:
             return
+        self._ensure_army_position()
+        self._update_fog_from_army()
         max_army = self.army.get("max", 0)
         if max_army <= 0:
             self.army_raising = False
@@ -796,6 +1002,27 @@ class GameApp:
             return
         per_day = max(1, int(round(max_army * self.army_raise_rate)))
         self.army["raised"] = min(max_army, self.army["raised"] + per_day)
+
+    def _update_army_flash(self, dt):
+        if self.army_step_flash > 0.0:
+            self.army_step_flash = max(0.0, self.army_step_flash - dt)
+            if self.army_step_flash <= 0.0:
+                self.army_last_step = None
+
+    def _update_fog_from_army(self):
+        if not hasattr(self.world, "extra_visible_provs"):
+            return
+        extra = set()
+        if (self.army.get("raised", 0) > 0 or self.army_raising) and self.army_prov_id is not None:
+            extra.add(self.army_prov_id)
+            if 0 <= self.army_prov_id < len(self._prov_adj):
+                extra.update(self._prov_adj[self.army_prov_id])
+        if extra == getattr(self.world, "extra_visible_provs", set()):
+            return
+        self.world.extra_visible_provs = extra
+        if hasattr(self.world, "_compute_fog_of_war"):
+            self.world._compute_fog_of_war()
+            self._refresh_fog_visuals()
 
     def _update_right_panel_anim(self, dt):
         should_show = (
@@ -1017,6 +1244,13 @@ class GameApp:
         if action == "raise_army":
             if self.army_raising:
                 self.army_raising = False
+                if self.army.get("raised", 0) <= 0:
+                    self.army_selected = False
+                    self.army_route = []
+                    self.army_step_from = None
+                    self.army_step_to = None
+                    self.army_step_progress = 0.0
+                    self._update_fog_from_army()
                 self.push_log("You halt the muster.")
             else:
                 if self.army.get("max", 0) <= 0:
@@ -1024,7 +1258,9 @@ class GameApp:
                 elif self.army.get("raised", 0) >= self.army.get("max", 0):
                     self.push_log("Your army is already fully raised.")
                 else:
+                    self._ensure_army_position()
                     self.army_raising = True
+                    self._update_fog_from_army()
                     self.push_log("Your levies begin to muster.")
             return
         if action == "toggle_pause":
@@ -1095,6 +1331,7 @@ class GameApp:
                 self._update_storyteller_event_chance()
                 self.events.on_day()
                 self._update_army_raising()
+                self._update_army_movement()
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
@@ -1244,6 +1481,10 @@ class GameApp:
                                 if map_rect.collidepoint(event.pos) and not self._point_in_ui(event.pos):
                                     if self.mode == "game":
                                         if not self._try_open_tower_event(event.pos):
+                                            if self._handle_army_click(event.pos, map_rect):
+                                                self._mouse_down_in_map = False
+                                                self._drag_started = False
+                                                continue
                                             wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
@@ -1273,6 +1514,8 @@ class GameApp:
                 self.camera.update(dt)
             self._update_right_panel_anim(dt)
             self._update_left_panel_anim(dt)
+            if self.mode == "game":
+                self._update_army_flash(dt)
 
             # Draw
             clickables = []
@@ -1301,6 +1544,7 @@ class GameApp:
                 self.map_renderer.draw(self.screen, map_rect)
                 self._draw_selected_province_highlight(self.screen, map_rect)
                 self._draw_army_muster_marker(self.screen, map_rect)
+                self._draw_army_route_arrow(self.screen, map_rect)
 
                 # UI panels
                 state = {
