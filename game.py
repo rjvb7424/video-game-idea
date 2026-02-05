@@ -308,9 +308,7 @@ class GameApp:
             pygame.draw.circle(surface, (230, 210, 120), (x, y - 20), 14, 2)
 
     def _draw_army_route_arrow(self, surface, map_rect):
-        def draw_arrow(p0, p1, color, width=3):
-            pygame.draw.line(surface, color, p0, p1, width)
-            # Arrow head
+        def draw_arrow_head(p0, p1, color, width=3):
             vx = p1[0] - p0[0]
             vy = p1[1] - p0[1]
             length = max(1.0, math.hypot(vx, vy))
@@ -319,40 +317,30 @@ class GameApp:
             right = (p1[0] - ux * 10 + uy * 6, p1[1] - uy * 10 - ux * 6)
             pygame.draw.polygon(surface, color, [p1, left, right])
 
-        if self.army_step_to is not None and self.army_prov_id is not None:
-            start_pid = self.army_step_from if self.army_step_from is not None else self.army_prov_id
-            start = self.world.provinces[start_pid].center
-            end = self.world.provinces[self.army_step_to].center
-            sp0 = self.camera.world_to_screen(start, map_rect, use_target=False)
-            sp1 = self.camera.world_to_screen(end, map_rect, use_target=False)
-            p0 = (int(sp0.x), int(sp0.y))
-            p1 = (int(sp1.x), int(sp1.y))
-            if map_rect.collidepoint(p0) or map_rect.collidepoint(p1):
-                base_color = (40, 40, 45)
-                draw_arrow(p0, p1, base_color, width=2)
+        if not self.army_route or self.army_pos is None:
+            return
+        if self.army_step_to is None:
+            return
 
-                progress = max(0.0, min(1.0, self.army_step_progress))
-                mid = (p0[0] + (p1[0] - p0[0]) * progress, p0[1] + (p1[1] - p0[1]) * progress)
-                start_col = (220, 180, 90)
-                end_col = (200, 60, 60)
-                col = (
-                    int(start_col[0] + (end_col[0] - start_col[0]) * progress),
-                    int(start_col[1] + (end_col[1] - start_col[1]) * progress),
-                    int(start_col[2] + (end_col[2] - start_col[2]) * progress),
-                )
-                draw_arrow(p0, mid, col, width=4)
+        points_world = [self.army_pos] + [self.world.provinces[pid].center for pid in self.army_route]
+        if len(points_world) < 2:
+            return
 
-        if self.army_step_flash > 0.0 and self.army_last_step:
-            a, b = self.army_last_step
-            if 0 <= a < len(self.world.provinces) and 0 <= b < len(self.world.provinces):
-                start = self.world.provinces[a].center
-                end = self.world.provinces[b].center
-                sp0 = self.camera.world_to_screen(start, map_rect, use_target=False)
-                sp1 = self.camera.world_to_screen(end, map_rect, use_target=False)
-                p0 = (int(sp0.x), int(sp0.y))
-                p1 = (int(sp1.x), int(sp1.y))
-                if map_rect.collidepoint(p0) or map_rect.collidepoint(p1):
-                    draw_arrow(p0, p1, (200, 60, 60), width=4)
+        points = [
+            (int(self.camera.world_to_screen(p, map_rect, use_target=False).x),
+             int(self.camera.world_to_screen(p, map_rect, use_target=False).y))
+            for p in points_world
+        ]
+
+        # White base arrow path
+        pygame.draw.lines(surface, (230, 230, 230), False, points, 3)
+        draw_arrow_head(points[-2], points[-1], (230, 230, 230), width=3)
+
+        # Red fill along the first segment only (progress to next province)
+        p0, p1 = points[0], points[1]
+        progress = max(0.0, min(1.0, self.army_step_progress))
+        mid = (p0[0] + (p1[0] - p0[0]) * progress, p0[1] + (p1[1] - p0[1]) * progress)
+        pygame.draw.line(surface, (200, 60, 60), p0, mid, 4)
 
     def _army_icon_rect(self, map_rect):
         if self.army_pos is None:
@@ -971,6 +959,8 @@ class GameApp:
         end = self.world.provinces[self.army_step_to].center
         dist = max(1.0, (end - start).length())
         self.army_step_progress += self.army_move_speed / dist
+        interp = max(0.0, min(1.0, self.army_step_progress))
+        self.army_pos = start + (end - start) * interp
         if self.army_step_progress >= 1.0:
             self.army_step_progress = 1.0
             self.army_last_step = (self.army_step_from, self.army_step_to)
