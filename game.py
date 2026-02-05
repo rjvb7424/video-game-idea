@@ -140,6 +140,7 @@ class GameApp:
         self.army_step_progress = 0.0
         self.army_step_flash = 0.0
         self.army_last_step = None
+        self.enemy_armies = []
         self.food = (0, 0)  # (produced, consumed)
         self.food_consumption_per_pop = 0.39  # monthly consumption per person
         self._rebalance_population_to_farms()
@@ -148,6 +149,7 @@ class GameApp:
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
         self._update_army_max()
+        self._init_enemy_armies()
 
         self.log = [
             "January 8, 1067: Rumors of usurpation spread in Carinthia.",
@@ -282,20 +284,11 @@ class GameApp:
         pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
-    def _draw_army_muster_marker(self, surface, map_rect):
-        if self.army.get("raised", 0) <= 0 and not self.army_raising:
-            return
-        if self.army_pos is None:
-            return
-        max_army = int(self.army.get("max", 0))
+    def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False):
         if max_army <= 0:
             return
-        raised = int(self.army.get("raised", 0))
         ratio = 0.0 if max_army <= 0 else max(0.0, min(1.0, raised / max_army))
-
-        if self.army_pos is None:
-            return
-        sp = self.camera.world_to_screen(self.army_pos, map_rect, use_target=False)
+        sp = self.camera.world_to_screen(pos, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
         if not map_rect.collidepoint(x, y):
             return
@@ -304,9 +297,6 @@ class GameApp:
         body_w, body_h = 64, 22
         bar_w = 7
         body_rect = pygame.Rect(x - body_w // 2, y - 30, body_w, body_h)
-        friendly = False
-        if self.army_prov_id is not None and 0 <= self.army_prov_id < len(self.world.provinces):
-            friendly = self.world.provinces[self.army_prov_id].realm_id == self.player_realm_id
         body_bg = (30, 75, 35) if friendly else (90, 35, 35)
         pygame.draw.rect(surface, body_bg, body_rect, border_radius=3)
         pygame.draw.rect(surface, (8, 8, 10), body_rect, 1, border_radius=3)
@@ -321,13 +311,52 @@ class GameApp:
         pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=2)
 
         # troop count
-        raised_text = f"{int(self.army.get('raised', 0)):,}"
+        raised_text = f"{int(raised):,}"
         label = FOOTER_FONT.render(raised_text, True, (235, 228, 210))
         label_rect = label.get_rect(center=(body_rect.centerx - bar_w // 2, body_rect.centery))
         surface.blit(label, label_rect)
 
-        if self.army_selected:
+        if selected:
             pygame.draw.rect(surface, (230, 210, 120), body_rect.inflate(6, 6), 2, border_radius=4)
+
+    def _draw_army_muster_marker(self, surface, map_rect):
+        if self.army.get("raised", 0) <= 0 and not self.army_raising:
+            return
+        if self.army_pos is None:
+            return
+        max_army = int(self.army.get("max", 0))
+        raised = int(self.army.get("raised", 0))
+        friendly = False
+        if self.army_prov_id is not None and 0 <= self.army_prov_id < len(self.world.provinces):
+            friendly = self.world.provinces[self.army_prov_id].realm_id == self.player_realm_id
+        self._draw_army_stack(
+            surface,
+            map_rect,
+            self.army_pos,
+            raised,
+            max_army,
+            friendly=friendly,
+            selected=self.army_selected,
+        )
+
+    def _draw_enemy_armies(self, surface, map_rect):
+        if not self.enemy_armies:
+            return
+        for enemy in self.enemy_armies:
+            army = enemy.get("army", {})
+            raised = int(army.get("raised", 0))
+            max_army = int(army.get("max", 0))
+            if raised <= 0 or max_army <= 0:
+                continue
+            pid = enemy.get("prov_id")
+            if pid is None or not (0 <= pid < len(self.world.provinces)):
+                continue
+            if not self._is_province_visible(pid):
+                continue
+            pos = enemy.get("pos")
+            if pos is None:
+                pos = self.world.provinces[pid].center
+            self._draw_army_stack(surface, map_rect, pos, raised, max_army, friendly=False, selected=False)
 
     def _draw_army_route_arrow(self, surface, map_rect):
         def draw_arrow_head(p0, p1, color, width=3):
@@ -363,6 +392,12 @@ class GameApp:
         progress = max(0.0, min(1.0, self.army_step_progress))
         mid = (p0[0] + (p1[0] - p0[0]) * progress, p0[1] + (p1[1] - p0[1]) * progress)
         pygame.draw.line(surface, (200, 60, 60), p0, mid, 4)
+
+    def _is_province_visible(self, pid):
+        vis = self.world.visibility_by_prov.get(pid, 0.45)
+        if vis >= 0.78:
+            return True
+        return pid in getattr(self.world, "extra_visible_provs", set())
 
     def _army_icon_rect(self, map_rect):
         if self.army_pos is None:
@@ -813,6 +848,8 @@ class GameApp:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
+        self._update_army_max()
+        self._init_enemy_armies()
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]
@@ -915,6 +952,147 @@ class GameApp:
             self.army_prov_id = None
             self._update_fog_from_army()
 
+    def _init_enemy_armies(self):
+        self.enemy_armies = []
+        if not self.world.realm_names:
+            return
+        candidates = [rid for rid in range(len(self.world.realm_names)) if rid != self.player_realm_id]
+        if not candidates:
+            return
+        candidates.sort(key=lambda rid: self.world.total_population_for_realm(rid), reverse=True)
+        rid = candidates[0]
+
+        pid = None
+        if hasattr(self.world, "realm_capitals") and 0 <= rid < len(self.world.realm_capitals):
+            pid = self.world.realm_capitals[rid]
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            for prov in self.world.provinces:
+                if prov.realm_id == rid:
+                    pid = prov.id
+                    break
+        if pid is None:
+            return
+
+        max_army = int(round(self.world.total_population_for_realm(rid) * self.army_pop_ratio))
+        max_army = max(1, max_army)
+        raised = max(1, int(round(max_army * 0.85)))
+
+        self.enemy_armies.append(
+            {
+                "realm_id": rid,
+                "prov_id": pid,
+                "pos": self.world.provinces[pid].center.copy(),
+                "army": {"raised": raised, "max": max_army, "morale": 70},
+            }
+        )
+
+    def _enemy_army_at(self, pid):
+        for enemy in self.enemy_armies:
+            if enemy.get("prov_id") == pid and int(enemy.get("army", {}).get("raised", 0)) > 0:
+                return enemy
+        return None
+
+    def _pick_retreat_province(self, from_pid, realm_id):
+        if 0 <= from_pid < len(self._prov_adj):
+            options = [pid for pid in self._prov_adj[from_pid] if self.world.provinces[pid].realm_id == realm_id]
+            if options:
+                return self.world.rnd.choice(options)
+        if hasattr(self.world, "realm_capitals") and 0 <= realm_id < len(self.world.realm_capitals):
+            return self.world.realm_capitals[realm_id]
+        for prov in self.world.provinces:
+            if prov.realm_id == realm_id:
+                return prov.id
+        return from_pid
+
+    def _compute_battle_losses(self, player_size, enemy_size):
+        if player_size <= 0 or enemy_size <= 0:
+            return 0, 0
+        if player_size >= enemy_size:
+            winner_size = player_size
+            loser_size = enemy_size
+            player_is_winner = True
+        else:
+            winner_size = enemy_size
+            loser_size = player_size
+            player_is_winner = False
+
+        ratio = winner_size / max(1, loser_size)
+        win_loss_rate = 0.12 + 0.18 * (loser_size / winner_size)
+        lose_loss_rate = 0.45 + 0.35 * (ratio / (ratio + 1.0))
+
+        win_loss = int(round(winner_size * win_loss_rate))
+        lose_loss = int(round(loser_size * lose_loss_rate))
+
+        if winner_size > 1:
+            win_loss = min(win_loss, winner_size - 1)
+        else:
+            win_loss = 0
+        if loser_size > 1:
+            lose_loss = min(lose_loss, loser_size - 1)
+        else:
+            lose_loss = 0
+
+        if player_is_winner:
+            return win_loss, lose_loss
+        return lose_loss, win_loss
+
+    def _resolve_battle(self, enemy, battle_pid):
+        if enemy is None:
+            return
+        player_size = int(self.army.get("raised", 0))
+        enemy_size = int(enemy.get("army", {}).get("raised", 0))
+        if player_size <= 0 or enemy_size <= 0:
+            return
+
+        player_wins = player_size >= enemy_size
+        player_loss, enemy_loss = self._compute_battle_losses(player_size, enemy_size)
+        new_player = max(0, player_size - player_loss)
+        new_enemy = max(0, enemy_size - enemy_loss)
+
+        self.army["raised"] = new_player
+        enemy["army"]["raised"] = new_enemy
+
+        self.army_route = []
+        self.army_step_from = None
+        self.army_step_to = None
+        self.army_step_progress = 0.0
+
+        retreat_name = None
+        if player_wins:
+            retreat_pid = self._pick_retreat_province(battle_pid, enemy.get("realm_id"))
+            enemy["prov_id"] = retreat_pid
+            enemy["pos"] = self.world.provinces[retreat_pid].center.copy()
+            retreat_name = self.world.provinces[retreat_pid].name
+            outcome = "Victory"
+        else:
+            retreat_pid = self._pick_retreat_province(battle_pid, self.player_realm_id)
+            self._set_army_prov(retreat_pid)
+            retreat_name = self.world.provinces[retreat_pid].name
+            outcome = "Defeat"
+
+        self._update_fog_from_army()
+
+        prov_name = self.world.provinces[battle_pid].name
+        lines = [
+            f"Battle of {prov_name}",
+            f"Outcome: {outcome}",
+            f"Your army: {player_size:,} -> {new_player:,} (lost {player_loss:,})",
+            f"Enemy army: {enemy_size:,} -> {new_enemy:,} (lost {enemy_loss:,})",
+        ]
+        if retreat_name:
+            if player_wins:
+                lines.append(f"Enemy retreats to {retreat_name}.")
+            else:
+                lines.append(f"Your army retreats to {retreat_name}.")
+        self.modal.show(
+            "Battle Summary",
+            lines,
+            [
+                ("Close", "accept", lambda: self.modal.close()),
+            ],
+        )
+        self.push_log(f"{self.date}: Battle at {prov_name}. {outcome}.")
+
     def _get_player_capital_pid(self):
         pid = getattr(self.world, "player_capital_pid", None)
         if pid is None or not (0 <= pid < len(self.world.provinces)):
@@ -1003,6 +1181,9 @@ class GameApp:
                 self.army_step_to = None
                 self.army_step_progress = 0.0
             self._update_fog_from_army()
+            enemy = self._enemy_army_at(self.army_prov_id)
+            if enemy is not None:
+                self._resolve_battle(enemy, self.army_prov_id)
 
     def _update_army_raising(self):
         if not self.army_raising:
@@ -1592,6 +1773,7 @@ class GameApp:
                 self.map_renderer.draw(self.screen, map_rect)
                 self._draw_selected_province_highlight(self.screen, map_rect)
                 self._draw_army_muster_marker(self.screen, map_rect)
+                self._draw_enemy_armies(self.screen, map_rect)
                 self._draw_army_route_arrow(self.screen, map_rect)
 
                 # UI panels
