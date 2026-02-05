@@ -75,6 +75,7 @@ class GameApp:
 
         self.ui = UIManager(seed=11)
         self.layout = Layout(*self.screen.get_size())
+        self._game_bg_cache = {}
 
         self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=4)
         self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
@@ -227,6 +228,18 @@ class GameApp:
             surface.fill(BG_COLOR)
             return
         surface.blit(scaled, offset)
+
+    def _get_game_bg(self, size):
+        key = (int(size[0]), int(size[1]))
+        cached = self._game_bg_cache.get(key)
+        if cached is not None:
+            return cached
+        bg = pygame.Surface(size).convert()
+        bg.fill(BG_COLOR)
+        tile_fill(bg, bg.get_rect(), self.ui.bottom_tile)
+        bg.set_alpha(70)
+        self._game_bg_cache[key] = bg
+        return bg
 
     def _get_map_rect(self):
         if self.mode in ("realm_select", "game"):
@@ -1522,11 +1535,7 @@ class GameApp:
                 self.screen.fill(BG_COLOR)
 
                 # Decorative background panels behind everything
-                bg = pygame.Surface(self.screen.get_size())
-                bg.fill(BG_COLOR)
-                tile = self.ui.bottom_tile
-                tile_fill(bg, bg.get_rect(), tile)
-                bg.set_alpha(70)
+                bg = self._get_game_bg(self.screen.get_size())
                 self.screen.blit(bg, (0, 0))
 
                 # Map

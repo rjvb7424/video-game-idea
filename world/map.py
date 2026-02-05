@@ -185,6 +185,7 @@ class MapWorld:
         self.player_realm_id = 0
         self.visibility_by_prov = {}
         self.extra_visible_provs = set()
+        self.render_version = 0
         self.tower_pid = -1
 
         # UI-ish textures / overlay noise
@@ -796,6 +797,7 @@ class MapWorld:
         tile_fill(veil, veil.get_rect(), self.paper_tile)
         veil.fill((0, 0, 0, 22), special_flags=pygame.BLEND_RGBA_MULT)
         self.base_surface.blit(veil, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        self.render_version += 1
 
     def _render_borders_and_coast(self):
         w, h = self.gw, self.gh
@@ -919,6 +921,7 @@ class MapWorld:
         # IMPORTANT: only bake terrain + borders (no labels)
         self.surface = self.base_surface.copy()
         self.surface.blit(self.border_surface, (0, 0))
+        self.render_version += 1
 
     def _generate(self):
         self._generate_continent_height()

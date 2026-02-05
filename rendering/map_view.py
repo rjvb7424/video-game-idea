@@ -15,6 +15,11 @@ class MapRenderer:
     def __init__(self, world, camera):
         self.world = world
         self.camera = camera
+        self._cached_final = None
+        self._overlay_surface = None
+        self._cached_size = None
+        self._cache_key = None
+        self._last_viewport = None
 
     def _draw_minimal_province_label(self, surf, center, prov, vis):
         a = 220 if vis > 0.95 else 180 if vis > 0.80 else 150
@@ -144,6 +149,12 @@ class MapRenderer:
             surf.blit(text, tr)
 
     def draw(self, surface, map_rect):
+        if self._cached_size != map_rect.size:
+            self._cached_size = map_rect.size
+            self._cached_final = pygame.Surface(map_rect.size).convert()
+            self._overlay_surface = pygame.Surface(map_rect.size, pygame.SRCALPHA).convert_alpha()
+            self._cache_key = None
+
         # Map frame
         frame_rect = map_rect.inflate(12, 12)
         draw_drop_shadow(surface, frame_rect, strength=140, inflate=8, radius=12)
@@ -155,51 +166,60 @@ class MapRenderer:
         pygame.draw.line(surface, BEVEL_DARK, (frame_rect.right - 3, frame_rect.top + 2), (frame_rect.right - 3, frame_rect.bottom - 3))
 
         # View render
-        view = pygame.Surface(map_rect.size).convert()
-        view.fill(SEA_DEEP)
+        view = self._cached_final
 
-        self.camera.set_viewport(map_rect.size)
+        if self._last_viewport != map_rect.size:
+            self.camera.set_viewport(map_rect.size)
+            self._last_viewport = map_rect.size
         vrect = self.camera.view_rect(use_target=False)
 
         world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
         inter = vrect.clip(world_rect)
 
+        z = self.camera.zoom
+        show_minimal = z >= 0.75
+        render_version = getattr(self.world, "render_version", 0)
+        cache_key = (
+            map_rect.size,
+            vrect.x, vrect.y, vrect.w, vrect.h,
+            round(z, 3),
+            render_version,
+            show_minimal,
+        )
+        if cache_key == self._cache_key:
+            surface.blit(view, map_rect.topleft)
+            return
+        self._cache_key = cache_key
+
+        view.fill(SEA_DEEP)
+
         if inter.w > 0 and inter.h > 0:
-            subs = self.world.surface.subsurface(inter).copy()
+            subs = self.world.surface.subsurface(inter)
 
             # Scale to screen portion
-            z = self.camera.zoom
             scaled_w = max(1, int(round(inter.w * z)))
             scaled_h = max(1, int(round(inter.h * z)))
 
             if inter.size == map_rect.size and abs(z - 1.0) < 0.001:
-                scaled = subs
+                view.blit(subs, (0, 0))
             else:
-                # smoothscale for polish
-                # Supersample when zooming in to reduce visible pixel steps
-                if z > 1.02:
-                    big = pygame.transform.smoothscale(subs, (scaled_w * 2, scaled_h * 2))
-                    scaled = pygame.transform.smoothscale(big, (scaled_w, scaled_h))
+                if z > 1.25:
+                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
                 else:
                     scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
-
-            dx = int(round((inter.left - vrect.left) * z))
-            dy = int(round((inter.top - vrect.top) * z))
-            view.blit(scaled, (dx, dy))
+                dx = int(round((inter.left - vrect.left) * z))
+                dy = int(round((inter.top - vrect.top) * z))
+                view.blit(scaled, (dx, dy))
 
         # Subtle map overlay/vignette
         draw_vignette(view, view.get_rect(), strength=85)
 
         # Screen-space overlays (crisp at any zoom)
-        overlay = pygame.Surface(map_rect.size, pygame.SRCALPHA).convert_alpha()
+        overlay = self._overlay_surface
         overlay.fill((0, 0, 0, 0))
 
         capital_set = set(getattr(self.world, "capital_label_items", []))
         minimal_set = set(getattr(self.world, "minimal_label_items", []))
-
-        # only show minimal labels when zoomed in enough
-        min_label_zoom = 0.75
-        show_minimal = self.camera.zoom >= min_label_zoom
 
         draw_set = set(capital_set)
         if show_minimal:
