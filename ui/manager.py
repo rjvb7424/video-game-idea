@@ -656,14 +656,20 @@ class UIManager:
         date_w = max(220, HEADER_FONT.size(date_text)[0] + 44)
 
         raise_w = 0
+        disband_w = 0
         if state.get("army") is not None:
             raising = bool(state.get("army_raising"))
             raise_label = "Raising..." if raising else "Raise Army"
             raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
+            raised = int(state.get("army", {}).get("raised", 0))
+            if raised > 0:
+                disband_w = max(120, BODY_FONT.size("Disband")[0] + 28)
 
         bar_w = pad + time_cluster_w + pad + date_w + gap
         if raise_w > 0:
             bar_w += raise_w + gap
+        if disband_w > 0:
+            bar_w += disband_w + gap
         bar_w = min(rect.w, bar_w)
         return pygame.Rect(rect.right - bar_w, rect.top, bar_w, rect.h)
 
@@ -700,12 +706,24 @@ class UIManager:
         date_surf = HEADER_FONT.render(date_text, True, (230, 224, 208))
         surface.blit(date_surf, date_surf.get_rect(center=date_block.center))
 
+        left_x = bar_rect.left + pad
+
+        # Disband (only when raised)
+        if state.get("army") is not None:
+            raised = int(state.get("army", {}).get("raised", 0))
+            if raised > 0:
+                disband_w = max(120, BODY_FONT.size("Disband")[0] + 28)
+                disband_rect = pygame.Rect(left_x, y, disband_w, bh)
+                b_disband = draw_deny_button(surface, "Disband", disband_rect.x, disband_rect.y, disband_rect.w, disband_rect.h)
+                btns.append((b_disband, "disband_army"))
+                left_x = disband_rect.right + gap
+
         # Raise army button on the left
         if state.get("army") is not None:
             raising = bool(state.get("army_raising"))
             raise_label = "Raising..." if raising else "Raise Army"
             raise_w = max(132, BODY_FONT.size(raise_label)[0] + 28)
-            raise_rect = pygame.Rect(bar_rect.left + pad, y, raise_w, bh)
+            raise_rect = pygame.Rect(left_x, y, raise_w, bh)
             if raising:
                 b_raise = draw_secondary_button(surface, raise_label, raise_rect.x, raise_rect.y, raise_rect.w, raise_rect.h)
             else:

@@ -304,7 +304,11 @@ class GameApp:
         body_w, body_h = 64, 22
         bar_w = 7
         body_rect = pygame.Rect(x - body_w // 2, y - 30, body_w, body_h)
-        pygame.draw.rect(surface, (26, 26, 30), body_rect, border_radius=3)
+        friendly = False
+        if self.army_prov_id is not None and 0 <= self.army_prov_id < len(self.world.provinces):
+            friendly = self.world.provinces[self.army_prov_id].realm_id == self.player_realm_id
+        body_bg = (30, 75, 35) if friendly else (90, 35, 35)
+        pygame.draw.rect(surface, body_bg, body_rect, border_radius=3)
         pygame.draw.rect(surface, (8, 8, 10), body_rect, 1, border_radius=3)
 
         # right vertical bar (red background + green fill)
@@ -1275,6 +1279,35 @@ class GameApp:
                     self.army_raising = True
                     self._update_fog_from_army()
                     self.push_log("Your levies begin to muster.")
+            return
+        if action == "disband_army":
+            if self.army.get("raised", 0) <= 0:
+                return
+            if self.army_prov_id is None or not (0 <= self.army_prov_id < len(self.world.provinces)):
+                return
+            prov = self.world.provinces[self.army_prov_id]
+            if prov.realm_id != self.player_realm_id:
+                self.modal.show(
+                    "Cannot Disband",
+                    [
+                        "You can only disband your army within your own realm.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+                return
+            self.army["raised"] = 0
+            self.army_raising = False
+            self.army_selected = False
+            self.army_route = []
+            self.army_step_from = None
+            self.army_step_to = None
+            self.army_step_progress = 0.0
+            self.army_pos = None
+            self.army_prov_id = None
+            self._update_fog_from_army()
+            self.push_log("You disband the army.")
             return
         if action == "toggle_pause":
             self.toggle_pause()
