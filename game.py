@@ -371,6 +371,8 @@ class GameApp:
                 return True
             self.army_selected = not self.army_selected
             if self.army_selected:
+                self.selected_province = None
+                self._building_menu_slot = None
                 self.push_log(f"{self.date}: Army selected.")
             return True
         if self.army_selected and self.army_pos is not None:
@@ -1491,6 +1493,7 @@ class GameApp:
                                             wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
+                                                self.army_selected = False
                                                 self.selected_province = prov
                                                 self.right_panel_open = True
                                                 if prov.realm_id != self.player_realm_id:
