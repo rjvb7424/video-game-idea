@@ -554,8 +554,8 @@ class UIManager:
 
         pad = 10
         max_w = max(160, rect.w - pad * 2)
-        banner_w = min(200, max_w)
-        banner_h = max(56, int(banner_w * 0.55))
+        banner_w = min(160, max_w)
+        banner_h = max(44, int(banner_w * 0.55))
         bx = rect.left + pad
         by = rect.top + pad
         banner_rect = pygame.Rect(bx, by, banner_w, banner_h)

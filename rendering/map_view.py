@@ -123,9 +123,9 @@ class MapRenderer:
         pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.25)), shadow, border_radius=8)
 
         banner_surf = banner.copy()
-        notch = max(6, int(w * 0.22))
+        notch = max(6, int(h * 0.22))
         shape = pygame.Surface((w, h), pygame.SRCALPHA)
-        pts = [(0, 0), (w - notch, 0), (w, h // 2), (w - notch, h), (0, h)]
+        pts = [(0, 0), (w, 0), (w, h - notch), (w // 2, h), (0, h - notch)]
         pygame.draw.polygon(shape, (255, 255, 255, 255), pts)
         banner_surf.blit(shape, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
@@ -179,11 +179,11 @@ class MapRenderer:
         name_w = text_surf.get_width() + pad_x * 2
         name_h = text_surf.get_height() + pad_y * 2
 
-        flag_w = max(36, name_w)
-        flag_h = max(18, min(36, int(flag_w * 0.45)))
+        flag_h = max(26, int(name_h * 2.0))
+        flag_w = max(18, int(flag_h * 0.55))
         gap = 6
 
-        flag_center = (center[0], center[1] + 12)
+        flag_center = (center[0], center[1] + 8)
         name_center = (center[0], flag_center[1] + flag_h // 2 + gap + name_h // 2)
 
         self._draw_flag_banner(surf, flag_center, dynasty_key, base, (flag_w, flag_h), alpha=a)
