@@ -1,4 +1,5 @@
 import os
+import random
 import pygame
 
 from core.geometry import shield_points
@@ -39,6 +40,7 @@ class UIManager:
         self.biome_images = {}
         self._biome_image_cache = {}
         self._load_biome_images()
+        self._banner_cache = {}
 
     def _load_biome_images(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
@@ -123,6 +125,158 @@ class UIManager:
                 out.append(sym)
                 n -= val
         return "".join(out)
+
+    @staticmethod
+    def _stable_hash(text):
+        h = 2166136261
+        for ch in str(text):
+            h ^= ord(ch)
+            h = (h * 16777619) & 0xFFFFFFFF
+        return h
+
+    @staticmethod
+    def _mix_color(a, b, t):
+        return (
+            int(a[0] * (1.0 - t) + b[0] * t),
+            int(a[1] * (1.0 - t) + b[1] * t),
+            int(a[2] * (1.0 - t) + b[2] * t),
+        )
+
+    @classmethod
+    def _shade_color(cls, color, amount):
+        if amount >= 0:
+            return cls._mix_color(color, (255, 255, 255), amount)
+        return cls._mix_color(color, (0, 0, 0), -amount)
+
+    @staticmethod
+    def _dynasty_key(character):
+        house = character.get("house")
+        if isinstance(house, str) and house.strip():
+            return house.strip()
+        name = character.get("name", "Dynasty")
+        return str(name)
+
+    def _resolve_realm_color(self, state):
+        colors = state.get("realm_colors")
+        rid = state.get("character_realm_id")
+        if rid is None:
+            rid = state.get("player_realm_id", 0)
+        if isinstance(colors, (list, tuple)) and isinstance(rid, int) and 0 <= rid < len(colors):
+            return colors[rid]
+        dynasty = self._dynasty_key(state.get("character", {}))
+        palette = [(150, 40, 40), (40, 120, 90), (120, 90, 40), (90, 60, 120), (150, 120, 50)]
+        return palette[self._stable_hash(dynasty) % len(palette)]
+
+    def _get_dynasty_banner(self, dynasty_key, realm_color, size, realm_id=0):
+        w, h = int(size[0]), int(size[1])
+        if w <= 0 or h <= 0:
+            return None
+        base = tuple(int(c) for c in realm_color)
+        key = (dynasty_key, base, w, h, int(realm_id))
+        cached = self._banner_cache.get(key)
+        if cached is not None:
+            return cached
+
+        seed = self._stable_hash(dynasty_key)
+        seed ^= (int(realm_id) * 2654435761) & 0xFFFFFFFF
+        seed ^= ((base[0] << 16) | (base[1] << 8) | base[2])
+        rnd = random.Random(seed)
+
+        accent = self._shade_color(base, 0.45 if rnd.random() < 0.5 else -0.45)
+        accent2 = self._shade_color(base, 0.25 if rnd.random() < 0.5 else -0.25)
+        outline = self._shade_color(base, -0.6)
+
+        surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        surf.fill(base)
+
+        pattern = rnd.choice(["band", "stripes", "diagonal", "cross", "chevron"])
+
+        if pattern == "band":
+            band_h = max(6, int(h * rnd.uniform(0.28, 0.45)))
+            band_y = (h - band_h) // 2
+            pygame.draw.rect(surf, accent, (0, band_y, w, band_h))
+            if rnd.random() < 0.6:
+                stripe_h = max(2, band_h // 6)
+                pygame.draw.rect(surf, accent2, (0, band_y + (band_h - stripe_h) // 2, w, stripe_h))
+        elif pattern == "stripes":
+            stripe_w = max(6, int(w * rnd.uniform(0.08, 0.14)))
+            gap = stripe_w + rnd.randint(4, 10)
+            x = rnd.randint(0, gap)
+            while x < w:
+                pygame.draw.rect(surf, accent, (x, 0, stripe_w, h))
+                if rnd.random() < 0.35:
+                    inner_w = max(2, stripe_w // 3)
+                    pygame.draw.rect(surf, accent2, (x + (stripe_w - inner_w) // 2, 0, inner_w, h))
+                x += gap
+        elif pattern == "diagonal":
+            band_w = max(8, int(h * rnd.uniform(0.35, 0.55)))
+            pts = [(-band_w, h), (0, h), (w, 0), (w, band_w), (band_w, h), (0, h)]
+            pygame.draw.polygon(surf, accent, pts)
+            if rnd.random() < 0.5:
+                offset = max(3, band_w // 5)
+                pts2 = [
+                    (-band_w + offset, h),
+                    (0 + offset, h),
+                    (w, 0 + offset),
+                    (w, band_w + offset),
+                    (band_w + offset, h),
+                    (0 + offset, h),
+                ]
+                pygame.draw.polygon(surf, accent2, pts2)
+        elif pattern == "cross":
+            band_w = max(6, int(w * rnd.uniform(0.18, 0.26)))
+            band_h = max(6, int(h * rnd.uniform(0.18, 0.26)))
+            pygame.draw.rect(surf, accent, (w // 2 - band_w // 2, 0, band_w, h))
+            pygame.draw.rect(surf, accent, (0, h // 2 - band_h // 2, w, band_h))
+            if rnd.random() < 0.5:
+                inner_w = max(3, band_w // 3)
+                inner_h = max(3, band_h // 3)
+                pygame.draw.rect(surf, accent2, (w // 2 - inner_w // 2, 0, inner_w, h))
+                pygame.draw.rect(surf, accent2, (0, h // 2 - inner_h // 2, w, inner_h))
+        elif pattern == "chevron":
+            thickness = max(6, int(h * rnd.uniform(0.35, 0.5)))
+            mid_x = w // 2
+            pts = [(0, 0), (mid_x, h), (w, 0), (w, thickness), (mid_x, h - thickness), (0, thickness)]
+            pygame.draw.polygon(surf, accent, pts)
+
+        # Emblem
+        if rnd.random() < 0.7:
+            emblem_color = accent2 if rnd.random() < 0.7 else self._shade_color(base, 0.6)
+            cx, cy = w // 2, h // 2
+            r = max(6, int(min(w, h) * rnd.uniform(0.16, 0.22)))
+            shape = rnd.choice(["circle", "diamond", "square", "shield"])
+            if shape == "circle":
+                pygame.draw.circle(surf, emblem_color, (cx, cy), r)
+                pygame.draw.circle(surf, outline, (cx, cy), r, 2)
+            elif shape == "diamond":
+                pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
+                pygame.draw.polygon(surf, emblem_color, pts)
+                pygame.draw.polygon(surf, outline, pts, 2)
+            elif shape == "square":
+                sq = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
+                pygame.draw.rect(surf, emblem_color, sq)
+                pygame.draw.rect(surf, outline, sq, 2)
+            else:
+                pts = shield_points((cx, cy), int(r * 1.3))
+                pygame.draw.polygon(surf, emblem_color, pts)
+                pygame.draw.polygon(surf, outline, pts, 2)
+
+        # Texture + border
+        noise = make_noise_tile((6, 6), base, variance=18, alpha=32, seed=seed + 17)
+        tile_fill(surf, surf.get_rect(), noise)
+        pygame.draw.rect(surf, outline, surf.get_rect(), 2, border_radius=6)
+        highlight = self._shade_color(base, 0.4)
+        pygame.draw.line(surf, highlight, (2, 2), (w - 3, 2))
+
+        self._banner_cache[key] = surf
+        return surf
+
+    def _draw_dynasty_banner(self, surface, rect, character, realm_color, realm_id=0):
+        dynasty = self._dynasty_key(character)
+        banner = self._get_dynasty_banner(dynasty, realm_color, rect.size, realm_id)
+        if banner is None:
+            return
+        surface.blit(banner, rect.topleft)
 
     def _draw_building_info(self, surface, x, y, y_limit, entry):
         food = building_food_output(entry)
@@ -323,16 +477,43 @@ class UIManager:
         return first
 
     def draw_left_panel_toggle(self, surface, rect, state):
-        label = self._ruler_short_name(state["character"])
-        bh = 30
-        max_w = max(140, rect.w - 16)
-        text = self._ellipsize(label, BODY_FONT, max_w - 28)
-        bw = max(120, BODY_FONT.size(text)[0] + 28)
-        bw = min(max_w, bw)
-        bx = rect.left + 8
-        by = rect.top + 8
-        b = draw_secondary_button(surface, text, bx, by, bw, bh)
-        return [(b, "left_panel_open")]
+        character = state["character"]
+        label = self._ruler_short_name(character)
+
+        pad = 10
+        max_w = max(160, rect.w - pad * 2)
+        banner_w = min(200, max_w)
+        banner_h = max(56, int(banner_w * 0.55))
+        bx = rect.left + pad
+        by = rect.top + pad
+        banner_rect = pygame.Rect(bx, by, banner_w, banner_h)
+
+        text = self._ellipsize(label, BODY_FONT, banner_w)
+        text_surf = BODY_FONT.render(text, True, (235, 228, 210))
+        label_pad_x = 10
+        label_pad_y = 4
+        label_rect = pygame.Rect(0, 0, text_surf.get_width() + label_pad_x * 2, text_surf.get_height() + label_pad_y * 2)
+        label_rect.midtop = (banner_rect.centerx, banner_rect.bottom + 6)
+
+        click_rect = banner_rect.union(label_rect)
+        mx, my = pygame.mouse.get_pos()
+        hovered = click_rect.collidepoint(mx, my)
+
+        frame = banner_rect.inflate(8, 8)
+        pygame.draw.rect(surface, (12, 12, 12), frame, border_radius=8)
+        frame_color = (110, 100, 88) if hovered else (70, 64, 56)
+        pygame.draw.rect(surface, frame_color, frame, 2, border_radius=8)
+
+        realm_color = self._resolve_realm_color(state)
+        realm_id = state.get("character_realm_id", state.get("player_realm_id", 0))
+        self._draw_dynasty_banner(surface, banner_rect, character, realm_color, realm_id)
+
+        pygame.draw.rect(surface, (26, 26, 28), label_rect, border_radius=6)
+        pygame.draw.rect(surface, (0, 0, 0), label_rect, 1, border_radius=6)
+        text_rect = text_surf.get_rect(center=label_rect.center)
+        surface.blit(text_surf, text_rect)
+
+        return [(click_rect, "left_panel_open")]
 
     def draw_left_panel(self, surface, rect, state, show_close=False):
         c = state["character"]
@@ -437,35 +618,23 @@ class UIManager:
         return btns
 
     def _draw_portrait(self, surface, rect, state):
-        # Heraldry plate (NO avatar/head)
         frame = pygame.Rect(rect.left, rect.top, rect.w, rect.h)
         pygame.draw.rect(surface, (18, 18, 18), frame, border_radius=10)
         pygame.draw.rect(surface, (0, 0, 0), frame, 2, border_radius=10)
 
         inner = frame.inflate(-12, -12)
         pygame.draw.rect(surface, (40, 36, 32), inner, border_radius=8)
-
         tile_fill(surface, inner, self.panel_tile)
         veil = pygame.Surface(inner.size, pygame.SRCALPHA)
         veil.fill((0, 0, 0, 45))
         surface.blit(veil, inner.topleft)
 
-        # Deterministic-ish house color (stable)
+        realm_color = self._resolve_realm_color(state)
+        realm_id = state.get("character_realm_id", state.get("player_realm_id", 0))
+        banner_rect = inner.inflate(-12, -18)
+        self._draw_dynasty_banner(surface, banner_rect, state["character"], realm_color, realm_id)
+
         house = state["character"].get("house", "House")
-        s = sum((i + 1) * ord(ch) for i, ch in enumerate(house))
-        palette = [(150, 40, 40), (40, 120, 90), (120, 90, 40), (90, 60, 120), (150, 120, 50)]
-        base = palette[s % len(palette)]
-
-        # Big shield centered
-        pts = shield_points((inner.centerx, inner.centery - 2), 62)
-        pygame.draw.polygon(surface, base, pts)
-        pygame.draw.polygon(surface, (235, 228, 210), pts, 1)
-
-        # Simple charge (vertical stripes)
-        pygame.draw.line(surface, (235, 228, 210), (inner.centerx - 10, inner.top + 14), (inner.centerx - 10, inner.bottom - 14), 5)
-        pygame.draw.line(surface, (235, 228, 210), (inner.centerx + 10, inner.top + 14), (inner.centerx + 10, inner.bottom - 14), 5)
-
-        # House label
         draw_footer_text(surface, house, inner.left + 10, inner.bottom - 18, color=(200, 190, 175))
 
     def draw_right_panel(self, surface, rect, state):

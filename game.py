@@ -1787,6 +1787,7 @@ class GameApp:
                     "log": self.log,
                     "realm_names": self.world.realm_names,
                     "realm_rulers": self.world.realm_rulers,
+                    "realm_colors": self.world.realm_colors,
                     "player_realm_id": self.player_realm_id,
                     "population": self.population,
                     "army_raising": self.army_raising,
@@ -1797,12 +1798,15 @@ class GameApp:
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
                 left_character = self.character
+                left_realm_id = self.player_realm_id
                 if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
                     rid = self.selected_province.realm_id
                     if 0 <= rid < len(self.world.realm_rulers):
                         left_character = self.world.realm_rulers[rid]
+                        left_realm_id = rid
                 left_state = dict(state)
                 left_state["character"] = left_character
+                left_state["character_realm_id"] = left_realm_id
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
