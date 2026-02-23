@@ -117,13 +117,28 @@ class MapRenderer:
             fallback.fill((220, 210, 190))
             banner = fallback
 
+        w, h = banner.get_size()
         rect = banner.get_rect(center=(int(center[0]), int(center[1])))
         shadow = rect.move(2, 2)
-        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.35)), shadow, border_radius=8)
+        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.25)), shadow, border_radius=8)
 
         banner_surf = banner.copy()
+        notch = max(6, int(w * 0.22))
+        shape = pygame.Surface((w, h), pygame.SRCALPHA)
+        pts = [(0, 0), (w - notch, 0), (w, h // 2), (w - notch, h), (0, h)]
+        pygame.draw.polygon(shape, (255, 255, 255, 255), pts)
+        banner_surf.blit(shape, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
         banner_surf.set_alpha(alpha)
         surf.blit(banner_surf, rect.topleft)
+
+        if realm_color is not None:
+            outline = self._banner_painter.shade_color(realm_color, -0.6)
+        else:
+            outline = (20, 20, 20)
+        outline_alpha = int(alpha * 0.85)
+        outline_pts = [(rect.left + x, rect.top + y) for x, y in pts]
+        pygame.draw.polygon(surf, (*outline, outline_alpha), outline_pts, 1)
 
     def _draw_nameplate(
         self,
