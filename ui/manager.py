@@ -28,6 +28,36 @@ from ui.theme import (
     INK,
 )
 
+BANNER_PALETTES = [
+    # field, primary, secondary, metal
+    ((120, 30, 32), (218, 188, 92), (232, 224, 210), (230, 210, 150)),
+    ((34, 64, 120), (220, 188, 90), (235, 232, 224), (215, 205, 165)),
+    ((32, 90, 62), (222, 220, 214), (218, 188, 90), (232, 220, 180)),
+    ((24, 24, 26), (160, 48, 48), (220, 188, 90), (210, 200, 150)),
+    ((232, 224, 210), (150, 45, 45), (45, 70, 140), (210, 190, 140)),
+    ((86, 46, 108), (220, 188, 90), (236, 228, 214), (230, 210, 160)),
+    ((40, 100, 100), (222, 220, 214), (32, 52, 92), (210, 200, 160)),
+    ((100, 32, 36), (232, 216, 190), (25, 25, 25), (220, 200, 150)),
+    ((150, 120, 60), (20, 20, 20), (230, 218, 200), (210, 195, 150)),
+    ((70, 80, 90), (218, 188, 90), (150, 48, 48), (220, 205, 155)),
+]
+
+BANNER_TEMPLATES = (
+    "solid",
+    "bicolor_h",
+    "bicolor_v",
+    "triband_h",
+    "triband_v",
+    "cross",
+    "saltire",
+    "chevron",
+    "diagonal",
+    "quarterly",
+    "canton",
+    "pale",
+    "fess",
+)
+
 
 class UIManager:
     def __init__(self, seed=11):
@@ -148,6 +178,190 @@ class UIManager:
             return cls._mix_color(color, (255, 255, 255), amount)
         return cls._mix_color(color, (0, 0, 0), -amount)
 
+    def _pick_banner_palette(self, dynasty_key, realm_color):
+        seed = self._stable_hash(dynasty_key)
+        field, primary, secondary, metal = BANNER_PALETTES[seed % len(BANNER_PALETTES)]
+        if realm_color is not None:
+            key = str(dynasty_key).strip().lower()
+            if not key or key in {"dynasty", "house"}:
+                field = self._mix_color(field, realm_color, 0.25)
+                primary = self._mix_color(primary, realm_color, 0.10)
+                secondary = self._mix_color(secondary, realm_color, 0.08)
+        outline = self._shade_color(field, -0.65)
+        return field, primary, secondary, metal, outline
+
+    @staticmethod
+    def _draw_diagonal_band(surf, color, thickness, direction=1):
+        w, h = surf.get_size()
+        t = int(thickness)
+        if direction >= 0:
+            pts = [(-t, 0), (0, 0), (w, h - t), (w, h), (w - t, h), (0, t)]
+        else:
+            pts = [(w + t, 0), (w, 0), (0, h - t), (0, h), (t, h), (w, t)]
+        pygame.draw.polygon(surf, color, pts)
+
+    @staticmethod
+    def _draw_chevron(surf, color, thickness):
+        w, h = surf.get_size()
+        t = int(thickness)
+        mid_x = w // 2
+        pts = [(0, 0), (mid_x, h), (w, 0), (w, t), (mid_x, h - t), (0, t)]
+        pygame.draw.polygon(surf, color, pts)
+
+    def _draw_banner_template(self, surf, template, field, primary, secondary, metal, rnd):
+        w, h = surf.get_size()
+        colors = [field, primary, secondary]
+
+        if template == "solid":
+            return
+
+        if template == "bicolor_h":
+            rnd.shuffle(colors)
+            split = h // 2
+            pygame.draw.rect(surf, colors[0], (0, 0, w, split))
+            pygame.draw.rect(surf, colors[1], (0, split, w, h - split))
+            return
+
+        if template == "bicolor_v":
+            rnd.shuffle(colors)
+            split = w // 2
+            pygame.draw.rect(surf, colors[0], (0, 0, split, h))
+            pygame.draw.rect(surf, colors[1], (split, 0, w - split, h))
+            return
+
+        if template == "triband_h":
+            rnd.shuffle(colors)
+            stripe_h = h // 3
+            for i, color in enumerate(colors):
+                top = i * stripe_h
+                height = stripe_h if i < 2 else h - top
+                pygame.draw.rect(surf, color, (0, top, w, height))
+            return
+
+        if template == "triband_v":
+            rnd.shuffle(colors)
+            stripe_w = w // 3
+            for i, color in enumerate(colors):
+                left = i * stripe_w
+                width = stripe_w if i < 2 else w - left
+                pygame.draw.rect(surf, color, (left, 0, width, h))
+            return
+
+        if template == "pale":
+            band_w = max(6, int(w * 0.25))
+            x = (w - band_w) // 2
+            pygame.draw.rect(surf, primary, (x, 0, band_w, h))
+            if rnd.random() < 0.5:
+                inner = max(3, band_w // 3)
+                pygame.draw.rect(surf, secondary, (w // 2 - inner // 2, 0, inner, h))
+            return
+
+        if template == "fess":
+            band_h = max(6, int(h * 0.25))
+            y = (h - band_h) // 2
+            pygame.draw.rect(surf, primary, (0, y, w, band_h))
+            if rnd.random() < 0.5:
+                inner = max(3, band_h // 3)
+                pygame.draw.rect(surf, secondary, (0, h // 2 - inner // 2, w, inner))
+            return
+
+        if template == "cross":
+            band_w = max(6, int(w * 0.22))
+            band_h = max(6, int(h * 0.22))
+            if rnd.random() < 0.65:
+                border_w = band_w + max(2, band_w // 3)
+                border_h = band_h + max(2, band_h // 3)
+                pygame.draw.rect(surf, secondary, (w // 2 - border_w // 2, 0, border_w, h))
+                pygame.draw.rect(surf, secondary, (0, h // 2 - border_h // 2, w, border_h))
+            pygame.draw.rect(surf, primary, (w // 2 - band_w // 2, 0, band_w, h))
+            pygame.draw.rect(surf, primary, (0, h // 2 - band_h // 2, w, band_h))
+            return
+
+        if template == "saltire":
+            thickness = max(6, int(min(w, h) * 0.22))
+            if rnd.random() < 0.6:
+                border = thickness + max(2, thickness // 3)
+                self._draw_diagonal_band(surf, secondary, border, direction=1)
+                self._draw_diagonal_band(surf, secondary, border, direction=-1)
+            self._draw_diagonal_band(surf, primary, thickness, direction=1)
+            self._draw_diagonal_band(surf, primary, thickness, direction=-1)
+            return
+
+        if template == "chevron":
+            thickness = max(6, int(h * 0.40))
+            if rnd.random() < 0.5:
+                border = thickness + max(2, thickness // 3)
+                self._draw_chevron(surf, secondary, border)
+            self._draw_chevron(surf, primary, thickness)
+            return
+
+        if template == "diagonal":
+            thickness = max(8, int(min(w, h) * 0.26))
+            direction = 1 if rnd.random() < 0.5 else -1
+            if rnd.random() < 0.45:
+                border = thickness + max(2, thickness // 3)
+                self._draw_diagonal_band(surf, secondary, border, direction=direction)
+            self._draw_diagonal_band(surf, primary, thickness, direction=direction)
+            if rnd.random() < 0.35:
+                inner = max(3, thickness // 3)
+                self._draw_diagonal_band(surf, metal, inner, direction=direction)
+            return
+
+        if template == "quarterly":
+            quad = [field, primary, secondary, metal]
+            rnd.shuffle(quad)
+            mid_x = w // 2
+            mid_y = h // 2
+            pygame.draw.rect(surf, quad[0], (0, 0, mid_x, mid_y))
+            pygame.draw.rect(surf, quad[1], (mid_x, 0, w - mid_x, mid_y))
+            pygame.draw.rect(surf, quad[2], (0, mid_y, mid_x, h - mid_y))
+            pygame.draw.rect(surf, quad[3], (mid_x, mid_y, w - mid_x, h - mid_y))
+            return
+
+        if template == "canton":
+            canton_w = max(8, int(w * 0.42))
+            canton_h = max(8, int(h * 0.45))
+            pygame.draw.rect(surf, primary, (0, 0, canton_w, canton_h))
+            if rnd.random() < 0.6:
+                cx, cy = canton_w // 2, canton_h // 2
+                r = max(4, int(min(canton_w, canton_h) * 0.22))
+                pygame.draw.circle(surf, secondary, (cx, cy), r)
+            return
+
+    def _draw_banner_charge(self, surf, template, primary, secondary, metal, outline, rnd):
+        w, h = surf.get_size()
+        if min(w, h) < 40:
+            return
+
+        chance = 0.72
+        if template in {"cross", "saltire", "chevron"}:
+            chance = 0.35
+        elif template in {"quarterly", "canton"}:
+            chance = 0.45
+        if rnd.random() > chance:
+            return
+
+        cx, cy = w // 2, h // 2
+        r = max(6, int(min(w, h) * rnd.uniform(0.16, 0.24)))
+        color = rnd.choice([secondary, metal, primary])
+        shape = rnd.choice(["circle", "diamond", "square", "shield"])
+
+        if shape == "circle":
+            pygame.draw.circle(surf, color, (cx, cy), r)
+            pygame.draw.circle(surf, outline, (cx, cy), r, 2)
+        elif shape == "diamond":
+            pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
+            pygame.draw.polygon(surf, color, pts)
+            pygame.draw.polygon(surf, outline, pts, 2)
+        elif shape == "square":
+            sq = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
+            pygame.draw.rect(surf, color, sq)
+            pygame.draw.rect(surf, outline, sq, 2)
+        else:
+            pts = shield_points((cx, cy), int(r * 1.3))
+            pygame.draw.polygon(surf, color, pts)
+            pygame.draw.polygon(surf, outline, pts, 2)
+
     @staticmethod
     def _dynasty_key(character):
         house = character.get("house")
@@ -171,101 +385,31 @@ class UIManager:
         w, h = int(size[0]), int(size[1])
         if w <= 0 or h <= 0:
             return None
-        base = tuple(int(c) for c in realm_color)
-        key = (dynasty_key, base, w, h, int(realm_id))
+        dynasty_key = str(dynasty_key or "Dynasty").strip()
+        key = (dynasty_key, w, h)
         cached = self._banner_cache.get(key)
         if cached is not None:
             return cached
 
         seed = self._stable_hash(dynasty_key)
-        seed ^= (int(realm_id) * 2654435761) & 0xFFFFFFFF
-        seed ^= ((base[0] << 16) | (base[1] << 8) | base[2])
         rnd = random.Random(seed)
-
-        accent = self._shade_color(base, 0.45 if rnd.random() < 0.5 else -0.45)
-        accent2 = self._shade_color(base, 0.25 if rnd.random() < 0.5 else -0.25)
-        outline = self._shade_color(base, -0.6)
+        field, primary, secondary, metal, outline = self._pick_banner_palette(dynasty_key, realm_color)
 
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        surf.fill(base)
+        surf.fill(field)
 
-        pattern = rnd.choice(["band", "stripes", "diagonal", "cross", "chevron"])
-
-        if pattern == "band":
-            band_h = max(6, int(h * rnd.uniform(0.28, 0.45)))
-            band_y = (h - band_h) // 2
-            pygame.draw.rect(surf, accent, (0, band_y, w, band_h))
-            if rnd.random() < 0.6:
-                stripe_h = max(2, band_h // 6)
-                pygame.draw.rect(surf, accent2, (0, band_y + (band_h - stripe_h) // 2, w, stripe_h))
-        elif pattern == "stripes":
-            stripe_w = max(6, int(w * rnd.uniform(0.08, 0.14)))
-            gap = stripe_w + rnd.randint(4, 10)
-            x = rnd.randint(0, gap)
-            while x < w:
-                pygame.draw.rect(surf, accent, (x, 0, stripe_w, h))
-                if rnd.random() < 0.35:
-                    inner_w = max(2, stripe_w // 3)
-                    pygame.draw.rect(surf, accent2, (x + (stripe_w - inner_w) // 2, 0, inner_w, h))
-                x += gap
-        elif pattern == "diagonal":
-            band_w = max(8, int(h * rnd.uniform(0.35, 0.55)))
-            pts = [(-band_w, h), (0, h), (w, 0), (w, band_w), (band_w, h), (0, h)]
-            pygame.draw.polygon(surf, accent, pts)
-            if rnd.random() < 0.5:
-                offset = max(3, band_w // 5)
-                pts2 = [
-                    (-band_w + offset, h),
-                    (0 + offset, h),
-                    (w, 0 + offset),
-                    (w, band_w + offset),
-                    (band_w + offset, h),
-                    (0 + offset, h),
-                ]
-                pygame.draw.polygon(surf, accent2, pts2)
-        elif pattern == "cross":
-            band_w = max(6, int(w * rnd.uniform(0.18, 0.26)))
-            band_h = max(6, int(h * rnd.uniform(0.18, 0.26)))
-            pygame.draw.rect(surf, accent, (w // 2 - band_w // 2, 0, band_w, h))
-            pygame.draw.rect(surf, accent, (0, h // 2 - band_h // 2, w, band_h))
-            if rnd.random() < 0.5:
-                inner_w = max(3, band_w // 3)
-                inner_h = max(3, band_h // 3)
-                pygame.draw.rect(surf, accent2, (w // 2 - inner_w // 2, 0, inner_w, h))
-                pygame.draw.rect(surf, accent2, (0, h // 2 - inner_h // 2, w, inner_h))
-        elif pattern == "chevron":
-            thickness = max(6, int(h * rnd.uniform(0.35, 0.5)))
-            mid_x = w // 2
-            pts = [(0, 0), (mid_x, h), (w, 0), (w, thickness), (mid_x, h - thickness), (0, thickness)]
-            pygame.draw.polygon(surf, accent, pts)
-
-        # Emblem
-        if rnd.random() < 0.7:
-            emblem_color = accent2 if rnd.random() < 0.7 else self._shade_color(base, 0.6)
-            cx, cy = w // 2, h // 2
-            r = max(6, int(min(w, h) * rnd.uniform(0.16, 0.22)))
-            shape = rnd.choice(["circle", "diamond", "square", "shield"])
-            if shape == "circle":
-                pygame.draw.circle(surf, emblem_color, (cx, cy), r)
-                pygame.draw.circle(surf, outline, (cx, cy), r, 2)
-            elif shape == "diamond":
-                pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
-                pygame.draw.polygon(surf, emblem_color, pts)
-                pygame.draw.polygon(surf, outline, pts, 2)
-            elif shape == "square":
-                sq = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
-                pygame.draw.rect(surf, emblem_color, sq)
-                pygame.draw.rect(surf, outline, sq, 2)
-            else:
-                pts = shield_points((cx, cy), int(r * 1.3))
-                pygame.draw.polygon(surf, emblem_color, pts)
-                pygame.draw.polygon(surf, outline, pts, 2)
+        template = BANNER_TEMPLATES[seed % len(BANNER_TEMPLATES)]
+        self._draw_banner_template(surf, template, field, primary, secondary, metal, rnd)
+        self._draw_banner_charge(surf, template, primary, secondary, metal, outline, rnd)
 
         # Texture + border
-        noise = make_noise_tile((6, 6), base, variance=18, alpha=32, seed=seed + 17)
+        noise_base = self._shade_color(field, 0.12)
+        noise = make_noise_tile((6, 6), noise_base, variance=16, alpha=32, seed=seed + 17)
         tile_fill(surf, surf.get_rect(), noise)
         pygame.draw.rect(surf, outline, surf.get_rect(), 2, border_radius=6)
-        highlight = self._shade_color(base, 0.4)
+        inner = surf.get_rect().inflate(-6, -6)
+        pygame.draw.rect(surf, self._shade_color(field, 0.25), inner, 1, border_radius=5)
+        highlight = self._shade_color(field, 0.4)
         pygame.draw.line(surf, highlight, (2, 2), (w - 3, 2))
 
         self._banner_cache[key] = surf
