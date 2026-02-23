@@ -2,6 +2,7 @@ import pygame
 
 from core.geometry import shield_points
 from core.surfaces import draw_drop_shadow, draw_vignette
+from ui.manager import BannerPainter
 from ui.theme import (
     BEVEL_DARK,
     BEVEL_LIGHT,
@@ -20,6 +21,7 @@ class MapRenderer:
         self._cached_size = None
         self._cache_key = None
         self._last_viewport = None
+        self._banner_painter = BannerPainter()
 
     def _draw_minimal_province_label(self, surf, center, prov, vis):
         a = 220 if vis > 0.95 else 180 if vis > 0.80 else 150
@@ -100,6 +102,58 @@ class MapRenderer:
         text_surf.set_alpha(alpha)
         surf.blit(text_surf, tr)
 
+    def _draw_dynasty_banner_with_text(
+        self,
+        surf,
+        center,
+        text,
+        dynasty_key,
+        realm_color,
+        alpha=220,
+        text_color=(20, 20, 20),
+        outline=False,
+    ):
+        text_surf = FOOTER_FONT.render(text, True, text_color)
+        pad_x, pad_y = 14, 6
+        w = text_surf.get_width() + pad_x * 2
+        h = text_surf.get_height() + pad_y * 2
+
+        banner = self._banner_painter.get_banner(dynasty_key, realm_color, (w, h))
+        if banner is None:
+            self._draw_banner_with_text(
+                surf,
+                center,
+                text,
+                alpha=alpha,
+                text_color=text_color,
+                banner_fill=(220, 210, 190),
+                border_color=(40, 36, 32),
+                outline=outline,
+            )
+            return
+
+        rect = banner.get_rect(center=(int(center[0]), int(center[1])))
+        shadow = rect.move(2, 2)
+        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.35)), shadow, border_radius=8)
+
+        banner_surf = banner.copy()
+        banner_surf.set_alpha(alpha)
+        surf.blit(banner_surf, rect.topleft)
+
+        tr = text_surf.get_rect(center=rect.center)
+        shadow_text = FOOTER_FONT.render(text, True, (0, 0, 0))
+        shadow_text.set_alpha(int(alpha * 0.35))
+        surf.blit(shadow_text, (tr.x + 1, tr.y + 1))
+
+        if outline:
+            outline_surf = FOOTER_FONT.render(text, True, (0, 0, 0))
+            outline_surf.set_alpha(int(alpha * 0.45))
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                surf.blit(outline_surf, (tr.x + dx, tr.y + dy))
+
+        text_surf.set_alpha(alpha)
+        surf.blit(text_surf, tr)
+
     def _draw_province_label_marker(self, surf, center, prov, vis):
         base = self.world.realm_colors[prov.realm_id]
         a = 235 if vis > 0.95 else 190
@@ -116,16 +170,34 @@ class MapRenderer:
         border_color = (70, 60, 45) if is_player_capital else (40, 36, 32)
 
         banner_center = (center[0], center[1] + 14)
-        self._draw_banner_with_text(
-            surf,
-            banner_center,
-            prov.name,
-            alpha=a,
-            text_color=(gold if is_player_capital else black),
-            banner_fill=banner_fill,
-            border_color=border_color,
-            outline=is_player_capital,
-        )
+        if is_player_capital:
+            character = None
+            rid = getattr(self.world, "player_realm_id", prov.realm_id)
+            rulers = getattr(self.world, "realm_rulers", None)
+            if isinstance(rulers, (list, tuple)) and 0 <= rid < len(rulers):
+                character = rulers[rid]
+            dynasty_key = BannerPainter.dynasty_key(character)
+            self._draw_dynasty_banner_with_text(
+                surf,
+                banner_center,
+                prov.name,
+                dynasty_key,
+                base,
+                alpha=a,
+                text_color=gold,
+                outline=True,
+            )
+        else:
+            self._draw_banner_with_text(
+                surf,
+                banner_center,
+                prov.name,
+                alpha=a,
+                text_color=black,
+                banner_fill=banner_fill,
+                border_color=border_color,
+                outline=False,
+            )
 
     def _draw_tower_marker(self, surf, center, show_text=True):
         x, y = int(center[0]), int(center[1])
