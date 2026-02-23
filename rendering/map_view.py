@@ -102,35 +102,20 @@ class MapRenderer:
         text_surf.set_alpha(alpha)
         surf.blit(text_surf, tr)
 
-    def _draw_dynasty_banner_with_text(
+    def _draw_flag_banner(
         self,
         surf,
         center,
-        text,
         dynasty_key,
         realm_color,
+        size,
         alpha=220,
-        text_color=(20, 20, 20),
-        outline=False,
     ):
-        text_surf = FOOTER_FONT.render(text, True, text_color)
-        pad_x, pad_y = 14, 6
-        w = text_surf.get_width() + pad_x * 2
-        h = text_surf.get_height() + pad_y * 2
-
-        banner = self._banner_painter.get_banner(dynasty_key, realm_color, (w, h))
+        banner = self._banner_painter.get_banner(dynasty_key, realm_color, size)
         if banner is None:
-            self._draw_banner_with_text(
-                surf,
-                center,
-                text,
-                alpha=alpha,
-                text_color=text_color,
-                banner_fill=(220, 210, 190),
-                border_color=(40, 36, 32),
-                outline=outline,
-            )
-            return
+            fallback = pygame.Surface(size, pygame.SRCALPHA)
+            fallback.fill((220, 210, 190))
+            banner = fallback
 
         rect = banner.get_rect(center=(int(center[0]), int(center[1])))
         shadow = rect.move(2, 2)
@@ -140,64 +125,54 @@ class MapRenderer:
         banner_surf.set_alpha(alpha)
         surf.blit(banner_surf, rect.topleft)
 
-        tr = text_surf.get_rect(center=rect.center)
-        shadow_text = FOOTER_FONT.render(text, True, (0, 0, 0))
-        shadow_text.set_alpha(int(alpha * 0.35))
-        surf.blit(shadow_text, (tr.x + 1, tr.y + 1))
+    def _draw_nameplate(
+        self,
+        surf,
+        center,
+        text,
+        alpha=220,
+    ):
+        text_surf = FOOTER_FONT.render(text, True, (0, 0, 0))
+        pad_x, pad_y = 12, 5
+        w = text_surf.get_width() + pad_x * 2
+        h = text_surf.get_height() + pad_y * 2
+        rect = pygame.Rect(0, 0, w, h)
+        rect.center = (int(center[0]), int(center[1]))
 
-        if outline:
-            outline_surf = FOOTER_FONT.render(text, True, (0, 0, 0))
-            outline_surf.set_alpha(int(alpha * 0.45))
-            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                surf.blit(outline_surf, (tr.x + dx, tr.y + dy))
+        shadow = rect.move(2, 2)
+        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.25)), shadow, border_radius=6)
+        pygame.draw.rect(surf, (255, 255, 255, alpha), rect, border_radius=6)
+        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.9)), rect, 1, border_radius=6)
 
         text_surf.set_alpha(alpha)
-        surf.blit(text_surf, tr)
+        surf.blit(text_surf, text_surf.get_rect(center=rect.center))
+        return rect.size
 
     def _draw_province_label_marker(self, surf, center, prov, vis):
         base = self.world.realm_colors[prov.realm_id]
         a = 235 if vis > 0.95 else 190
 
-        # coat of arms (back)
-        shield_center = (center[0], center[1] - 10)
-        self._draw_shield_icon(surf, shield_center, base, alpha=int(a * 0.95))
+        rulers = getattr(self.world, "realm_rulers", None)
+        character = None
+        if isinstance(rulers, (list, tuple)) and 0 <= prov.realm_id < len(rulers):
+            character = rulers[prov.realm_id]
+        dynasty_key = BannerPainter.dynasty_key(character)
 
-        # gold text ONLY for the player's capital
-        is_player_capital = (prov.id == getattr(self.world, "player_capital_pid", -1))
-        gold = (230, 195, 85)
-        black = (20, 20, 20)
-        banner_fill = (200, 185, 155) if is_player_capital else (220, 210, 190)
-        border_color = (70, 60, 45) if is_player_capital else (40, 36, 32)
+        label = prov.name
+        pad_x, pad_y = 12, 5
+        text_surf = FOOTER_FONT.render(label, True, (0, 0, 0))
+        name_w = text_surf.get_width() + pad_x * 2
+        name_h = text_surf.get_height() + pad_y * 2
 
-        banner_center = (center[0], center[1] + 14)
-        if is_player_capital:
-            character = None
-            rid = getattr(self.world, "player_realm_id", prov.realm_id)
-            rulers = getattr(self.world, "realm_rulers", None)
-            if isinstance(rulers, (list, tuple)) and 0 <= rid < len(rulers):
-                character = rulers[rid]
-            dynasty_key = BannerPainter.dynasty_key(character)
-            self._draw_dynasty_banner_with_text(
-                surf,
-                banner_center,
-                prov.name,
-                dynasty_key,
-                base,
-                alpha=a,
-                text_color=gold,
-                outline=True,
-            )
-        else:
-            self._draw_banner_with_text(
-                surf,
-                banner_center,
-                prov.name,
-                alpha=a,
-                text_color=black,
-                banner_fill=banner_fill,
-                border_color=border_color,
-                outline=False,
-            )
+        flag_w = max(36, name_w)
+        flag_h = max(18, min(36, int(flag_w * 0.45)))
+        gap = 6
+
+        flag_center = (center[0], center[1] + 12)
+        name_center = (center[0], flag_center[1] + flag_h // 2 + gap + name_h // 2)
+
+        self._draw_flag_banner(surf, flag_center, dynasty_key, base, (flag_w, flag_h), alpha=a)
+        self._draw_nameplate(surf, name_center, label, alpha=a)
 
     def _draw_tower_marker(self, surf, center, show_text=True):
         x, y = int(center[0]), int(center[1])
