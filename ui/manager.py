@@ -623,6 +623,17 @@ class UIManager:
             btns.append((b_close, "left_panel_close"))
 
         if npc_target:
+            if actions_enabled:
+                btn_h = 28
+                btn_gap = 8
+                y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
+                promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, y, content.w, btn_h)
+                btns.append((promote_rect, "npc_promote_relations"))
+
+                war_rect = draw_deny_button(surface, "Declare War", content.left, y + btn_h + btn_gap, content.w, btn_h)
+                btns.append((war_rect, "npc_declare_war"))
+                y = y + (btn_h * 2) + btn_gap + 8
+
             y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
             target_title = npc_target.get("title", "—")
             target_realm = npc_target.get("realm_name", "Realm")
@@ -643,22 +654,6 @@ class UIManager:
                         color = (235, 228, 210)
                     y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
             y += 6
-
-            if actions_enabled:
-                btn_h = 28
-                btn_gap = 8
-                header_h = HEADER_FONT.get_height() + 4
-                actions_block_h = header_h + (btn_h * 2 + btn_gap)
-                actions_y = content.bottom - actions_block_h
-                if actions_y < y + 8:
-                    actions_y = y + 8
-
-                actions_y = draw_header_text(surface, "Actions", content.left, actions_y, color=(230, 224, 208))
-                promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, actions_y, content.w, btn_h)
-                btns.append((promote_rect, "npc_promote_relations"))
-
-                war_rect = draw_deny_button(surface, "Declare War", content.left, actions_y + btn_h + btn_gap, content.w, btn_h)
-                btns.append((war_rect, "npc_declare_war"))
         else:
             # Identity
             y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
