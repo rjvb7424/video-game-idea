@@ -433,7 +433,6 @@ class UIManager:
             threat_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
             self._draw_meter(surface, threat_rect, "Threat", threat, fill_color=(170, 90, 90))
             right_edge = threat_rect.left - gap
-
         # ---------- MIDDLE: Resources fill the remaining space ----------
         res = state["resources"]
         x_left = rect.left + pad
@@ -948,6 +947,8 @@ class UIManager:
         bar_w = pad + time_cluster_w + pad + date_w + gap
         if action_w > 0:
             bar_w += action_w + gap
+        if state.get("wars"):
+            bar_w += 28 + gap
         bar_w = min(rect.w, bar_w)
         return pygame.Rect(rect.right - bar_w, rect.top, bar_w, rect.h)
 
@@ -968,8 +969,17 @@ class UIManager:
 
         btns = []
 
-        # Right edge for time controls
+        # War icon at top-right of bottom bar
+        wars = state.get("wars") or []
+        war_count = len(wars)
         right_edge = bar_rect.right - pad
+        if war_count > 0:
+            icon_w = 28
+            icon_h = 28
+            war_icon_rect = pygame.Rect(bar_rect.right - pad - icon_w, bar_rect.top + 6, icon_w, icon_h)
+            self._draw_war_icon(surface, war_icon_rect, war_count)
+            btns.append((war_icon_rect, "open_war_overview"))
+            right_edge = war_icon_rect.left - gap
 
         # Time controls on bottom-right corner
         time_btns, time_left_edge = self._draw_time_controls(surface, right_edge, y, bh, state)
@@ -1046,3 +1056,19 @@ class UIManager:
         btns.append((b_ultra, "speed_3"))
 
         return btns, x_time
+
+    def _draw_war_icon(self, surface, rect, count):
+        pygame.draw.rect(surface, (28, 28, 28), rect, border_radius=6)
+        pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=6)
+
+        blade_color = (210, 180, 120)
+        pygame.draw.line(surface, blade_color, (rect.left + 7, rect.top + 8), (rect.right - 7, rect.bottom - 8), 2)
+        pygame.draw.line(surface, blade_color, (rect.left + 7, rect.bottom - 8), (rect.right - 7, rect.top + 8), 2)
+
+        if count > 1:
+            badge_r = 7
+            badge_center = (rect.right - 6, rect.top + 6)
+            pygame.draw.circle(surface, (170, 70, 70), badge_center, badge_r)
+            pygame.draw.circle(surface, (0, 0, 0), badge_center, badge_r, 1)
+            label = FOOTER_FONT.render(str(count), True, (240, 230, 220))
+            surface.blit(label, label.get_rect(center=badge_center))

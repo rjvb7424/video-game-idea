@@ -115,6 +115,12 @@ class GameApp:
             "piety": 1000,
         }
 
+        # War state (multiple active wars supported)
+        self.wars = []
+        self._war_next_id = 1
+        self._war_focus_id = None
+        self.war_tick_rate = 0.5  # percent per day
+
         # Player character = ruler of player realm
         self.player_realm_id = self.world.player_realm_id
         self.character = self.world.realm_rulers[self.player_realm_id]
@@ -896,6 +902,197 @@ class GameApp:
         else:
             self.selected_province = None
 
+        # Reset war state on new game start.
+        self.wars = []
+        self._war_next_id = 1
+        self._war_focus_id = None
+
+    def _get_war_by_id(self, war_id):
+        for war in self.wars:
+            if war.get("id") == war_id:
+                return war
+        return None
+
+    def _get_war_by_target(self, target_rid):
+        for war in self.wars:
+            if war.get("target_id") == target_rid:
+                return war
+        return None
+
+    def _update_war_tick(self):
+        if not self.wars:
+            return
+        war_to_prompt = None
+        for war in self.wars:
+            war["days"] += 1
+            war["progress"] = min(100.0, war["progress"] + self.war_tick_rate)
+            if war["progress"] >= 100.0 and not war.get("ready_prompted"):
+                war["ready_prompted"] = True
+                if war_to_prompt is None:
+                    war_to_prompt = war
+        if war_to_prompt and not self.modal.open:
+            self._open_war_details(war_to_prompt["id"])
+
+    def _start_war(self, target_rid):
+        if self._get_war_by_target(target_rid):
+            target_name = self._get_war_target_name(target_rid)
+            self.modal.show(
+                "Already At War",
+                [
+                    f"You are already at war with {target_name}.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        war = {
+            "id": self._war_next_id,
+            "target_id": target_rid,
+            "progress": 0.0,
+            "days": 0,
+            "ready_prompted": False,
+        }
+        self._war_next_id += 1
+        self.wars.append(war)
+        self._war_focus_id = war["id"]
+        target_name = self._get_war_target_name(target_rid)
+        self.push_log(f"{self.date}: Declared war on {target_name}.")
+        self._open_war_details(war["id"])
+
+    def _get_war_target_name(self, war_or_rid):
+        if isinstance(war_or_rid, dict):
+            rid = war_or_rid.get("target_id")
+        else:
+            rid = war_or_rid
+        if rid is None:
+            return "Unknown Realm"
+        if 0 <= rid < len(self.world.realm_rulers):
+            return self.world.realm_rulers[rid].get(
+                "name",
+                self.world.realm_names[rid] if 0 <= rid < len(self.world.realm_names) else "NPC Realm",
+            )
+        return "Unknown Realm"
+
+    def _cycle_war_focus(self):
+        if not self.wars:
+            self._war_focus_id = None
+            self.modal.close()
+            return
+        ids = [war["id"] for war in self.wars]
+        if self._war_focus_id in ids:
+            idx = ids.index(self._war_focus_id)
+            self._war_focus_id = ids[(idx + 1) % len(ids)]
+        else:
+            self._war_focus_id = ids[0]
+        self._open_war_overview()
+
+    def _open_war_overview(self):
+        if not self.wars:
+            self.modal.show(
+                "Active Wars",
+                [
+                    "No active wars.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        ids = [war["id"] for war in self.wars]
+        if self._war_focus_id not in ids:
+            self._war_focus_id = ids[0]
+        lines = []
+        for war in self.wars:
+            name = self._get_war_target_name(war)
+            progress = int(round(war.get("progress", 0)))
+            prefix = ">" if war["id"] == self._war_focus_id else " "
+            lines.append(f"{prefix} {name}: {progress}%")
+        actions = [
+            ("Details", "primary", lambda: self._open_war_details(self._war_focus_id)),
+        ]
+        if len(self.wars) > 1:
+            actions.append(("Next", "secondary", lambda: self._cycle_war_focus()))
+        actions.append(("Close", "secondary", lambda: self.modal.close()))
+        self.modal.show(
+            "Active Wars",
+            [
+                "Select a war to manage:",
+                *lines,
+            ],
+            actions,
+        )
+
+    def _open_war_details(self, war_id):
+        war = self._get_war_by_id(war_id)
+        if not war:
+            self._open_war_overview()
+            return
+        self._war_focus_id = war_id
+        target_name = self._get_war_target_name(war)
+        progress = int(round(war.get("progress", 0)))
+        if progress >= 100:
+            press_action = ("Press Demands", "accept", lambda: self._press_war_demands(war_id))
+        else:
+            press_action = ("Press Demands", "disabled", lambda: None)
+        self.modal.show(
+            "War Status",
+            [
+                f"War against {target_name}.",
+                f"War progress: {progress}%.",
+                "Press demands becomes available at 100%.",
+            ],
+            [
+                ("Surrender", "deny", lambda: self._surrender_war(war_id)),
+                press_action,
+                ("Back", "secondary", lambda: self._open_war_overview()),
+            ],
+        )
+
+    def _surrender_war(self, war_id):
+        war = self._get_war_by_id(war_id)
+        if not war:
+            self.modal.close()
+            return
+        target_name = self._get_war_target_name(war)
+        self._end_war(war_id, f"Surrendered to {target_name}.")
+
+    def _press_war_demands(self, war_id):
+        war = self._get_war_by_id(war_id)
+        if not war:
+            self.modal.close()
+            return
+        if war.get("progress", 0.0) < 100.0:
+            progress = int(round(war.get("progress", 0.0)))
+            self.modal.show(
+                "Demands Not Ready",
+                [
+                    f"War progress is only {progress}%.",
+                    "Reach 100% before pressing demands.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        target_name = self._get_war_target_name(war)
+        self._end_war(war_id, f"Pressed demands against {target_name}.")
+
+    def _end_war(self, war_id, log_message):
+        self.wars = [war for war in self.wars if war.get("id") != war_id]
+        if self._war_focus_id == war_id:
+            self._war_focus_id = self.wars[0]["id"] if self.wars else None
+        self.push_log(f"{self.date}: {log_message}")
+        self.modal.show(
+            "War Resolved",
+            [
+                log_message,
+            ],
+            [
+                ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
+
     def _try_open_tower_event(self, screen_pos):
         tower_pid = getattr(self.world, "tower_pid", -1)
         if not (0 <= tower_pid < len(self.world.provinces)):
@@ -1524,15 +1721,10 @@ class GameApp:
                     ],
                 )
             else:
-                self.modal.show(
-                    "Not Implemented",
-                    [
-                        f"Declare war on {target_name} is a placeholder action.",
-                    ],
-                    [
-                        ("OK", "accept", lambda: self.modal.close()),
-                    ],
-                )
+                self._start_war(target_rid)
+            return
+        if action == "open_war_overview":
+            self._open_war_overview()
             return
         if action == "raise_army":
             if self.army_raising:
@@ -1652,6 +1844,7 @@ class GameApp:
                 # daily tick for events (random + chain)
                 self._update_storyteller_event_chance()
                 self.events.on_day()
+                self._update_war_tick()
                 self._update_army_raising()
                 self._update_army_movement()
 
@@ -1731,6 +1924,7 @@ class GameApp:
                         "army": self.army,
                         "army_raising": self.army_raising,
                         "speed_level": self.speed_level,
+                        "wars": self.wars,
                     },
                 )
             else:
@@ -1889,6 +2083,7 @@ class GameApp:
                     "food": self.food,
                     "threat": self.threat,
                     "building_menu_slot": self._building_menu_slot,
+                    "wars": self.wars,
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
