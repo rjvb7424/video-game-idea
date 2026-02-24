@@ -919,6 +919,14 @@ class GameApp:
                 return war
         return None
 
+    @staticmethod
+    def _format_war_progress(value):
+        try:
+            progress = int(round(float(value)))
+        except (TypeError, ValueError):
+            progress = 0
+        return max(0, min(100, progress))
+
     def _update_war_tick(self):
         if not self.wars:
             return
@@ -1005,9 +1013,9 @@ class GameApp:
         lines = []
         for war in self.wars:
             name = self._get_war_target_name(war)
-            progress = int(round(war.get("progress", 0)))
+            progress = self._format_war_progress(war.get("progress", 0))
             prefix = ">" if war["id"] == self._war_focus_id else " "
-            lines.append(f"{prefix} {name}: {progress}%")
+            lines.append(f"{prefix} {name} - {progress}%")
         actions = [
             ("Details", "primary", lambda: self._open_war_details(self._war_focus_id)),
         ]
@@ -1030,7 +1038,7 @@ class GameApp:
             return
         self._war_focus_id = war_id
         target_name = self._get_war_target_name(war)
-        progress = int(round(war.get("progress", 0)))
+        progress = self._format_war_progress(war.get("progress", 0))
         if progress >= 100:
             press_action = ("Press Demands", "accept", lambda: self._press_war_demands(war_id))
         else:
@@ -1040,7 +1048,7 @@ class GameApp:
             [
                 f"War against {target_name}.",
                 f"War progress: {progress}%.",
-                "Press demands becomes available at 100%.",
+                "Press demands is available at 100%.",
             ],
             [
                 ("Surrender", "deny", lambda: self._surrender_war(war_id)),
@@ -1062,8 +1070,8 @@ class GameApp:
         if not war:
             self.modal.close()
             return
-        if war.get("progress", 0.0) < 100.0:
-            progress = int(round(war.get("progress", 0.0)))
+        progress = self._format_war_progress(war.get("progress", 0))
+        if progress < 100:
             self.modal.show(
                 "Demands Not Ready",
                 [
