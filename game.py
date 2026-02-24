@@ -1726,6 +1726,13 @@ class GameApp:
         if action == "open_war_overview":
             self._open_war_overview()
             return
+        if action.startswith("war_details:"):
+            try:
+                war_id = int(action.split(":", 1)[1])
+            except ValueError:
+                return
+            self._open_war_details(war_id)
+            return
         if action == "raise_army":
             if self.army_raising:
                 self.army_raising = False

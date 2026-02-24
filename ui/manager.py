@@ -389,6 +389,18 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
+        # ---------- RIGHT SIDE: War icons (CK3-style) ----------
+        wars = state.get("wars") or []
+        if wars:
+            icon_h = min(30, bh)
+            icon_w = icon_h
+            icon_gap = max(6, gap // 2)
+            for war in reversed(wars):
+                icon_rect = pygame.Rect(right_edge - icon_w, rect.centery - icon_h // 2, icon_w, icon_h)
+                self._draw_war_icon(surface, icon_rect, int(round(war.get("progress", 0))))
+                btns.append((icon_rect, f"war_details:{war.get('id')}"))
+                right_edge = icon_rect.left - icon_gap
+
         # ---------- RIGHT SIDE: Manpower ----------
         army = state.get("army")
         if isinstance(army, dict):
@@ -947,8 +959,6 @@ class UIManager:
         bar_w = pad + time_cluster_w + pad + date_w + gap
         if action_w > 0:
             bar_w += action_w + gap
-        if state.get("wars"):
-            bar_w += 28 + gap
         bar_w = min(rect.w, bar_w)
         return pygame.Rect(rect.right - bar_w, rect.top, bar_w, rect.h)
 
@@ -969,17 +979,7 @@ class UIManager:
 
         btns = []
 
-        # War icon at top-right of bottom bar
-        wars = state.get("wars") or []
-        war_count = len(wars)
         right_edge = bar_rect.right - pad
-        if war_count > 0:
-            icon_w = 28
-            icon_h = 28
-            war_icon_rect = pygame.Rect(bar_rect.right - pad - icon_w, bar_rect.top + 6, icon_w, icon_h)
-            self._draw_war_icon(surface, war_icon_rect, war_count)
-            btns.append((war_icon_rect, "open_war_overview"))
-            right_edge = war_icon_rect.left - gap
 
         # Time controls on bottom-right corner
         time_btns, time_left_edge = self._draw_time_controls(surface, right_edge, y, bh, state)
@@ -1057,7 +1057,7 @@ class UIManager:
 
         return btns, x_time
 
-    def _draw_war_icon(self, surface, rect, count):
+    def _draw_war_icon(self, surface, rect, progress):
         pygame.draw.rect(surface, (28, 28, 28), rect, border_radius=6)
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=6)
 
@@ -1065,10 +1065,12 @@ class UIManager:
         pygame.draw.line(surface, blade_color, (rect.left + 7, rect.top + 8), (rect.right - 7, rect.bottom - 8), 2)
         pygame.draw.line(surface, blade_color, (rect.left + 7, rect.bottom - 8), (rect.right - 7, rect.top + 8), 2)
 
-        if count > 1:
-            badge_r = 7
-            badge_center = (rect.right - 6, rect.top + 6)
-            pygame.draw.circle(surface, (170, 70, 70), badge_center, badge_r)
-            pygame.draw.circle(surface, (0, 0, 0), badge_center, badge_r, 1)
-            label = FOOTER_FONT.render(str(count), True, (240, 230, 220))
-            surface.blit(label, label.get_rect(center=badge_center))
+        progress = max(0, min(100, int(progress)))
+        label = FOOTER_FONT.render(str(progress), True, (240, 230, 220))
+        badge_w = max(16, label.get_width() + 8)
+        badge_h = max(14, label.get_height() + 2)
+        badge_rect = pygame.Rect(0, 0, badge_w, badge_h)
+        badge_rect.topright = (rect.right + 2, rect.top - 2)
+        pygame.draw.rect(surface, (170, 70, 70), badge_rect, border_radius=6)
+        pygame.draw.rect(surface, (0, 0, 0), badge_rect, 1, border_radius=6)
+        surface.blit(label, label.get_rect(center=badge_rect.center))
