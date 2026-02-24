@@ -594,28 +594,39 @@ class UIManager:
         title_name = c.get("name", "Ruler")
         if dynasty:
             title_name = f"{title_name} {dynasty}"
+
+        gap = 10
+        npc_panel_h = max(200, min(int(rect.h * 0.35), 300))
+        char_panel_h = max(220, rect.h - npc_panel_h - gap)
+        char_rect = pygame.Rect(rect.left, rect.top, rect.w, char_panel_h)
+        npc_rect = pygame.Rect(rect.left, char_rect.bottom + gap, rect.w, rect.h - char_panel_h - gap)
+
         content = draw_framed_panel(
             surface,
-            rect,
-            title=title_name,
+            char_rect,
+            title="Character",
             title_color=INK,
             tile=self.left_tile,
         )
 
         # extra warm tint over the inner area for stronger brown vibe
-        tint = pygame.Surface((rect.w - 28, rect.h - 28), pygame.SRCALPHA)
+        tint = pygame.Surface((char_rect.w - 28, char_rect.h - 28), pygame.SRCALPHA)
         tint.fill((70, 45, 28, 28))
-        surface.blit(tint, (rect.left + 14, rect.top + 14))
+        surface.blit(tint, (char_rect.left + 14, char_rect.top + 14))
 
         y = content.top
         btns = []
 
         if show_close:
-            inner = rect.inflate(-14, -14)
+            inner = char_rect.inflate(-14, -14)
             strip = pygame.Rect(inner.left + 6, inner.top + 6, inner.w - 12, 28)
             close_rect = pygame.Rect(strip.right - 6 - 22, strip.top + 4, 22, strip.h - 8)
             b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
             btns.append((b_close, "left_panel_close"))
+
+        # Character name
+        y = draw_header_text(surface, title_name, content.left, y, color=(235, 228, 210))
+        y += 4
 
         # Identity
         y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
@@ -686,6 +697,48 @@ class UIManager:
         else:
             y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
         y += 6
+
+        # NPC panel
+        npc_content = draw_framed_panel(
+            surface,
+            npc_rect,
+            title="NPCs",
+            title_color=INK,
+            tile=self.left_tile,
+        )
+
+        tint = pygame.Surface((npc_rect.w - 28, npc_rect.h - 28), pygame.SRCALPHA)
+        tint.fill((70, 45, 28, 28))
+        surface.blit(tint, (npc_rect.left + 14, npc_rect.top + 14))
+
+        npc_list = state.get("npc_list") or []
+        npc_target_id = state.get("npc_target_id")
+
+        y = npc_content.top
+        y = draw_header_text(surface, "Known NPCs", npc_content.left, y, color=(230, 224, 208))
+        if npc_list:
+            for npc in npc_list:
+                name = npc.get("name", "NPC")
+                color = (235, 220, 170) if npc.get("id") == npc_target_id else (220, 214, 198)
+                y = draw_body_text(surface, f"• {name}", npc_content.left, y, color=color)
+        else:
+            y = draw_body_text(surface, "None discovered", npc_content.left, y, color=(185, 175, 160))
+        y += 6
+
+        btn_h = 28
+        btn_gap = 8
+        header_h = HEADER_FONT.get_height() + 4
+        actions_block_h = header_h + (btn_h * 2 + btn_gap)
+        actions_y = npc_content.bottom - actions_block_h
+        if actions_y < y + 8:
+            actions_y = y + 8
+
+        actions_y = draw_header_text(surface, "Actions", npc_content.left, actions_y, color=(230, 224, 208))
+        promote_rect = draw_secondary_button(surface, "Promote Relations", npc_content.left, actions_y, npc_content.w, btn_h)
+        btns.append((promote_rect, "npc_promote_relations"))
+
+        war_rect = draw_deny_button(surface, "Declare War", npc_content.left, actions_y + btn_h + btn_gap, npc_content.w, btn_h)
+        btns.append((war_rect, "npc_declare_war"))
 
         return btns
 

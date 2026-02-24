@@ -249,6 +249,19 @@ class GameApp:
             return pygame.Rect(0, 0, w, h)
         return self.layout.map
 
+    def _get_npc_list(self, limit=6):
+        npcs = []
+        for rid, ruler in enumerate(self.world.realm_rulers):
+            if rid == self.player_realm_id:
+                continue
+            if not isinstance(ruler, dict):
+                continue
+            npcs.append({"id": rid, "name": ruler.get("name", "Ruler")})
+        npcs.sort(key=lambda entry: entry.get("name", ""))
+        if limit:
+            npcs = npcs[:limit]
+        return npcs
+
     def _left_panel_draw_rect(self):
         rect = self.layout.left
         offset = -int((1.0 - self._left_panel_anim) * rect.w)
@@ -734,7 +747,15 @@ class GameApp:
         clip_draw(
             surface,
             self.layout.left,
-            lambda: self.ui.draw_left_panel(surface, self.layout.left, {"character": ruler}),
+            lambda: self.ui.draw_left_panel(
+                surface,
+                self.layout.left,
+                {
+                    "character": ruler,
+                    "npc_list": self._get_npc_list(),
+                    "npc_target_id": None,
+                },
+            ),
         )
 
         # Highlight selected province / realm capital
@@ -1439,6 +1460,68 @@ class GameApp:
         if action == "left_panel_open":
             self.left_panel_open = True
             return
+        if action == "npc_promote_relations":
+            target_rid = None
+            target_name = None
+            if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
+                target_rid = self.selected_province.realm_id
+                if 0 <= target_rid < len(self.world.realm_rulers):
+                    target_name = self.world.realm_rulers[target_rid].get(
+                        "name",
+                        self.world.realm_names[target_rid] if 0 <= target_rid < len(self.world.realm_names) else "NPC Realm",
+                    )
+            if target_rid is None:
+                self.modal.show(
+                    "No Target Selected",
+                    [
+                        "Select a foreign realm (click a province) to promote relations.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+            else:
+                self.modal.show(
+                    "Not Implemented",
+                    [
+                        f"Promote relations with {target_name} is a placeholder action.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+            return
+        if action == "npc_declare_war":
+            target_rid = None
+            target_name = None
+            if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
+                target_rid = self.selected_province.realm_id
+                if 0 <= target_rid < len(self.world.realm_rulers):
+                    target_name = self.world.realm_rulers[target_rid].get(
+                        "name",
+                        self.world.realm_names[target_rid] if 0 <= target_rid < len(self.world.realm_names) else "NPC Realm",
+                    )
+            if target_rid is None:
+                self.modal.show(
+                    "No Target Selected",
+                    [
+                        "Select a foreign realm (click a province) before declaring war.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+            else:
+                self.modal.show(
+                    "Not Implemented",
+                    [
+                        f"Declare war on {target_name} is a placeholder action.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+            return
         if action == "raise_army":
             if self.army_raising:
                 self.army_raising = False
@@ -1807,6 +1890,8 @@ class GameApp:
                 left_state = dict(state)
                 left_state["character"] = left_character
                 left_state["character_realm_id"] = left_realm_id
+                left_state["npc_list"] = self._get_npc_list()
+                left_state["npc_target_id"] = None if left_realm_id == self.player_realm_id else left_realm_id
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
