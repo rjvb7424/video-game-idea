@@ -713,6 +713,7 @@ class UIManager:
 
         npc_list = state.get("npc_list") or []
         npc_target_id = state.get("npc_target_id")
+        npc_target = state.get("npc_target")
 
         y = npc_content.top
         y = draw_header_text(surface, "Known NPCs", npc_content.left, y, color=(230, 224, 208))
@@ -723,6 +724,25 @@ class UIManager:
                 y = draw_body_text(surface, f"• {name}", npc_content.left, y, color=color)
         else:
             y = draw_body_text(surface, "None discovered", npc_content.left, y, color=(185, 175, 160))
+        y += 6
+
+        y = draw_header_text(surface, "Selected Realm", npc_content.left, y, color=(230, 224, 208))
+        if npc_target:
+            target_name = npc_target.get("name", "Ruler")
+            target_title = npc_target.get("title", "—")
+            target_realm = npc_target.get("realm_name", "Realm")
+            y = draw_body_text(surface, target_name, npc_content.left, y, color=(235, 228, 210))
+            y = draw_body_text(surface, f"Realm: {target_realm}", npc_content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Title: {target_title}", npc_content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Faith: {npc_target.get('faith','—')}", npc_content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Culture: {npc_target.get('culture','—')}", npc_content.left, y, color=(220, 214, 198))
+            traits = npc_target.get("traits") or []
+            if traits:
+                label = ", ".join(trait_name(t) for t in traits[:3])
+                label = self._ellipsize(label, BODY_FONT, npc_content.w)
+                y = draw_body_text(surface, f"Traits: {label}", npc_content.left, y, color=(185, 175, 160))
+        else:
+            y = draw_body_text(surface, "Select a foreign realm to view details.", npc_content.left, y, color=(185, 175, 160))
         y += 6
 
         btn_h = 28

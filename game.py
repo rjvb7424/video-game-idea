@@ -262,6 +262,31 @@ class GameApp:
             npcs = npcs[:limit]
         return npcs
 
+    def _get_npc_target(self, rid=None):
+        if rid is None:
+            if self.selected_province is None:
+                return None
+            rid = self.selected_province.realm_id
+        if rid == self.player_realm_id:
+            return None
+        if not (0 <= rid < len(self.world.realm_rulers)):
+            return None
+        ruler = self.world.realm_rulers[rid]
+        if not isinstance(ruler, dict):
+            return None
+        realm_name = None
+        if 0 <= rid < len(self.world.realm_names):
+            realm_name = self.world.realm_names[rid]
+        return {
+            "id": rid,
+            "name": ruler.get("name", "Ruler"),
+            "title": ruler.get("title", "—"),
+            "faith": ruler.get("faith", "—"),
+            "culture": ruler.get("culture", "—"),
+            "traits": ruler.get("traits", []),
+            "realm_name": realm_name or "Realm",
+        }
+
     def _left_panel_draw_rect(self):
         rect = self.layout.left
         offset = -int((1.0 - self._left_panel_anim) * rect.w)
@@ -753,7 +778,8 @@ class GameApp:
                 {
                     "character": ruler,
                     "npc_list": self._get_npc_list(),
-                    "npc_target_id": None,
+                    "npc_target_id": self.realm_candidate_id,
+                    "npc_target": self._get_npc_target(self.realm_candidate_id),
                 },
             ),
         )
@@ -1891,7 +1917,9 @@ class GameApp:
                 left_state["character"] = left_character
                 left_state["character_realm_id"] = left_realm_id
                 left_state["npc_list"] = self._get_npc_list()
-                left_state["npc_target_id"] = None if left_realm_id == self.player_realm_id else left_realm_id
+                npc_target = self._get_npc_target()
+                left_state["npc_target_id"] = npc_target["id"] if npc_target else None
+                left_state["npc_target"] = npc_target
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
