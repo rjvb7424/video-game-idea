@@ -249,19 +249,6 @@ class GameApp:
             return pygame.Rect(0, 0, w, h)
         return self.layout.map
 
-    def _get_npc_list(self, limit=6):
-        npcs = []
-        for rid, ruler in enumerate(self.world.realm_rulers):
-            if rid == self.player_realm_id:
-                continue
-            if not isinstance(ruler, dict):
-                continue
-            npcs.append({"id": rid, "name": ruler.get("name", "Ruler")})
-        npcs.sort(key=lambda entry: entry.get("name", ""))
-        if limit:
-            npcs = npcs[:limit]
-        return npcs
-
     def _get_npc_target(self, rid=None):
         if rid is None:
             if self.selected_province is None:
@@ -777,9 +764,8 @@ class GameApp:
                 self.layout.left,
                 {
                     "character": ruler,
-                    "npc_list": self._get_npc_list(),
-                    "npc_target_id": self.realm_candidate_id,
                     "npc_target": self._get_npc_target(self.realm_candidate_id),
+                    "npc_actions_enabled": False,
                 },
             ),
         )
@@ -1916,10 +1902,9 @@ class GameApp:
                 left_state = dict(state)
                 left_state["character"] = left_character
                 left_state["character_realm_id"] = left_realm_id
-                left_state["npc_list"] = self._get_npc_list()
                 npc_target = self._get_npc_target()
-                left_state["npc_target_id"] = npc_target["id"] if npc_target else None
                 left_state["npc_target"] = npc_target
+                left_state["npc_actions_enabled"] = True
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))

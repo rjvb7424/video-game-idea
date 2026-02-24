@@ -595,170 +595,140 @@ class UIManager:
         if dynasty:
             title_name = f"{title_name} {dynasty}"
 
-        gap = 10
-        npc_panel_h = max(200, min(int(rect.h * 0.35), 300))
-        char_panel_h = max(220, rect.h - npc_panel_h - gap)
-        char_rect = pygame.Rect(rect.left, rect.top, rect.w, char_panel_h)
-        npc_rect = pygame.Rect(rect.left, char_rect.bottom + gap, rect.w, rect.h - char_panel_h - gap)
+        npc_target = state.get("npc_target")
+        actions_enabled = bool(state.get("npc_actions_enabled"))
+        panel_title = title_name if not npc_target else npc_target.get("name", "Ruler")
 
         content = draw_framed_panel(
             surface,
-            char_rect,
-            title="Character",
+            rect,
+            title=panel_title,
             title_color=INK,
             tile=self.left_tile,
         )
 
         # extra warm tint over the inner area for stronger brown vibe
-        tint = pygame.Surface((char_rect.w - 28, char_rect.h - 28), pygame.SRCALPHA)
+        tint = pygame.Surface((rect.w - 28, rect.h - 28), pygame.SRCALPHA)
         tint.fill((70, 45, 28, 28))
-        surface.blit(tint, (char_rect.left + 14, char_rect.top + 14))
+        surface.blit(tint, (rect.left + 14, rect.top + 14))
 
         y = content.top
         btns = []
 
         if show_close:
-            inner = char_rect.inflate(-14, -14)
+            inner = rect.inflate(-14, -14)
             strip = pygame.Rect(inner.left + 6, inner.top + 6, inner.w - 12, 28)
             close_rect = pygame.Rect(strip.right - 6 - 22, strip.top + 4, 22, strip.h - 8)
             b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
             btns.append((b_close, "left_panel_close"))
 
-        # Character name
-        y = draw_header_text(surface, title_name, content.left, y, color=(235, 228, 210))
-        y += 4
-
-        # Identity
-        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
-        y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
-        gender_label = c.get("gender", "—")
-        if isinstance(gender_label, str):
-            gender_label = gender_label.title()
-        age_label = c.get("age", "—")
-        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
-        y += 8
-
-        # Traits (colored by virtue/sin)
-        virtues, sins, _ = trait_alignment(c)
-        y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
-        traits = c.get("traits", [])
-        if not traits:
-            y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
-        else:
-            for t in traits:
-                if t in virtues:
-                    color = (155, 190, 155)
-                elif t in sins:
-                    color = (200, 150, 150)
-                else:
-                    color = (235, 228, 210)
-                y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
-        y += 6
-
-        # Attributes (CK-like columns)
-        y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
-        stats = c["stats"]
-        left_x = content.left
-        mid_x = content.left + content.w // 2
-        for i, (k, v) in enumerate(stats):
-            tx = left_x if i % 2 == 0 else mid_x
-            if i % 2 == 0 and i > 0:
-                y += 2
-            yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
-            draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
-            if i % 2 == 1:
-                y += BODY_FONT.get_height() + 6
-        y += 8
-
-        # Family
-        y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
-        spouse = c.get("spouse")
-        if isinstance(spouse, dict):
-            spouse_gender = spouse.get("gender", "—")
-            if isinstance(spouse_gender, str):
-                spouse_gender = spouse_gender.title()
-            spouse_age = spouse.get("age", "—")
-            y = draw_body_text(surface, f"Spouse: {spouse.get('name','—')}", content.left, y, color=(220, 214, 198))
-            y = draw_footer_text(surface, f"{spouse_gender}, age {spouse_age}", content.left, y, color=(185, 175, 160))
-        else:
-            y = draw_body_text(surface, "Spouse: —", content.left, y, color=(185, 175, 160))
-
-        heir = c.get("heir")
-        if isinstance(heir, dict):
-            heir_gender = heir.get("gender", "—")
-            if isinstance(heir_gender, str):
-                heir_gender = heir_gender.title()
-            heir_age = heir.get("age", "—")
-            y = draw_body_text(surface, f"Heir: {heir.get('name','—')}", content.left, y, color=(220, 214, 198))
-            y = draw_footer_text(surface, f"{heir_gender}, age {heir_age}", content.left, y, color=(185, 175, 160))
-        else:
-            y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
-        y += 6
-
-        # NPC panel
-        npc_content = draw_framed_panel(
-            surface,
-            npc_rect,
-            title="NPCs",
-            title_color=INK,
-            tile=self.left_tile,
-        )
-
-        tint = pygame.Surface((npc_rect.w - 28, npc_rect.h - 28), pygame.SRCALPHA)
-        tint.fill((70, 45, 28, 28))
-        surface.blit(tint, (npc_rect.left + 14, npc_rect.top + 14))
-
-        npc_list = state.get("npc_list") or []
-        npc_target_id = state.get("npc_target_id")
-        npc_target = state.get("npc_target")
-
-        y = npc_content.top
-        y = draw_header_text(surface, "Known NPCs", npc_content.left, y, color=(230, 224, 208))
-        if npc_list:
-            for npc in npc_list:
-                name = npc.get("name", "NPC")
-                color = (235, 220, 170) if npc.get("id") == npc_target_id else (220, 214, 198)
-                y = draw_body_text(surface, f"• {name}", npc_content.left, y, color=color)
-        else:
-            y = draw_body_text(surface, "None discovered", npc_content.left, y, color=(185, 175, 160))
-        y += 6
-
-        y = draw_header_text(surface, "Selected Realm", npc_content.left, y, color=(230, 224, 208))
         if npc_target:
-            target_name = npc_target.get("name", "Ruler")
+            y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
             target_title = npc_target.get("title", "—")
             target_realm = npc_target.get("realm_name", "Realm")
-            y = draw_body_text(surface, target_name, npc_content.left, y, color=(235, 228, 210))
-            y = draw_body_text(surface, f"Realm: {target_realm}", npc_content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Title: {target_title}", npc_content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Faith: {npc_target.get('faith','—')}", npc_content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Culture: {npc_target.get('culture','—')}", npc_content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Realm: {target_realm}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Faith: {npc_target.get('faith','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Culture: {npc_target.get('culture','—')}", content.left, y, color=(220, 214, 198))
             traits = npc_target.get("traits") or []
             if traits:
-                label = ", ".join(trait_name(t) for t in traits[:3])
-                label = self._ellipsize(label, BODY_FONT, npc_content.w)
-                y = draw_body_text(surface, f"Traits: {label}", npc_content.left, y, color=(185, 175, 160))
+                virtues, sins, _ = trait_alignment(npc_target)
+                y = draw_header_text(surface, "Traits", content.left, y + 2, color=(230, 224, 208))
+                for t in traits[:5]:
+                    if t in virtues:
+                        color = (155, 190, 155)
+                    elif t in sins:
+                        color = (200, 150, 150)
+                    else:
+                        color = (235, 228, 210)
+                    y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
+            y += 6
+
+            if actions_enabled:
+                btn_h = 28
+                btn_gap = 8
+                header_h = HEADER_FONT.get_height() + 4
+                actions_block_h = header_h + (btn_h * 2 + btn_gap)
+                actions_y = content.bottom - actions_block_h
+                if actions_y < y + 8:
+                    actions_y = y + 8
+
+                actions_y = draw_header_text(surface, "Actions", content.left, actions_y, color=(230, 224, 208))
+                promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, actions_y, content.w, btn_h)
+                btns.append((promote_rect, "npc_promote_relations"))
+
+                war_rect = draw_deny_button(surface, "Declare War", content.left, actions_y + btn_h + btn_gap, content.w, btn_h)
+                btns.append((war_rect, "npc_declare_war"))
         else:
-            y = draw_body_text(surface, "Select a foreign realm to view details.", npc_content.left, y, color=(185, 175, 160))
-        y += 6
+            # Identity
+            y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
+            y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
+            gender_label = c.get("gender", "—")
+            if isinstance(gender_label, str):
+                gender_label = gender_label.title()
+            age_label = c.get("age", "—")
+            y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
+            y += 8
 
-        btn_h = 28
-        btn_gap = 8
-        header_h = HEADER_FONT.get_height() + 4
-        actions_block_h = header_h + (btn_h * 2 + btn_gap)
-        actions_y = npc_content.bottom - actions_block_h
-        if actions_y < y + 8:
-            actions_y = y + 8
+            # Traits (colored by virtue/sin)
+            virtues, sins, _ = trait_alignment(c)
+            y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
+            traits = c.get("traits", [])
+            if not traits:
+                y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
+            else:
+                for t in traits:
+                    if t in virtues:
+                        color = (155, 190, 155)
+                    elif t in sins:
+                        color = (200, 150, 150)
+                    else:
+                        color = (235, 228, 210)
+                    y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
+            y += 6
 
-        actions_y = draw_header_text(surface, "Actions", npc_content.left, actions_y, color=(230, 224, 208))
-        promote_rect = draw_secondary_button(surface, "Promote Relations", npc_content.left, actions_y, npc_content.w, btn_h)
-        btns.append((promote_rect, "npc_promote_relations"))
+            # Attributes (CK-like columns)
+            y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
+            stats = c["stats"]
+            left_x = content.left
+            mid_x = content.left + content.w // 2
+            for i, (k, v) in enumerate(stats):
+                tx = left_x if i % 2 == 0 else mid_x
+                if i % 2 == 0 and i > 0:
+                    y += 2
+                yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
+                draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
+                if i % 2 == 1:
+                    y += BODY_FONT.get_height() + 6
+            y += 8
 
-        war_rect = draw_deny_button(surface, "Declare War", npc_content.left, actions_y + btn_h + btn_gap, npc_content.w, btn_h)
-        btns.append((war_rect, "npc_declare_war"))
+            # Family
+            y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
+            spouse = c.get("spouse")
+            if isinstance(spouse, dict):
+                spouse_gender = spouse.get("gender", "—")
+                if isinstance(spouse_gender, str):
+                    spouse_gender = spouse_gender.title()
+                spouse_age = spouse.get("age", "—")
+                y = draw_body_text(surface, f"Spouse: {spouse.get('name','—')}", content.left, y, color=(220, 214, 198))
+                y = draw_footer_text(surface, f"{spouse_gender}, age {spouse_age}", content.left, y, color=(185, 175, 160))
+            else:
+                y = draw_body_text(surface, "Spouse: —", content.left, y, color=(185, 175, 160))
+
+            heir = c.get("heir")
+            if isinstance(heir, dict):
+                heir_gender = heir.get("gender", "—")
+                if isinstance(heir_gender, str):
+                    heir_gender = heir_gender.title()
+                heir_age = heir.get("age", "—")
+                y = draw_body_text(surface, f"Heir: {heir.get('name','—')}", content.left, y, color=(220, 214, 198))
+                y = draw_footer_text(surface, f"{heir_gender}, age {heir_age}", content.left, y, color=(185, 175, 160))
+            else:
+                y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
+            y += 6
 
         return btns
 
