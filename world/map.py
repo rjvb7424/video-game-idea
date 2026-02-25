@@ -24,6 +24,7 @@ FOG_DARK = (12, 12, 14)
 BORDER_INK_DARK = (12, 12, 12)
 BORDER_INK = (32, 30, 28)
 BORDER_REALM_INK = (8, 8, 8)
+WAR_BORDER_COLOR = (205, 60, 60)
 
 
 class Province:
@@ -187,6 +188,7 @@ class MapWorld:
         self.extra_visible_provs = set()
         self.render_version = 0
         self.tower_pid = -1
+        self._realm_border_cache = {}
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
@@ -895,6 +897,85 @@ class MapWorld:
 
         self.border_surface.blit(realm_ink, (0, 0))
         self.border_surface.blit(thin_ink, (0, 0))
+
+    def get_realm_border_surface(self, realm_id, color=WAR_BORDER_COLOR):
+        if realm_id is None or realm_id < 0 or realm_id >= len(self.realm_names):
+            return None
+        cached = self._realm_border_cache.get(realm_id)
+        if cached is not None:
+            return cached
+
+        w, h = self.gw, self.gh
+        border = set()
+        land = self.land
+        prov_id = self.prov_id
+        provinces = self.provinces
+
+        # scan edges to build realm-specific border points (right/down checks avoid duplicates)
+        for y in range(h):
+            row_land = land[y]
+            row_pid = prov_id[y]
+            for x in range(w):
+                if not row_land[x]:
+                    continue
+                a = row_pid[x]
+                if a < 0:
+                    continue
+
+                # check right neighbor
+                nx = x + 1
+                if nx < w and row_land[nx]:
+                    b = row_pid[nx]
+                    if b >= 0 and b != a:
+                        a_realm = provinces[a].realm_id
+                        b_realm = provinces[b].realm_id
+                        if a_realm == realm_id:
+                            border.add((x, y))
+                        if b_realm == realm_id:
+                            border.add((nx, y))
+
+                # check down neighbor
+                ny = y + 1
+                if ny < h and land[ny][x]:
+                    b = prov_id[ny][x]
+                    if b >= 0 and b != a:
+                        a_realm = provinces[a].realm_id
+                        b_realm = provinces[b].realm_id
+                        if a_realm == realm_id:
+                            border.add((x, y))
+                        if b_realm == realm_id:
+                            border.add((x, ny))
+
+        if not border:
+            return None
+
+        # render border mask at 2x the low-res grid, then smoothscale to world
+        upscale = 4
+        w2, h2 = w * upscale, h * upscale
+
+        def up_points(points):
+            out = set()
+            for (x, y) in points:
+                ox, oy = x * upscale, y * upscale
+                for dy in range(upscale):
+                    for dx in range(upscale):
+                        out.add((ox + dx, oy + dy))
+            return out
+
+        realm2 = up_points(border)
+        realm_thick2 = _dilate_points(realm2, w2, h2, radius=1)
+
+        mask = pygame.Surface((w2, h2), pygame.SRCALPHA)
+        for (x, y) in realm_thick2:
+            mask.set_at((x, y), (255, 255, 255, 235))
+
+        ms_realm = pygame.transform.smoothscale(mask, (self.world_w, self.world_h))
+        overlay = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        overlay.fill((*color, 255))
+        overlay.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        self._realm_border_cache[realm_id] = overlay
+        return overlay
 
     def _render_labels_and_markers(self):
         # Store draw items (rendered later in screen-space so no pixelation on zoom)

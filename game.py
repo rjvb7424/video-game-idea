@@ -315,6 +315,39 @@ class GameApp:
         pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
+    def _draw_war_target_borders(self, surface, map_rect):
+        if not self.wars:
+            return
+        targets = {war.get("target_id") for war in self.wars if war.get("target_id") is not None}
+        if not targets:
+            return
+
+        vrect = self.camera.view_rect(use_target=False)
+        world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
+        inter = vrect.clip(world_rect)
+        if inter.w <= 0 or inter.h <= 0:
+            return
+
+        z = self.camera.zoom
+        scaled_w = max(1, int(round(inter.w * z)))
+        scaled_h = max(1, int(round(inter.h * z)))
+        dx = int(round((inter.left - vrect.left) * z))
+        dy = int(round((inter.top - vrect.top) * z))
+
+        for rid in targets:
+            border = self.world.get_realm_border_surface(rid)
+            if border is None:
+                continue
+            subs = border.subsurface(inter)
+            if inter.size == map_rect.size and abs(z - 1.0) < 0.001:
+                surface.blit(subs, map_rect.topleft)
+            else:
+                if z > 1.25:
+                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
+                else:
+                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                surface.blit(scaled, (map_rect.left + dx, map_rect.top + dy))
+
     def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False):
         if max_army <= 0:
             return
@@ -2075,6 +2108,7 @@ class GameApp:
                 # Map
                 map_rect = self._get_map_rect()
                 self.map_renderer.draw(self.screen, map_rect)
+                self._draw_war_target_borders(self.screen, map_rect)
                 self._draw_selected_province_highlight(self.screen, map_rect)
                 self._draw_army_muster_marker(self.screen, map_rect)
                 self._draw_enemy_armies(self.screen, map_rect)
