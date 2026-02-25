@@ -960,19 +960,75 @@ class GameApp:
             progress = 0
         return max(0, min(100, progress))
 
+    def _get_war_sieged_set(self, war):
+        sieged = war.get("sieged")
+        if isinstance(sieged, set):
+            return sieged
+        if isinstance(sieged, (list, tuple)):
+            sieged = set(sieged)
+        else:
+            sieged = set()
+        war["sieged"] = sieged
+        return sieged
+
+    def _get_war_total_provs(self, war):
+        total = war.get("total_provs")
+        if isinstance(total, int):
+            return total
+        rid = war.get("target_id")
+        if rid is None:
+            total = 0
+        else:
+            total = sum(1 for p in self.world.provinces if p.realm_id == rid)
+        war["total_provs"] = total
+        return total
+
+    def _update_war_progress(self, war):
+        if not war:
+            return 0.0
+        total = self._get_war_total_provs(war)
+        sieged = self._get_war_sieged_set(war)
+        if total <= 0:
+            progress = 0.0
+        else:
+            progress = (min(len(sieged), total) / total) * 100.0
+        war["progress"] = max(0.0, min(100.0, progress))
+        return war["progress"]
+
     def _update_war_tick(self):
         if not self.wars:
             return
         war_to_prompt = None
         for war in self.wars:
             war["days"] += 1
-            war["progress"] = min(100.0, war["progress"] + self.war_tick_rate)
+            self._update_war_progress(war)
             if war["progress"] >= 100.0 and not war.get("ready_prompted"):
                 war["ready_prompted"] = True
                 if war_to_prompt is None:
                     war_to_prompt = war
         if war_to_prompt and not self.modal.open:
             self._open_war_details(war_to_prompt["id"])
+
+    def _siege_province(self, pid):
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            return
+        prov = self.world.provinces[pid]
+        if prov.realm_id == self.player_realm_id:
+            return
+        war = self._get_war_by_target(prov.realm_id)
+        if not war:
+            return
+        sieged = self._get_war_sieged_set(war)
+        if pid in sieged:
+            return
+        sieged.add(pid)
+        progress = self._update_war_progress(war)
+        total = war.get("total_provs") or 0
+        self.push_log(f"{self.date}: Sieged {prov.name} ({len(sieged)}/{total}).")
+        if progress >= 100.0 and not war.get("ready_prompted"):
+            war["ready_prompted"] = True
+            if not self.modal.open:
+                self._open_war_details(war["id"])
 
     def _start_war(self, target_rid):
         if self._get_war_by_target(target_rid):
@@ -987,16 +1043,20 @@ class GameApp:
                 ],
             )
             return
+        total_provs = sum(1 for p in self.world.provinces if p.realm_id == target_rid)
         war = {
             "id": self._war_next_id,
             "target_id": target_rid,
             "progress": 0.0,
             "days": 0,
             "ready_prompted": False,
+            "sieged": set(),
+            "total_provs": total_provs,
         }
         self._war_next_id += 1
         self.wars.append(war)
         self._war_focus_id = war["id"]
+        self._update_war_progress(war)
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
         self._open_war_details(war["id"])
@@ -1046,6 +1106,7 @@ class GameApp:
         lines = []
         for war in self.wars:
             name = self._get_war_target_name(war)
+            self._update_war_progress(war)
             progress = self._format_war_progress(war.get("progress", 0))
             prefix = ">" if war["id"] == self._war_focus_id else " "
             lines.append(f"{prefix} {name} - {progress}%")
@@ -1071,7 +1132,10 @@ class GameApp:
             return
         self._war_focus_id = war_id
         target_name = self._get_war_target_name(war)
+        self._update_war_progress(war)
         progress = self._format_war_progress(war.get("progress", 0))
+        sieged = self._get_war_sieged_set(war)
+        total = war.get("total_provs") or 0
         if progress >= 100:
             press_action = ("Press Demands", "accept", lambda: self._press_war_demands(war_id))
         else:
@@ -1081,6 +1145,7 @@ class GameApp:
             [
                 f"War against {target_name}.",
                 f"War progress: {progress}%.",
+                f"Sieged provinces: {len(sieged)}/{total}.",
                 "Press demands is available at 100%.",
             ],
             [
@@ -1103,6 +1168,7 @@ class GameApp:
         if not war:
             self.modal.close()
             return
+        self._update_war_progress(war)
         progress = self._format_war_progress(war.get("progress", 0))
         if progress < 100:
             self.modal.show(
@@ -1309,11 +1375,11 @@ class GameApp:
 
     def _resolve_battle(self, enemy, battle_pid):
         if enemy is None:
-            return
+            return False
         player_size = int(self.army.get("raised", 0))
         enemy_size = int(enemy.get("army", {}).get("raised", 0))
         if player_size <= 0 or enemy_size <= 0:
-            return
+            return False
 
         player_wins = player_size >= enemy_size
         player_loss, enemy_loss = self._compute_battle_losses(player_size, enemy_size)
@@ -1363,6 +1429,7 @@ class GameApp:
             ],
         )
         self.push_log(f"{self.date}: Battle at {prov_name}. {outcome}.")
+        return player_wins
 
     def _get_player_capital_pid(self):
         pid = getattr(self.world, "player_capital_pid", None)
@@ -1454,7 +1521,11 @@ class GameApp:
             self._update_fog_from_army()
             enemy = self._enemy_army_at(self.army_prov_id)
             if enemy is not None:
-                self._resolve_battle(enemy, self.army_prov_id)
+                player_wins = self._resolve_battle(enemy, self.army_prov_id)
+                if player_wins:
+                    self._siege_province(self.army_prov_id)
+            else:
+                self._siege_province(self.army_prov_id)
 
     def _update_army_raising(self):
         if not self.army_raising:
