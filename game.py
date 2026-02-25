@@ -119,7 +119,8 @@ class GameApp:
         self.wars = []
         self._war_next_id = 1
         self._war_focus_id = None
-        self.war_tick_rate = 0.5  # percent per day
+        self._war_border_overlay = None
+        self._war_border_overlay_key = None
 
         # Player character = ruler of player realm
         self.player_realm_id = self.world.player_realm_id
@@ -315,38 +316,36 @@ class GameApp:
         pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
-    def _draw_war_target_borders(self, surface, map_rect):
+    def _get_war_border_overlay(self):
         if not self.wars:
-            return
-        targets = {war.get("target_id") for war in self.wars if war.get("target_id") is not None}
+            self._war_border_overlay = None
+            self._war_border_overlay_key = None
+            return None, None
+        targets = tuple(sorted({war.get("target_id") for war in self.wars if war.get("target_id") is not None}))
         if not targets:
-            return
+            self._war_border_overlay = None
+            self._war_border_overlay_key = None
+            return None, None
+        if targets == self._war_border_overlay_key and self._war_border_overlay is not None:
+            return self._war_border_overlay, targets
 
-        vrect = self.camera.view_rect(use_target=False)
-        world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
-        inter = vrect.clip(world_rect)
-        if inter.w <= 0 or inter.h <= 0:
-            return
-
-        z = self.camera.zoom
-        scaled_w = max(1, int(round(inter.w * z)))
-        scaled_h = max(1, int(round(inter.h * z)))
-        dx = int(round((inter.left - vrect.left) * z))
-        dy = int(round((inter.top - vrect.top) * z))
-
+        overlay = pygame.Surface((self.world.world_w, self.world.world_h), pygame.SRCALPHA)
+        has_any = False
         for rid in targets:
             border = self.world.get_realm_border_surface(rid)
             if border is None:
                 continue
-            subs = border.subsurface(inter)
-            if inter.size == map_rect.size and abs(z - 1.0) < 0.001:
-                surface.blit(subs, map_rect.topleft)
-            else:
-                if z > 1.25:
-                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
-                else:
-                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
-                surface.blit(scaled, (map_rect.left + dx, map_rect.top + dy))
+            overlay.blit(border, (0, 0))
+            has_any = True
+
+        if not has_any:
+            self._war_border_overlay = None
+            self._war_border_overlay_key = None
+            return None, None
+
+        self._war_border_overlay = overlay
+        self._war_border_overlay_key = targets
+        return overlay, targets
 
     def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False):
         if max_army <= 0:
@@ -939,6 +938,8 @@ class GameApp:
         self.wars = []
         self._war_next_id = 1
         self._war_focus_id = None
+        self._war_border_overlay = None
+        self._war_border_overlay_key = None
 
     def _get_war_by_id(self, war_id):
         for war in self.wars:
@@ -978,6 +979,8 @@ class GameApp:
         rid = war.get("target_id")
         if rid is None:
             total = 0
+        elif hasattr(self.world, "realm_sizes") and 0 <= rid < len(self.world.realm_sizes):
+            total = int(self.world.realm_sizes[rid])
         else:
             total = sum(1 for p in self.world.provinces if p.realm_id == rid)
         war["total_provs"] = total
@@ -1043,7 +1046,10 @@ class GameApp:
                 ],
             )
             return
-        total_provs = sum(1 for p in self.world.provinces if p.realm_id == target_rid)
+        if hasattr(self.world, "realm_sizes") and 0 <= target_rid < len(self.world.realm_sizes):
+            total_provs = int(self.world.realm_sizes[target_rid])
+        else:
+            total_provs = sum(1 for p in self.world.provinces if p.realm_id == target_rid)
         war = {
             "id": self._war_next_id,
             "target_id": target_rid,
@@ -2178,8 +2184,9 @@ class GameApp:
 
                 # Map
                 map_rect = self._get_map_rect()
-                self.map_renderer.draw(self.screen, map_rect)
-                self._draw_war_target_borders(self.screen, map_rect)
+                war_overlay, war_overlay_key = self._get_war_border_overlay()
+                overlays = [war_overlay] if war_overlay is not None else None
+                self.map_renderer.draw(self.screen, map_rect, overlays, war_overlay_key)
                 self._draw_selected_province_highlight(self.screen, map_rect)
                 self._draw_army_muster_marker(self.screen, map_rect)
                 self._draw_enemy_armies(self.screen, map_rect)

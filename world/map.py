@@ -189,6 +189,7 @@ class MapWorld:
         self.render_version = 0
         self.tower_pid = -1
         self._realm_border_cache = {}
+        self._realm_border_points = None
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
@@ -807,31 +808,39 @@ class MapWorld:
         thin_border = []
         realm_border = []
         coast = []
+        realm_border_points = {}
+        land = self.land
+        prov_id = self.prov_id
+        provinces = self.provinces
 
         # scan edges to build low-res border point sets
         for y in range(h):
             for x in range(w):
-                if not self.land[y][x]:
+                if not land[y][x]:
                     continue
-                a = self.prov_id[y][x]
+                a = prov_id[y][x]
                 if a < 0:
                     continue
 
                 # coastline
                 for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
                     if 0 <= nx < w and 0 <= ny < h:
-                        if not self.land[ny][nx]:
+                        if not land[ny][nx]:
                             coast.append((x, y))
                             break
 
                 # province borders / realm borders (only check right & down to avoid duplicates)
+                a_realm = provinces[a].realm_id
                 for nx, ny in ((x + 1, y), (x, y + 1)):
-                    if 0 <= nx < w and 0 <= ny < h and self.land[ny][nx]:
-                        b = self.prov_id[ny][nx]
+                    if 0 <= nx < w and 0 <= ny < h and land[ny][nx]:
+                        b = prov_id[ny][nx]
                         if b >= 0 and b != a:
                             thin_border.append((x, y))
-                            if self.provinces[a].realm_id != self.provinces[b].realm_id:
+                            b_realm = provinces[b].realm_id
+                            if a_realm != b_realm:
                                 realm_border.append((x, y))
+                                realm_border_points.setdefault(a_realm, set()).add((x, y))
+                                realm_border_points.setdefault(b_realm, set()).add((nx, ny))
 
         thin_set = set(thin_border)
         realm_set = set(realm_border)
@@ -897,21 +906,14 @@ class MapWorld:
 
         self.border_surface.blit(realm_ink, (0, 0))
         self.border_surface.blit(thin_ink, (0, 0))
+        self._realm_border_points = realm_border_points
 
-    def get_realm_border_surface(self, realm_id, color=WAR_BORDER_COLOR):
-        if realm_id is None or realm_id < 0 or realm_id >= len(self.realm_names):
-            return None
-        cached = self._realm_border_cache.get(realm_id)
-        if cached is not None:
-            return cached
-
+    def _build_realm_border_points(self, realm_id):
         w, h = self.gw, self.gh
         border = set()
         land = self.land
         prov_id = self.prov_id
         provinces = self.provinces
-
-        # scan edges to build realm-specific border points (right/down checks avoid duplicates)
         for y in range(h):
             row_land = land[y]
             row_pid = prov_id[y]
@@ -945,13 +947,28 @@ class MapWorld:
                             border.add((x, y))
                         if b_realm == realm_id:
                             border.add((x, ny))
+        return border
 
-        if not border:
+    def get_realm_border_surface(self, realm_id, color=WAR_BORDER_COLOR):
+        if realm_id is None or realm_id < 0 or realm_id >= len(self.realm_names):
+            return None
+        cached = self._realm_border_cache.get(realm_id)
+        if cached is not None:
+            return cached
+        border_points = None
+        if isinstance(self._realm_border_points, dict):
+            border_points = self._realm_border_points.get(realm_id)
+        if border_points is None:
+            border_points = self._build_realm_border_points(realm_id)
+            if self._realm_border_points is None:
+                self._realm_border_points = {}
+            self._realm_border_points[realm_id] = border_points
+        if not border_points:
             return None
 
         # render border mask at 2x the low-res grid, then smoothscale to world
         upscale = 4
-        w2, h2 = w * upscale, h * upscale
+        w2, h2 = self.gw * upscale, self.gh * upscale
 
         def up_points(points):
             out = set()
@@ -962,7 +979,7 @@ class MapWorld:
                         out.add((ox + dx, oy + dy))
             return out
 
-        realm2 = up_points(border)
+        realm2 = up_points(border_points)
         realm_thick2 = _dilate_points(realm2, w2, h2, radius=1)
 
         mask = pygame.Surface((w2, h2), pygame.SRCALPHA)

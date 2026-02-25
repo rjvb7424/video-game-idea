@@ -210,7 +210,7 @@ class MapRenderer:
             surf.blit(shadow, (tr.x + 1, tr.y + 1))
             surf.blit(text, tr)
 
-    def draw(self, surface, map_rect):
+    def draw(self, surface, map_rect, overlay_surfaces=None, overlay_key=None):
         if self._cached_size != map_rect.size:
             self._cached_size = map_rect.size
             self._cached_final = pygame.Surface(map_rect.size).convert()
@@ -241,12 +241,23 @@ class MapRenderer:
         z = self.camera.zoom
         show_minimal = z >= 0.75
         render_version = getattr(self.world, "render_version", 0)
+        if overlay_surfaces is None:
+            overlay_surfaces = []
+        if overlay_key is None and overlay_surfaces:
+            overlay_key = tuple(id(s) for s in overlay_surfaces)
+        elif overlay_key is not None and not isinstance(overlay_key, (tuple, int, float, str)):
+            try:
+                overlay_key = tuple(overlay_key)
+            except TypeError:
+                overlay_key = str(overlay_key)
+
         cache_key = (
             map_rect.size,
             vrect.x, vrect.y, vrect.w, vrect.h,
             round(z, 3),
             render_version,
             show_minimal,
+            overlay_key,
         )
         if cache_key == self._cache_key:
             surface.blit(view, map_rect.topleft)
@@ -261,16 +272,17 @@ class MapRenderer:
             # Scale to screen portion
             scaled_w = max(1, int(round(inter.w * z)))
             scaled_h = max(1, int(round(inter.h * z)))
+            dx = int(round((inter.left - vrect.left) * z))
+            dy = int(round((inter.top - vrect.top) * z))
+            direct_blit = inter.size == map_rect.size and abs(z - 1.0) < 0.001
 
-            if inter.size == map_rect.size and abs(z - 1.0) < 0.001:
+            if direct_blit:
                 view.blit(subs, (0, 0))
             else:
                 if z > 1.25:
                     scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
                 else:
                     scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
-                dx = int(round((inter.left - vrect.left) * z))
-                dy = int(round((inter.top - vrect.top) * z))
                 view.blit(scaled, (dx, dy))
 
         # Subtle map overlay/vignette
@@ -317,6 +329,21 @@ class MapRenderer:
                 self._draw_tower_marker(overlay, (tx, ty), show_text=True)
 
         view.blit(overlay, (0, 0))
+
+        # Optional world-space overlays (e.g. war borders)
+        if overlay_surfaces and inter.w > 0 and inter.h > 0:
+            for layer in overlay_surfaces:
+                if layer is None:
+                    continue
+                subs = layer.subsurface(inter)
+                if direct_blit:
+                    view.blit(subs, (0, 0))
+                else:
+                    if z > 1.25:
+                        scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
+                    else:
+                        scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                    view.blit(scaled, (dx, dy))
 
         # blit the final view
         surface.blit(view, map_rect.topleft)
