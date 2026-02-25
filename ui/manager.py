@@ -608,7 +608,7 @@ class UIManager:
 
         npc_target = state.get("npc_target")
         actions_enabled = bool(state.get("npc_actions_enabled"))
-        panel_title = title_name if not npc_target else npc_target.get("name", "Ruler")
+        panel_title = title_name
 
         content = draw_framed_panel(
             surface,
@@ -652,89 +652,77 @@ class UIManager:
             y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
             y = draw_body_text(surface, f"Faith: {npc_target.get('faith','—')}", content.left, y, color=(220, 214, 198))
             y = draw_body_text(surface, f"Culture: {npc_target.get('culture','—')}", content.left, y, color=(220, 214, 198))
-            traits = npc_target.get("traits") or []
-            if traits:
-                virtues, sins, _ = trait_alignment(npc_target)
-                y = draw_header_text(surface, "Traits", content.left, y + 2, color=(230, 224, 208))
-                for t in traits[:5]:
-                    if t in virtues:
-                        color = (155, 190, 155)
-                    elif t in sins:
-                        color = (200, 150, 150)
-                    else:
-                        color = (235, 228, 210)
-                    y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
             y += 6
+
+        # Identity
+        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
+        y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        gender_label = c.get("gender", "—")
+        if isinstance(gender_label, str):
+            gender_label = gender_label.title()
+        age_label = c.get("age", "—")
+        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
+        y += 8
+
+        # Traits (colored by virtue/sin)
+        virtues, sins, _ = trait_alignment(c)
+        y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
+        traits = c.get("traits", [])
+        if not traits:
+            y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
         else:
-            # Identity
-            y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
-            y = draw_body_text(surface, f"Title: {c.get('title','—')}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Faith: {c.get('faith','—')}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Culture: {c.get('culture','—')}", content.left, y, color=(220, 214, 198))
-            gender_label = c.get("gender", "—")
-            if isinstance(gender_label, str):
-                gender_label = gender_label.title()
-            age_label = c.get("age", "—")
-            y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
-            y += 8
+            for t in traits:
+                if t in virtues:
+                    color = (155, 190, 155)
+                elif t in sins:
+                    color = (200, 150, 150)
+                else:
+                    color = (235, 228, 210)
+                y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
+        y += 6
 
-            # Traits (colored by virtue/sin)
-            virtues, sins, _ = trait_alignment(c)
-            y = draw_header_text(surface, "Traits", content.left, y, color=(230, 224, 208))
-            traits = c.get("traits", [])
-            if not traits:
-                y = draw_body_text(surface, "None", content.left, y, color=(185, 175, 160))
-            else:
-                for t in traits:
-                    if t in virtues:
-                        color = (155, 190, 155)
-                    elif t in sins:
-                        color = (200, 150, 150)
-                    else:
-                        color = (235, 228, 210)
-                    y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
-            y += 6
+        # Attributes (CK-like columns)
+        y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
+        stats = c.get("stats", [])
+        left_x = content.left
+        mid_x = content.left + content.w // 2
+        for i, (k, v) in enumerate(stats):
+            tx = left_x if i % 2 == 0 else mid_x
+            if i % 2 == 0 and i > 0:
+                y += 2
+            yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
+            draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
+            if i % 2 == 1:
+                y += BODY_FONT.get_height() + 6
+        y += 8
 
-            # Attributes (CK-like columns)
-            y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
-            stats = c["stats"]
-            left_x = content.left
-            mid_x = content.left + content.w // 2
-            for i, (k, v) in enumerate(stats):
-                tx = left_x if i % 2 == 0 else mid_x
-                if i % 2 == 0 and i > 0:
-                    y += 2
-                yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
-                draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
-                if i % 2 == 1:
-                    y += BODY_FONT.get_height() + 6
-            y += 8
+        # Family
+        y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
+        spouse = c.get("spouse")
+        if isinstance(spouse, dict):
+            spouse_gender = spouse.get("gender", "—")
+            if isinstance(spouse_gender, str):
+                spouse_gender = spouse_gender.title()
+            spouse_age = spouse.get("age", "—")
+            y = draw_body_text(surface, f"Spouse: {spouse.get('name','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_footer_text(surface, f"{spouse_gender}, age {spouse_age}", content.left, y, color=(185, 175, 160))
+        else:
+            y = draw_body_text(surface, "Spouse: —", content.left, y, color=(185, 175, 160))
 
-            # Family
-            y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
-            spouse = c.get("spouse")
-            if isinstance(spouse, dict):
-                spouse_gender = spouse.get("gender", "—")
-                if isinstance(spouse_gender, str):
-                    spouse_gender = spouse_gender.title()
-                spouse_age = spouse.get("age", "—")
-                y = draw_body_text(surface, f"Spouse: {spouse.get('name','—')}", content.left, y, color=(220, 214, 198))
-                y = draw_footer_text(surface, f"{spouse_gender}, age {spouse_age}", content.left, y, color=(185, 175, 160))
-            else:
-                y = draw_body_text(surface, "Spouse: —", content.left, y, color=(185, 175, 160))
-
-            heir = c.get("heir")
-            if isinstance(heir, dict):
-                heir_gender = heir.get("gender", "—")
-                if isinstance(heir_gender, str):
-                    heir_gender = heir_gender.title()
-                heir_age = heir.get("age", "—")
-                y = draw_body_text(surface, f"Heir: {heir.get('name','—')}", content.left, y, color=(220, 214, 198))
-                y = draw_footer_text(surface, f"{heir_gender}, age {heir_age}", content.left, y, color=(185, 175, 160))
-            else:
-                y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
-            y += 6
+        heir = c.get("heir")
+        if isinstance(heir, dict):
+            heir_gender = heir.get("gender", "—")
+            if isinstance(heir_gender, str):
+                heir_gender = heir_gender.title()
+            heir_age = heir.get("age", "—")
+            y = draw_body_text(surface, f"Heir: {heir.get('name','—')}", content.left, y, color=(220, 214, 198))
+            y = draw_footer_text(surface, f"{heir_gender}, age {heir_age}", content.left, y, color=(185, 175, 160))
+        else:
+            y = draw_body_text(surface, "Heir: —", content.left, y, color=(185, 175, 160))
+        y += 6
 
         return btns
 
