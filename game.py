@@ -98,6 +98,7 @@ class GameApp:
         self._left_panel_anim = 0.0
         self._left_panel_toggle_rect = None
         self._bottom_bar_rect = None
+        self._war_float_rects = []
 
         # --- EVENTS: minimal integration ---
         self._event_flags = {}
@@ -121,6 +122,8 @@ class GameApp:
         self._war_focus_id = None
         self._war_border_overlay = None
         self._war_border_overlay_key = None
+        self._pending_war = None
+        self._war_goal_selecting = False
 
         # Siege system (CK-style timing)
         self.siege_prep_days = 7
@@ -130,6 +133,14 @@ class GameApp:
         self._siege_overlay_key = None
         self._siege_stripe_base = None
         self._siege_stripe_base_key = None
+
+        # Enemy AI + morale / stack wipe tuning
+        self.enemy_raise_rate = 0.12
+        self.ai_engage_ratio = 1.1
+        self.ai_avoid_ratio = 0.85
+        self.stack_wipe_attacker_morale = 60
+        self.stack_wipe_defender_morale = 15
+        self.morale_recovery_per_day = 1.5
 
         # Player character = ruler of player realm
         self.player_realm_id = self.world.player_realm_id
@@ -308,6 +319,8 @@ class GameApp:
             if self._left_panel_toggle_rect and self._left_panel_toggle_rect.collidepoint(pos):
                 return True
             if self._right_panel_anim > 0.01 and self.layout.right.collidepoint(pos):
+                return True
+            if self._war_float_rects and any(r.collidepoint(pos) for r in self._war_float_rects):
                 return True
         return False
 
@@ -1199,7 +1212,7 @@ class GameApp:
                 self._clear_siege_state()
                 self._siege_province(pid)
 
-    def _start_war(self, target_rid):
+    def _start_war(self, target_rid, war_type="Conquest", goal_pid=None):
         if self._get_war_by_target(target_rid):
             target_name = self._get_war_target_name(target_rid)
             self.modal.show(
@@ -1219,6 +1232,8 @@ class GameApp:
         war = {
             "id": self._war_next_id,
             "target_id": target_rid,
+            "war_type": war_type,
+            "goal_pid": goal_pid,
             "progress": 0.0,
             "days": 0,
             "ready_prompted": False,
@@ -1227,11 +1242,102 @@ class GameApp:
         }
         self._war_next_id += 1
         self.wars.append(war)
+        self._ensure_enemy_army_for_war(target_rid)
         self._war_focus_id = war["id"]
         self._update_war_progress(war)
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
         self._open_war_details(war["id"])
+
+    def _open_war_type_modal(self, target_rid):
+        target_name = self._get_war_target_name(target_rid)
+        self.modal.show(
+            "Declare War",
+            [
+                f"Select a war type against {target_name}.",
+                "Then choose a province to annex as your war goal.",
+            ],
+            [
+                ("Conquest", "accept", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Conquest")),
+                ("Subjugation", "primary", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Subjugation")),
+                ("Holy War", "secondary", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Holy War")),
+                ("Cancel", "deny", lambda: self._cancel_pending_war()),
+            ],
+        )
+
+    def _begin_war_goal_selection(self, target_rid, war_type):
+        self.modal.close()
+        self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
+        self._war_goal_selecting = True
+        target_name = self._get_war_target_name(target_rid)
+        self.push_log(f"{self.date}: Select a war goal province in {target_name}.")
+
+    def _cancel_pending_war(self):
+        self._pending_war = None
+        self._war_goal_selecting = False
+        self.modal.close()
+
+    def _apply_war_demands(self, war):
+        if not war:
+            return
+        goal_pid = war.get("goal_pid")
+        if goal_pid is None or not (0 <= goal_pid < len(self.world.provinces)):
+            return
+        prov = self.world.provinces[goal_pid]
+        old_rid = prov.realm_id
+        new_rid = self.player_realm_id
+        if old_rid == new_rid:
+            return
+
+        prov.realm_id = new_rid
+        if hasattr(self.world, "realm_sizes"):
+            if 0 <= old_rid < len(self.world.realm_sizes):
+                self.world.realm_sizes[old_rid] = max(0, self.world.realm_sizes[old_rid] - 1)
+            if 0 <= new_rid < len(self.world.realm_sizes):
+                self.world.realm_sizes[new_rid] += 1
+
+        if hasattr(self.world, "realm_capitals") and 0 <= old_rid < len(self.world.realm_capitals):
+            if self.world.realm_capitals[old_rid] == goal_pid:
+                new_cap = next((p.id for p in self.world.provinces if p.realm_id == old_rid), None)
+                self.world.realm_capitals[old_rid] = new_cap if new_cap is not None else -1
+
+        if hasattr(self.world, "_realm_border_cache"):
+            self.world._realm_border_cache.pop(old_rid, None)
+            self.world._realm_border_cache.pop(new_rid, None)
+        if isinstance(getattr(self.world, "_realm_border_points", None), dict):
+            self.world._realm_border_points.pop(old_rid, None)
+            self.world._realm_border_points.pop(new_rid, None)
+
+        if hasattr(self.world, "_compute_fog_of_war"):
+            self.world._compute_fog_of_war()
+        if hasattr(self.world, "_render_borders_and_coast"):
+            self.world._render_borders_and_coast()
+        self._refresh_fog_visuals()
+        self._war_border_overlay = None
+        self._war_border_overlay_key = None
+
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self._baseline_population = max(1, self.population)
+        self.food = self._compute_food_values()
+        self._update_army_max()
+
+        self.push_log(f"{self.date}: Annexed {prov.name}.")
+
+    def _handle_war_goal_click(self, prov):
+        if not self._war_goal_selecting or not self._pending_war or prov is None:
+            return False
+        target_rid = self._pending_war.get("target_id")
+        if target_rid is None:
+            return False
+        if prov.realm_id != target_rid:
+            target_name = self._get_war_target_name(target_rid)
+            self.push_log(f"{self.date}: War goal must be in {target_name}.")
+            return True
+        war_type = self._pending_war.get("war_type", "Conquest")
+        self._war_goal_selecting = False
+        self._pending_war = None
+        self._start_war(target_rid, war_type=war_type, goal_pid=prov.id)
+        return True
 
     def _get_war_target_name(self, war_or_rid):
         if isinstance(war_or_rid, dict):
@@ -1308,6 +1414,11 @@ class GameApp:
         progress = self._format_war_progress(war.get("progress", 0))
         sieged = self._get_war_sieged_set(war)
         total = war.get("total_provs") or 0
+        war_type = war.get("war_type", "Conquest")
+        goal_pid = war.get("goal_pid")
+        goal_name = None
+        if goal_pid is not None and 0 <= goal_pid < len(self.world.provinces):
+            goal_name = self.world.provinces[goal_pid].name
         if progress >= 100:
             press_action = ("Press Demands", "accept", lambda: self._press_war_demands(war_id))
         else:
@@ -1316,6 +1427,8 @@ class GameApp:
             "War Status",
             [
                 f"War against {target_name}.",
+                f"War type: {war_type}.",
+                f"War goal: {goal_name if goal_name else 'None'}.",
                 f"War progress: {progress}%.",
                 f"Sieged provinces: {len(sieged)}/{total}.",
                 "Press demands is available at 100%.",
@@ -1354,6 +1467,7 @@ class GameApp:
                 ],
             )
             return
+        self._apply_war_demands(war)
         target_name = self._get_war_target_name(war)
         self._end_war(war_id, f"Pressed demands against {target_name}.")
 
@@ -1365,6 +1479,13 @@ class GameApp:
             self._war_focus_id = self.wars[0]["id"] if self.wars else None
         if self._siege_state and target_id is not None and self._siege_state.get("target_id") == target_id:
             self._clear_siege_state()
+        if target_id is not None:
+            enemy = self._get_enemy_army_for_realm(target_id)
+            if enemy is not None:
+                enemy["ai_state"] = "idle"
+                enemy["route"] = []
+                enemy["target_pid"] = None
+                enemy["raising"] = False
         self.push_log(f"{self.date}: {log_message}")
         self.modal.show(
             "War Resolved",
@@ -1496,6 +1617,10 @@ class GameApp:
                 "prov_id": pid,
                 "pos": self.world.provinces[pid].center.copy(),
                 "army": {"raised": raised, "max": max_army, "morale": 70},
+                "raising": False,
+                "route": [],
+                "target_pid": None,
+                "ai_state": "idle",
             }
         )
 
@@ -1504,6 +1629,210 @@ class GameApp:
             if enemy.get("prov_id") == pid and int(enemy.get("army", {}).get("raised", 0)) > 0:
                 return enemy
         return None
+
+    def _get_enemy_army_for_realm(self, rid):
+        for enemy in self.enemy_armies:
+            if enemy.get("realm_id") == rid:
+                return enemy
+        return None
+
+    def _spawn_enemy_army_for_realm(self, rid):
+        if rid is None or rid < 0 or rid >= len(self.world.realm_names):
+            return None
+        pid = None
+        if hasattr(self.world, "realm_capitals") and 0 <= rid < len(self.world.realm_capitals):
+            pid = self.world.realm_capitals[rid]
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            for prov in self.world.provinces:
+                if prov.realm_id == rid:
+                    pid = prov.id
+                    break
+        if pid is None:
+            return None
+
+        max_army = int(round(self.world.total_population_for_realm(rid) * self.army_pop_ratio))
+        max_army = max(1, max_army)
+        enemy = {
+            "realm_id": rid,
+            "prov_id": pid,
+            "pos": self.world.provinces[pid].center.copy(),
+            "army": {"raised": 0, "max": max_army, "morale": 55},
+            "raising": True,
+            "route": [],
+            "target_pid": None,
+            "ai_state": "raising",
+        }
+        self.enemy_armies.append(enemy)
+        return enemy
+
+    def _ensure_enemy_army_for_war(self, rid):
+        enemy = self._get_enemy_army_for_realm(rid)
+        if enemy is None:
+            enemy = self._spawn_enemy_army_for_realm(rid)
+        if enemy is not None:
+            enemy["raising"] = True
+            enemy["ai_state"] = "raising"
+        return enemy
+
+    def _update_enemy_raising(self, enemy):
+        if not enemy or not enemy.get("raising"):
+            return
+        army = enemy.get("army", {})
+        max_army = int(army.get("max", 0))
+        if max_army <= 0:
+            enemy["raising"] = False
+            return
+        raised = int(army.get("raised", 0))
+        if raised >= max_army:
+            army["raised"] = max_army
+            enemy["raising"] = False
+            return
+        per_day = max(1, int(round(max_army * self.enemy_raise_rate)))
+        army["raised"] = min(max_army, raised + per_day)
+
+    def _effective_strength(self, army):
+        if not army:
+            return 0.0
+        raised = float(army.get("raised", 0))
+        morale = float(army.get("morale", 50))
+        morale_mult = 0.4 + 0.6 * clamp(morale / 100.0, 0.0, 1.0)
+        return raised * morale_mult
+
+    def _path_length(self, start_pid, target_pid):
+        if start_pid is None or target_pid is None:
+            return 9999
+        if start_pid == target_pid:
+            return 0
+        path = self._find_province_path(start_pid, target_pid)
+        if not path:
+            return 9999
+        return len(path)
+
+    def _ai_should_engage(self, enemy, player_pid):
+        if enemy is None or player_pid is None:
+            return False
+        enemy_strength = self._effective_strength(enemy.get("army", {}))
+        player_strength = self._effective_strength(self.army)
+        if player_strength <= 0:
+            return True
+        ratio = enemy_strength / max(1.0, player_strength)
+        if ratio >= self.ai_engage_ratio:
+            return True
+        if ratio <= self.ai_avoid_ratio:
+            return False
+
+        enemy_rid = enemy.get("realm_id")
+        if enemy_rid is None:
+            return False
+        if 0 <= enemy_rid < len(self.world.realm_capitals):
+            cap_pid = self.world.realm_capitals[enemy_rid]
+            if 0 <= player_pid < len(self.world.provinces):
+                if self.world.provinces[player_pid].realm_id == enemy_rid:
+                    dist = self._path_length(player_pid, cap_pid)
+                    if dist <= 2:
+                        return True
+        return False
+
+    def _pick_enemy_safe_province(self, enemy, player_pid):
+        if enemy is None or player_pid is None:
+            return None
+        from_pid = enemy.get("prov_id")
+        rid = enemy.get("realm_id")
+        if from_pid is None or rid is None:
+            return None
+        best_pid = None
+        best_score = -1.0
+        for nb in self._prov_adj[from_pid]:
+            if self.world.provinces[nb].realm_id != rid:
+                continue
+            if nb == player_pid:
+                continue
+            p = self.world.provinces[nb].center
+            q = self.world.provinces[player_pid].center
+            score = (p.x - q.x) ** 2 + (p.y - q.y) ** 2
+            if score > best_score:
+                best_score = score
+                best_pid = nb
+        if best_pid is None and 0 <= rid < len(self.world.realm_capitals):
+            best_pid = self.world.realm_capitals[rid]
+        return best_pid
+
+    def _set_enemy_route(self, enemy, target_pid):
+        if enemy is None or target_pid is None:
+            return
+        start_pid = enemy.get("prov_id")
+        if start_pid is None:
+            return
+        if start_pid == target_pid:
+            enemy["route"] = []
+            enemy["target_pid"] = target_pid
+            return
+        route = self._find_province_path(start_pid, target_pid)
+        enemy["route"] = route or []
+        enemy["target_pid"] = target_pid
+
+    def _move_enemy_one_step(self, enemy):
+        if enemy is None:
+            return
+        route = enemy.get("route", [])
+        if not route:
+            return
+        next_pid = route.pop(0)
+        enemy["prov_id"] = next_pid
+        enemy["pos"] = self.world.provinces[next_pid].center.copy()
+        enemy["route"] = route
+
+    def _update_enemy_ai_tick(self):
+        if not self.enemy_armies or not self.wars:
+            return
+
+        for enemy in self.enemy_armies:
+            rid = enemy.get("realm_id")
+            if rid is None:
+                continue
+            war = self._get_war_by_target(rid)
+            if not war:
+                enemy["ai_state"] = "idle"
+                enemy["route"] = []
+                enemy["target_pid"] = None
+                continue
+
+            self._update_enemy_raising(enemy)
+            enemy_army = enemy.get("army", {})
+            if int(enemy_army.get("raised", 0)) <= 0:
+                continue
+
+            player_pid = self.army_prov_id if self.army.get("raised", 0) > 0 else None
+            if player_pid is None:
+                continue
+
+            engage = self._ai_should_engage(enemy, player_pid)
+            if engage:
+                enemy["ai_state"] = "engage"
+                if enemy.get("target_pid") != player_pid or not enemy.get("route"):
+                    self._set_enemy_route(enemy, player_pid)
+                self._move_enemy_one_step(enemy)
+            else:
+                enemy["ai_state"] = "avoid"
+                safe_pid = self._pick_enemy_safe_province(enemy, player_pid)
+                if safe_pid is not None:
+                    if enemy.get("target_pid") != safe_pid or not enemy.get("route"):
+                        self._set_enemy_route(enemy, safe_pid)
+                    self._move_enemy_one_step(enemy)
+
+            if enemy.get("prov_id") == player_pid and self.army.get("raised", 0) > 0:
+                self._resolve_battle(enemy, player_pid, attacker_is_player=False)
+
+    def _update_army_morale_tick(self):
+        if self.army.get("raised", 0) > 0:
+            morale = float(self.army.get("morale", 50))
+            self.army["morale"] = clamp(morale + self.morale_recovery_per_day, 0.0, 100.0)
+        for enemy in self.enemy_armies:
+            army = enemy.get("army", {})
+            if int(army.get("raised", 0)) <= 0:
+                continue
+            morale = float(army.get("morale", 50))
+            army["morale"] = clamp(morale + self.morale_recovery_per_day, 0.0, 100.0)
 
     def _pick_retreat_province(self, from_pid, realm_id):
         if 0 <= from_pid < len(self._prov_adj):
@@ -1549,7 +1878,19 @@ class GameApp:
             return win_loss, lose_loss
         return lose_loss, win_loss
 
-    def _resolve_battle(self, enemy, battle_pid):
+    def _apply_battle_morale(self, morale, loss, size, won):
+        if size <= 0:
+            return 0.0
+        loss_ratio = loss / max(1, size)
+        drop = 12 + 60 * loss_ratio
+        if not won:
+            drop += 15
+        morale = clamp(morale - drop, 0.0, 100.0)
+        if won:
+            morale = clamp(morale + 6, 0.0, 100.0)
+        return morale
+
+    def _resolve_battle(self, enemy, battle_pid, attacker_is_player=True):
         if enemy is None:
             return False
         player_size = int(self.army.get("raised", 0))
@@ -1559,11 +1900,41 @@ class GameApp:
 
         player_wins = player_size >= enemy_size
         player_loss, enemy_loss = self._compute_battle_losses(player_size, enemy_size)
+
+        player_morale = float(self.army.get("morale", 60))
+        enemy_morale = float(enemy.get("army", {}).get("morale", 60))
+        attacker_morale = player_morale if attacker_is_player else enemy_morale
+        defender_morale = enemy_morale if attacker_is_player else player_morale
+        attacker_wins = player_wins if attacker_is_player else not player_wins
+        stack_wipe = (
+            attacker_wins
+            and defender_morale <= self.stack_wipe_defender_morale
+            and attacker_morale >= self.stack_wipe_attacker_morale
+        )
+        if stack_wipe:
+            if attacker_is_player:
+                enemy_loss = enemy_size
+            else:
+                player_loss = player_size
+
         new_player = max(0, player_size - player_loss)
         new_enemy = max(0, enemy_size - enemy_loss)
 
         self.army["raised"] = new_player
         enemy["army"]["raised"] = new_enemy
+        if isinstance(enemy, dict):
+            enemy["route"] = []
+            enemy["target_pid"] = None
+
+        player_morale = self._apply_battle_morale(player_morale, player_loss, player_size, player_wins)
+        enemy_morale = self._apply_battle_morale(enemy_morale, enemy_loss, enemy_size, not player_wins)
+        if stack_wipe:
+            if attacker_is_player:
+                enemy_morale = 0.0
+            else:
+                player_morale = 0.0
+        self.army["morale"] = player_morale
+        enemy["army"]["morale"] = enemy_morale
 
         self.army_route = []
         self.army_step_from = None
@@ -1592,6 +1963,11 @@ class GameApp:
             f"Your army: {player_size:,} -> {new_player:,} (lost {player_loss:,})",
             f"Enemy army: {enemy_size:,} -> {new_enemy:,} (lost {enemy_loss:,})",
         ]
+        if stack_wipe:
+            if attacker_is_player:
+                lines.append("Enemy army is wiped out!")
+            else:
+                lines.append("Your army is wiped out!")
         if retreat_name:
             if player_wins:
                 lines.append(f"Enemy retreats to {retreat_name}.")
@@ -1697,7 +2073,7 @@ class GameApp:
             self._update_fog_from_army()
             enemy = self._enemy_army_at(self.army_prov_id)
             if enemy is not None:
-                player_wins = self._resolve_battle(enemy, self.army_prov_id)
+                player_wins = self._resolve_battle(enemy, self.army_prov_id, attacker_is_player=True)
                 if player_wins:
                     self._start_siege(self.army_prov_id)
             else:
@@ -2010,7 +2386,7 @@ class GameApp:
                     ],
                 )
             else:
-                self._start_war(target_rid)
+                self._open_war_type_modal(target_rid)
             return
         if action == "open_war_overview":
             self._open_war_overview()
@@ -2142,8 +2518,10 @@ class GameApp:
                 self.events.on_day()
                 self._update_war_tick()
                 self._update_army_raising()
+                self._update_army_morale_tick()
                 self._update_siege_tick()
                 self._update_army_movement()
+                self._update_enemy_ai_tick()
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
@@ -2301,6 +2679,7 @@ class GameApp:
                                             wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
+                                                self._handle_war_goal_click(prov)
                                                 self.army_selected = False
                                                 self.selected_province = prov
                                                 self.right_panel_open = True
@@ -2399,6 +2778,9 @@ class GameApp:
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
+                war_btns, war_rects = self.ui.draw_war_floating(self.screen, self.layout.top, state)
+                clickables.extend(war_btns)
+                self._war_float_rects = war_rects
                 left_character = self.character
                 left_realm_id = self.player_realm_id
                 if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:

@@ -389,18 +389,6 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
-        # ---------- RIGHT SIDE: War icons (CK3-style) ----------
-        wars = state.get("wars") or []
-        if wars:
-            icon_h = min(30, bh)
-            icon_w = icon_h
-            icon_gap = max(6, gap // 2)
-            for war in reversed(wars):
-                icon_rect = pygame.Rect(right_edge - icon_w, rect.centery - icon_h // 2, icon_w, icon_h)
-                self._draw_war_icon(surface, icon_rect, int(round(war.get("progress", 0))))
-                btns.append((icon_rect, f"war_details:{war.get('id')}"))
-                right_edge = icon_rect.left - icon_gap
-
         # ---------- RIGHT SIDE: Manpower ----------
         army = state.get("army")
         if isinstance(army, dict):
@@ -1066,3 +1054,41 @@ class UIManager:
         pygame.draw.rect(surface, (170, 70, 70), badge_rect, border_radius=6)
         pygame.draw.rect(surface, (0, 0, 0), badge_rect, 1, border_radius=6)
         surface.blit(label, label.get_rect(center=badge_rect.center))
+
+    def draw_war_floating(self, surface, top_rect, state):
+        btns = []
+        rects = []
+        wars = state.get("wars") or []
+        if not wars:
+            return btns, rects
+
+        pad = max(8, top_rect.w // 140)
+        plaque_w = 64
+        plaque_h = 52
+        icon_size = 30
+        gap = 8
+
+        x = top_rect.right - pad - plaque_w
+        y = top_rect.bottom + 8
+
+        for war in reversed(wars):
+            plaque = pygame.Rect(x, y, plaque_w, plaque_h)
+            shadow = plaque.move(3, 3)
+            pygame.draw.rect(surface, (0, 0, 0, 90), shadow, border_radius=8)
+
+            pygame.draw.rect(surface, (40, 36, 30), plaque, border_radius=8)
+            pygame.draw.rect(surface, (120, 100, 60), plaque, 2, border_radius=8)
+
+            notch = pygame.Rect(plaque.centerx - 8, plaque.bottom - 6, 16, 8)
+            pygame.draw.rect(surface, (40, 36, 30), notch, border_radius=3)
+            pygame.draw.rect(surface, (120, 100, 60), notch, 1, border_radius=3)
+
+            icon_rect = pygame.Rect(0, 0, icon_size, icon_size)
+            icon_rect.center = (plaque.centerx, plaque.centery - 2)
+            self._draw_war_icon(surface, icon_rect, int(round(war.get("progress", 0))))
+
+            btns.append((plaque, f"war_details:{war.get('id')}"))
+            rects.append(plaque.copy())
+            y += plaque_h + gap
+
+        return btns, rects
