@@ -122,6 +122,15 @@ class GameApp:
         self._war_border_overlay = None
         self._war_border_overlay_key = None
 
+        # Siege system (CK-style timing)
+        self.siege_prep_days = 7
+        self.siege_assault_days = 21
+        self._siege_state = None
+        self._siege_overlay = None
+        self._siege_overlay_key = None
+        self._siege_stripe_base = None
+        self._siege_stripe_base_key = None
+
         # Player character = ruler of player realm
         self.player_realm_id = self.world.player_realm_id
         self.character = self.world.realm_rulers[self.player_realm_id]
@@ -346,6 +355,69 @@ class GameApp:
         self._war_border_overlay = overlay
         self._war_border_overlay_key = targets
         return overlay, targets
+
+    def _get_all_sieged_provinces(self):
+        sieged = set()
+        for war in self.wars:
+            sieged.update(self._get_war_sieged_set(war))
+        return sieged
+
+    def _get_siege_stripe_base(self):
+        key = (self.world.world_w, self.world.world_h)
+        if self._siege_stripe_base is not None and self._siege_stripe_base_key == key:
+            return self._siege_stripe_base
+
+        tile_size = 24
+        stripe_gap = 6
+        stripe = pygame.Surface((tile_size, tile_size), pygame.SRCALPHA)
+        stripe.fill((0, 0, 0, 0))
+        stripe_color = (235, 225, 205, 70)
+        for x in range(-tile_size, tile_size * 2, stripe_gap):
+            pygame.draw.line(stripe, stripe_color, (x, 0), (x + tile_size, tile_size), 2)
+
+        base = pygame.Surface((self.world.world_w, self.world.world_h), pygame.SRCALPHA)
+        tile_fill(base, base.get_rect(), stripe)
+        self._siege_stripe_base = base
+        self._siege_stripe_base_key = key
+        return base
+
+    def _build_siege_overlay(self, sieged_set):
+        if not sieged_set:
+            return None
+
+        mask = pygame.Surface((self.world.gw, self.world.gh), pygame.SRCALPHA)
+        for y in range(self.world.gh):
+            row = self.world.prov_id[y]
+            for x in range(self.world.gw):
+                pid = row[x]
+                if pid >= 0 and pid in sieged_set:
+                    mask.set_at((x, y), (255, 255, 255, 255))
+
+        mask_big = pygame.transform.scale(mask, (self.world.world_w, self.world.world_h))
+        overlay = self._get_siege_stripe_base().copy()
+        overlay.blit(mask_big, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        return overlay
+
+    def _get_siege_overlay(self):
+        sieged = self._get_all_sieged_provinces()
+        if not sieged:
+            self._siege_overlay = None
+            self._siege_overlay_key = None
+            return None, None
+
+        key = tuple(sorted(sieged))
+        if key == self._siege_overlay_key and self._siege_overlay is not None:
+            return self._siege_overlay, key
+
+        overlay = self._build_siege_overlay(sieged)
+        if overlay is None:
+            self._siege_overlay = None
+            self._siege_overlay_key = None
+            return None, None
+
+        self._siege_overlay = overlay
+        self._siege_overlay_key = key
+        return overlay, key
 
     def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False):
         if max_army <= 0:
@@ -941,6 +1013,13 @@ class GameApp:
         self._war_border_overlay = None
         self._war_border_overlay_key = None
 
+        # Reset siege state on new game start.
+        self._siege_state = None
+        self._siege_overlay = None
+        self._siege_overlay_key = None
+        self._siege_stripe_base = None
+        self._siege_stripe_base_key = None
+
     def _get_war_by_id(self, war_id):
         for war in self.wars:
             if war.get("id") == war_id:
@@ -1032,6 +1111,93 @@ class GameApp:
             war["ready_prompted"] = True
             if not self.modal.open:
                 self._open_war_details(war["id"])
+
+    def _clear_siege_state(self):
+        self._siege_state = None
+
+    def _start_siege(self, pid):
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            return False
+        prov = self.world.provinces[pid]
+        if prov.realm_id == self.player_realm_id:
+            return False
+        war = self._get_war_by_target(prov.realm_id)
+        if not war:
+            return False
+        sieged = self._get_war_sieged_set(war)
+        if pid in sieged:
+            return False
+        if self._siege_state and self._siege_state.get("pid") == pid:
+            return True
+        self._siege_state = {
+            "pid": pid,
+            "target_id": prov.realm_id,
+            "stage": "prep",
+            "days": 0,
+            "prep_days": max(1, int(self.siege_prep_days)),
+            "assault_days": max(1, int(self.siege_assault_days)),
+        }
+        self.push_log(f"{self.date}: Begin siege preparations in {prov.name}.")
+        return True
+
+    def _maybe_start_siege(self):
+        if self._siege_state:
+            return False
+        if self.army_prov_id is None:
+            return False
+        if self.army_step_to is not None or self.army_route:
+            return False
+        if self.army.get("raised", 0) <= 0:
+            return False
+        if self._enemy_army_at(self.army_prov_id) is not None:
+            return False
+        return self._start_siege(self.army_prov_id)
+
+    def _update_siege_tick(self):
+        if self._siege_state is None:
+            self._maybe_start_siege()
+            return
+
+        pid = self._siege_state.get("pid")
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            self._clear_siege_state()
+            return
+
+        # Must remain stationary with troops to maintain siege.
+        if self.army_prov_id != pid or self.army_step_to is not None or self.army_route:
+            self._clear_siege_state()
+            return
+        if self.army.get("raised", 0) <= 0:
+            self._clear_siege_state()
+            return
+
+        prov = self.world.provinces[pid]
+        if prov.realm_id == self.player_realm_id:
+            self._clear_siege_state()
+            return
+
+        war = self._get_war_by_target(prov.realm_id)
+        if not war:
+            self._clear_siege_state()
+            return
+        sieged = self._get_war_sieged_set(war)
+        if pid in sieged:
+            self._clear_siege_state()
+            return
+
+        stage = self._siege_state.get("stage", "prep")
+        self._siege_state["days"] = int(self._siege_state.get("days", 0)) + 1
+        days = self._siege_state["days"]
+
+        if stage == "prep":
+            if days >= self._siege_state.get("prep_days", 1):
+                self._siege_state["stage"] = "assault"
+                self._siege_state["days"] = 0
+                self.push_log(f"{self.date}: Siege of {prov.name} begins.")
+        else:
+            if days >= self._siege_state.get("assault_days", 1):
+                self._clear_siege_state()
+                self._siege_province(pid)
 
     def _start_war(self, target_rid):
         if self._get_war_by_target(target_rid):
@@ -1192,9 +1358,13 @@ class GameApp:
         self._end_war(war_id, f"Pressed demands against {target_name}.")
 
     def _end_war(self, war_id, log_message):
+        war = self._get_war_by_id(war_id)
+        target_id = war.get("target_id") if war else None
         self.wars = [war for war in self.wars if war.get("id") != war_id]
         if self._war_focus_id == war_id:
             self._war_focus_id = self.wars[0]["id"] if self.wars else None
+        if self._siege_state and target_id is not None and self._siege_state.get("target_id") == target_id:
+            self._clear_siege_state()
         self.push_log(f"{self.date}: {log_message}")
         self.modal.show(
             "War Resolved",
@@ -1529,9 +1699,10 @@ class GameApp:
             if enemy is not None:
                 player_wins = self._resolve_battle(enemy, self.army_prov_id)
                 if player_wins:
-                    self._siege_province(self.army_prov_id)
+                    self._start_siege(self.army_prov_id)
             else:
-                self._siege_province(self.army_prov_id)
+                if not self.army_route and self.army_step_to is None:
+                    self._start_siege(self.army_prov_id)
 
     def _update_army_raising(self):
         if not self.army_raising:
@@ -1971,6 +2142,7 @@ class GameApp:
                 self.events.on_day()
                 self._update_war_tick()
                 self._update_army_raising()
+                self._update_siege_tick()
                 self._update_army_movement()
 
                 if self.date.day == 1:
@@ -2185,8 +2357,21 @@ class GameApp:
                 # Map
                 map_rect = self._get_map_rect()
                 war_overlay, war_overlay_key = self._get_war_border_overlay()
-                overlays = [war_overlay] if war_overlay is not None else None
-                self.map_renderer.draw(self.screen, map_rect, overlays, war_overlay_key)
+                siege_overlay, siege_overlay_key = self._get_siege_overlay()
+                overlays = []
+                overlay_key = []
+                if siege_overlay is not None:
+                    overlays.append(siege_overlay)
+                    overlay_key.append(("siege", siege_overlay_key))
+                if war_overlay is not None:
+                    overlays.append(war_overlay)
+                    overlay_key.append(("war", war_overlay_key))
+                if not overlays:
+                    overlays = None
+                    overlay_key = None
+                else:
+                    overlay_key = tuple(overlay_key)
+                self.map_renderer.draw(self.screen, map_rect, overlays, overlay_key)
                 self._draw_selected_province_highlight(self.screen, map_rect)
                 self._draw_army_muster_marker(self.screen, map_rect)
                 self._draw_enemy_armies(self.screen, map_rect)
