@@ -541,6 +541,55 @@ class GameApp:
         mid = (p0[0] + (p1[0] - p0[0]) * progress, p0[1] + (p1[1] - p0[1]) * progress)
         pygame.draw.line(surface, (200, 60, 60), p0, mid, 4)
 
+    def _draw_siege_status(self, surface, map_rect):
+        if not self._siege_state:
+            return
+        pid = self._siege_state.get("pid")
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            return
+        if not self._is_province_visible(pid):
+            return
+
+        prep_days = int(self._siege_state.get("prep_days", 1))
+        assault_days = int(self._siege_state.get("assault_days", 1))
+        stage = self._siege_state.get("stage", "prep")
+        days = int(self._siege_state.get("days", 0))
+        total_days = max(1, prep_days + assault_days)
+        if stage == "prep":
+            elapsed = max(0, min(days, prep_days))
+            remaining = max(0, prep_days - days + assault_days)
+            stage_label = "Prep"
+        else:
+            elapsed = prep_days + max(0, min(days, assault_days))
+            remaining = max(0, assault_days - days)
+            stage_label = "Siege"
+
+        progress = max(0.0, min(1.0, elapsed / total_days))
+
+        sp = self.camera.world_to_screen(self.world.provinces[pid].center, map_rect, use_target=False)
+        x, y = int(sp.x), int(sp.y)
+        if not map_rect.collidepoint(x, y):
+            return
+
+        w, h = 110, 34
+        panel = pygame.Rect(0, 0, w, h)
+        panel.center = (x, y - 42)
+
+        pygame.draw.rect(surface, (20, 18, 16), panel, border_radius=6)
+        pygame.draw.rect(surface, (0, 0, 0), panel, 2, border_radius=6)
+
+        bar_pad = 6
+        bar_h = 6
+        bar = pygame.Rect(panel.left + bar_pad, panel.bottom - bar_pad - bar_h, panel.w - bar_pad * 2, bar_h)
+        pygame.draw.rect(surface, (70, 62, 50), bar, border_radius=3)
+        fill_w = int(bar.w * progress)
+        if fill_w > 0:
+            fill = pygame.Rect(bar.left, bar.top, fill_w, bar.h)
+            pygame.draw.rect(surface, (180, 120, 60), fill, border_radius=3)
+
+        label = FOOTER_FONT.render(f"{stage_label} {remaining}d", True, (230, 220, 200))
+        surface.blit(label, label.get_rect(center=(panel.centerx, panel.centery - 4)))
+
     def _is_province_visible(self, pid):
         vis = self.world.visibility_by_prov.get(pid, 0.45)
         if vis >= 0.78:
@@ -2755,6 +2804,7 @@ class GameApp:
                 self._draw_army_muster_marker(self.screen, map_rect)
                 self._draw_enemy_armies(self.screen, map_rect)
                 self._draw_army_route_arrow(self.screen, map_rect)
+                self._draw_siege_status(self.screen, map_rect)
 
                 # UI panels
                 state = {
