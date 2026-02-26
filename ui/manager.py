@@ -693,26 +693,45 @@ class UIManager:
             b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
             btns.append((b_close, "left_panel_close"))
 
-        if npc_target:
-            if actions_enabled:
-                btn_h = 28
-                btn_gap = 8
-                y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
-                promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, y, content.w, btn_h)
-                btns.append((promote_rect, "npc_promote_relations"))
+        btn_h = 28
+        btn_gap = 8
+        y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
+        promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, y, content.w, btn_h)
+        war_rect = draw_deny_button(surface, "Declare War", content.left, y + btn_h + btn_gap, content.w, btn_h)
+        if npc_target and actions_enabled:
+            btns.append((promote_rect, "npc_promote_relations"))
+            btns.append((war_rect, "npc_declare_war"))
+        else:
+            veil = pygame.Surface(promote_rect.size, pygame.SRCALPHA)
+            veil.fill((20, 20, 20, 110))
+            surface.blit(veil, promote_rect.topleft)
+            surface.blit(veil, war_rect.topleft)
+        y = y + (btn_h * 2) + btn_gap + 8
 
-                war_rect = draw_deny_button(surface, "Declare War", content.left, y + btn_h + btn_gap, content.w, btn_h)
-                btns.append((war_rect, "npc_declare_war"))
-                y = y + (btn_h * 2) + btn_gap + 8
+        target_info = npc_target
+        if target_info is None:
+            rid = state.get("character_realm_id", state.get("player_realm_id", 0))
+            realm_name = "Realm"
+            if isinstance(state.get("realm_names"), (list, tuple)) and 0 <= rid < len(state["realm_names"]):
+                realm_name = state["realm_names"][rid]
+            ruler = None
+            if isinstance(state.get("realm_rulers"), (list, tuple)) and 0 <= rid < len(state["realm_rulers"]):
+                ruler = state["realm_rulers"][rid]
+            target_info = {
+                "realm_name": realm_name,
+                "title": (ruler or {}).get("title", c.get("title", "—")),
+                "faith": (ruler or {}).get("faith", c.get("faith", "—")),
+                "culture": (ruler or {}).get("culture", c.get("culture", "—")),
+            }
 
-            y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
-            target_title = npc_target.get("title", "—")
-            target_realm = npc_target.get("realm_name", "Realm")
-            y = draw_body_text(surface, f"Realm: {target_realm}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Faith: {npc_target.get('faith','—')}", content.left, y, color=(220, 214, 198))
-            y = draw_body_text(surface, f"Culture: {npc_target.get('culture','—')}", content.left, y, color=(220, 214, 198))
-            y += 6
+        y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
+        target_title = target_info.get("title", "—")
+        target_realm = target_info.get("realm_name", "Realm")
+        y = draw_body_text(surface, f"Realm: {target_realm}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Faith: {target_info.get('faith','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Culture: {target_info.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        y += 6
 
         y = self._draw_character_details(surface, content, y, c)
 
