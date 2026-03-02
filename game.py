@@ -2672,7 +2672,7 @@ class GameApp:
                         elif self.mode == "realm_select":
                             self.mode = "storyteller"
                     elif event.key == pygame.K_SPACE:
-                        if not self.modal.open and self.mode == "game":
+                        if self.mode == "game":
                             self.toggle_pause()
 
                 # Mouse wheel zoom (pygame 2)
