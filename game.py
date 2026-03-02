@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import pygame
 
 import event_content
@@ -17,6 +18,7 @@ from systems.buildings import (
     building_food_output,
     building_max_level,
 )
+from systems.characters import generate_heir, generate_ruler, generate_spouse
 from systems.traits import _stats_list_to_dict, apply_trait_effects, compute_piety_rate, normalize_traits
 from ui.layout import Layout
 from ui.manager import UIManager
@@ -114,6 +116,7 @@ class GameApp:
             "gold": 200,
             "gold_rate": +1,
             "piety": 1000,
+            "prestige": 350,
         }
 
         # War state (multiple active wars supported)
@@ -151,6 +154,16 @@ class GameApp:
         apply_trait_effects(self.character)
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
+
+        # CK2-style political layer
+        self.realm_relations = {}
+        self.realm_claims = set()
+        self.realm_truces = {}
+        self.claim_fabrication_cooldowns = {}
+        self.alliances = set()
+        self.subjugation_cooldown_days = 0
+        self._init_diplomacy_state()
 
         # Approximation: able-bodied levy pool (~12% of total population).
         self.army_pop_ratio = 0.12
@@ -300,6 +313,712 @@ class GameApp:
             "traits": ruler.get("traits", []),
             "realm_name": realm_name or "Realm",
         }
+
+    @staticmethod
+    def _stat_value(character, key, default=8):
+        if not isinstance(character, dict):
+            return int(default)
+        stats = character.get("stats", [])
+        for k, v in stats:
+            if k != key:
+                continue
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                break
+        return int(default)
+
+    def _compute_prestige_rate(self, character):
+        dip = self._stat_value(character, "Diplomacy", default=8)
+        martial = self._stat_value(character, "Martial", default=8)
+        prowess = self._stat_value(character, "Prowess", default=8)
+        rate = int(round((dip + martial + prowess) / 9.0)) - 2
+        traits = set(character.get("traits", [])) if isinstance(character, dict) else set()
+        if "proud" in traits:
+            rate += 1
+        if "humble" in traits:
+            rate -= 1
+        if "diligent" in traits:
+            rate += 1
+        if "lazy" in traits:
+            rate -= 1
+        return int(clamp(rate, -5, 8))
+
+    def _realm_size(self, rid):
+        if hasattr(self.world, "realm_sizes") and 0 <= rid < len(self.world.realm_sizes):
+            return max(1, int(self.world.realm_sizes[rid]))
+        return max(1, sum(1 for p in self.world.provinces if p.realm_id == rid))
+
+    @staticmethod
+    def _realm_core_name(realm_name):
+        if " of " in realm_name:
+            return realm_name.split(" of ", 1)[1]
+        return realm_name
+
+    def _rank_for_realm(self, rid, gender):
+        size = self._realm_size(rid)
+        if size >= 3:
+            return "King" if gender == "male" else "Queen"
+        if size == 2:
+            return "Duke" if gender == "male" else "Duchess"
+        return "Count" if gender == "male" else "Countess"
+
+    @staticmethod
+    def _extract_first_name(display_name):
+        titles = {
+            "King",
+            "Queen",
+            "Duke",
+            "Duchess",
+            "Count",
+            "Countess",
+            "Prince",
+            "Princess",
+            "Heir",
+            "Baron",
+            "Baroness",
+        }
+        parts = str(display_name).replace(",", " ").split()
+        while parts and parts[0] in titles:
+            parts = parts[1:]
+        if "of" in parts:
+            parts = parts[:parts.index("of")]
+        if not parts:
+            return "Unnamed"
+        if len(parts) >= 2:
+            return f"{parts[0]} {parts[1]}"
+        return parts[0]
+
+    def _get_neighbor_realms(self, rid):
+        neighbors = set()
+        for pid, prov in enumerate(self.world.provinces):
+            if prov.realm_id != rid or pid >= len(self._prov_adj):
+                continue
+            for nb in self._prov_adj[pid]:
+                other = self.world.provinces[nb].realm_id
+                if other != rid:
+                    neighbors.add(other)
+        return neighbors
+
+    def _init_diplomacy_state(self):
+        self.realm_relations = {}
+        self.realm_claims = set()
+        self.realm_truces = {}
+        self.claim_fabrication_cooldowns = {}
+        self.alliances = set()
+        self.subjugation_cooldown_days = 0
+
+        seed = self.world.seed * 1009 + self.player_realm_id * 53
+        rnd = random.Random(seed)
+        for rid in range(len(self.world.realm_names)):
+            if rid == self.player_realm_id:
+                continue
+            self.realm_relations[rid] = rnd.randint(-30, 25)
+
+        neighbors = list(self._get_neighbor_realms(self.player_realm_id))
+        rnd.shuffle(neighbors)
+        if neighbors:
+            self.realm_claims.add(neighbors[0])
+            if len(neighbors) > 1 and rnd.random() < 0.35:
+                self.realm_claims.add(neighbors[1])
+
+    def _get_realm_opinion(self, rid):
+        try:
+            rid = int(rid)
+        except (TypeError, ValueError):
+            return 0
+        return int(self.realm_relations.get(rid, 0))
+
+    def _change_realm_opinion(self, rid, delta):
+        try:
+            rid = int(rid)
+        except (TypeError, ValueError):
+            return 0
+        cur = self._get_realm_opinion(rid)
+        nxt = int(clamp(cur + int(delta), -100, 100))
+        self.realm_relations[rid] = nxt
+        return nxt
+
+    def _diplomacy_snapshot(self, rid):
+        if rid is None or rid == self.player_realm_id:
+            return None
+        truce = int(self.realm_truces.get(rid, 0))
+        claim_cd = int(self.claim_fabrication_cooldowns.get(rid, 0))
+        return {
+            "opinion": self._get_realm_opinion(rid),
+            "claimed": rid in self.realm_claims,
+            "allied": rid in self.alliances,
+            "truce_days": truce,
+            "claim_cooldown_days": claim_cd,
+        }
+
+    @staticmethod
+    def _days_label(days):
+        d = max(0, int(days))
+        if d < 365:
+            return f"{d}d"
+        years = d / 365.0
+        return f"{years:.1f}y"
+
+    @staticmethod
+    def _decrement_days_map(values):
+        for key in list(values.keys()):
+            values[key] = int(values[key]) - 1
+            if values[key] <= 0:
+                values.pop(key, None)
+
+    @staticmethod
+    def _age_person(person):
+        if not isinstance(person, dict):
+            return
+        age = person.get("age", 0)
+        try:
+            age = int(age)
+        except (TypeError, ValueError):
+            age = 0
+        person["age"] = max(0, age) + 1
+
+    def _annual_death_chance(self, ruler):
+        age = ruler.get("age", 35)
+        try:
+            age = int(age)
+        except (TypeError, ValueError):
+            age = 35
+
+        if age < 35:
+            chance = 0.004
+        elif age < 45:
+            chance = 0.012
+        elif age < 55:
+            chance = 0.035
+        elif age < 65:
+            chance = 0.085
+        elif age < 75:
+            chance = 0.19
+        else:
+            chance = 0.34
+
+        traits = set(ruler.get("traits", []))
+        if "temperate" in traits:
+            chance *= 0.85
+        if "diligent" in traits:
+            chance *= 0.92
+        if "gluttonous" in traits:
+            chance *= 1.20
+        if "lazy" in traits:
+            chance *= 1.12
+        return float(clamp(chance, 0.001, 0.85))
+
+    def _maybe_generate_family_for_realm(self, rid, ruler):
+        if not isinstance(ruler, dict):
+            return
+        realm_name = self.world.realm_names[rid] if 0 <= rid < len(self.world.realm_names) else "Realm"
+        realm_size = self._realm_size(rid)
+        culture = ruler.get("culture", "Nordfolken")
+        faith = ruler.get("faith", "Nordfolken Mythology")
+        house = ruler.get("house", "House Unknown")
+        gender = ruler.get("gender", "male")
+        age = ruler.get("age", 18)
+        try:
+            age = int(age)
+        except (TypeError, ValueError):
+            age = 18
+
+        if not isinstance(ruler.get("spouse"), dict) and 18 <= age <= 60:
+            chance = 0.12 if age <= 24 else 0.18
+            if self.world.rnd.random() < chance:
+                ruler["spouse"] = generate_spouse(
+                    self.world.rnd,
+                    realm_name=realm_name,
+                    realm_size=realm_size,
+                    culture=culture,
+                    faith=faith,
+                    house=house,
+                    ruler_gender=gender,
+                )
+
+        has_spouse = isinstance(ruler.get("spouse"), dict)
+        if not isinstance(ruler.get("heir"), dict) and 16 <= age <= 65:
+            chance = 0.36 if has_spouse else 0.16
+            if self.world.rnd.random() < chance:
+                ruler["heir"] = generate_heir(
+                    self.world.rnd,
+                    realm_name=realm_name,
+                    realm_size=realm_size,
+                    culture=culture,
+                    faith=faith,
+                    house=house,
+                )
+
+    def _build_successor(self, rid, deceased):
+        candidate = deceased.get("heir")
+        source = "heir"
+        if not isinstance(candidate, dict):
+            candidate = deceased.get("spouse")
+            source = "spouse" if isinstance(candidate, dict) else "noble"
+
+        realm_name = self.world.realm_names[rid] if 0 <= rid < len(self.world.realm_names) else "Realm"
+        realm_size = self._realm_size(rid)
+        culture = (candidate or {}).get("culture", deceased.get("culture", "Nordfolken"))
+        faith = (candidate or {}).get("faith", deceased.get("faith", "Nordfolken Mythology"))
+
+        seed = (self.world.seed * 65537 + rid * 131 + date_ordinal(self.date) * 17) & 0xFFFFFFFF
+        rr = random.Random(seed)
+        successor = generate_ruler(
+            rr,
+            realm_name=realm_name,
+            realm_size=realm_size,
+            culture=culture,
+            faith=faith,
+        )
+
+        candidate = candidate if isinstance(candidate, dict) else {}
+        gender = candidate.get("gender", successor.get("gender", "male"))
+        if gender not in ("male", "female"):
+            gender = successor.get("gender", "male")
+        rank = self._rank_for_realm(rid, gender)
+        first_name = self._extract_first_name(candidate.get("name", successor.get("name", "Unnamed")))
+
+        successor["gender"] = gender
+        successor["name"] = f"{rank} {first_name}".strip()
+        successor["title"] = f"{rank} of {self._realm_core_name(realm_name)}"
+        successor["house"] = candidate.get("house") or deceased.get("house") or successor.get("house")
+        successor["culture"] = culture
+        successor["faith"] = faith
+
+        age = candidate.get("age", successor.get("age", 18))
+        try:
+            age = int(age)
+        except (TypeError, ValueError):
+            age = 18
+        successor["age"] = max(0, age)
+
+        if "base_stats" not in successor:
+            successor["base_stats"] = _stats_list_to_dict(successor.get("stats", []))
+        successor["traits"] = normalize_traits(successor.get("traits", []))
+        apply_trait_effects(successor)
+        self._maybe_generate_family_for_realm(rid, successor)
+        return successor, source
+
+    def _handle_ruler_death(self, rid, reason):
+        if rid is None or not (0 <= rid < len(self.world.realm_rulers)):
+            return
+        deceased = self.world.realm_rulers[rid]
+        if not isinstance(deceased, dict):
+            return
+        deceased_name = deceased.get("name", "Ruler")
+        successor, source = self._build_successor(rid, deceased)
+        self.world.realm_rulers[rid] = successor
+
+        realm_name = self.world.realm_names[rid] if 0 <= rid < len(self.world.realm_names) else "Realm"
+        source_label = {
+            "heir": "heir",
+            "spouse": "spouse",
+            "noble": "noble claimant",
+        }.get(source, "successor")
+        self.push_log(
+            f"{self.date}: {deceased_name} of {realm_name} {reason}. "
+            f"{successor.get('name', 'Successor')} inherits as {source_label}."
+        )
+
+        if rid == self.player_realm_id:
+            self.character = successor
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 75)
+            self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 30)
+            self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+            self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
+            if not self.modal.open:
+                self.modal.show(
+                    "Succession",
+                    [
+                        f"{deceased_name} {reason}.",
+                        f"You now play as {self.character.get('name', 'your heir')}.",
+                    ],
+                    [
+                        ("Continue", "accept", lambda: self.modal.close()),
+                    ],
+                )
+
+    def _annual_dynasty_tick(self):
+        deaths = []
+        for rid, ruler in enumerate(self.world.realm_rulers):
+            if not isinstance(ruler, dict):
+                continue
+            self._age_person(ruler)
+            self._age_person(ruler.get("spouse"))
+            self._age_person(ruler.get("heir"))
+            self._maybe_generate_family_for_realm(rid, ruler)
+            if self.world.rnd.random() < self._annual_death_chance(ruler):
+                deaths.append(rid)
+        for rid in deaths:
+            self._handle_ruler_death(rid, "passed away")
+
+    def _tick_politics_day(self):
+        self._decrement_days_map(self.realm_truces)
+        self._decrement_days_map(self.claim_fabrication_cooldowns)
+        if self.subjugation_cooldown_days > 0:
+            self.subjugation_cooldown_days -= 1
+
+    def _can_declare_war_type(self, target_rid, war_type):
+        if target_rid is None or target_rid == self.player_realm_id:
+            return False, "Invalid target."
+        if target_rid in self.alliances:
+            return False, "Cannot declare on an ally."
+        truce_days = int(self.realm_truces.get(target_rid, 0))
+        if truce_days > 0:
+            return False, f"Truce active ({self._days_label(truce_days)} left)."
+
+        if war_type == "Conquest":
+            if target_rid not in self.realm_claims:
+                return False, "Requires a fabricated claim."
+            if self.resources.get("prestige", 0) < 75:
+                return False, "Need 75 prestige."
+            return True, "Use an existing claim (cost: 75 prestige)."
+
+        if war_type == "Subjugation":
+            if self.resources.get("prestige", 0) < 320:
+                return False, "Need 320 prestige."
+            if self.subjugation_cooldown_days > 0:
+                return False, f"On cooldown ({self._days_label(self.subjugation_cooldown_days)})."
+            return True, "Major war (cost: 320 prestige)."
+
+        if war_type == "Holy War":
+            target_faith = None
+            if 0 <= target_rid < len(self.world.realm_rulers):
+                target_faith = self.world.realm_rulers[target_rid].get("faith")
+            if target_faith == self.character.get("faith"):
+                return False, "Target follows your faith."
+            if self.resources.get("piety", 0) < 250:
+                return False, "Need 250 piety."
+            if self.resources.get("prestige", 0) < 60:
+                return False, "Need 60 prestige."
+            return True, "Religious war (cost: 250 piety, 60 prestige)."
+
+        return False, "Unavailable war type."
+
+    def _pay_war_cost(self, target_rid, war_type):
+        if war_type == "Conquest":
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 75)
+        elif war_type == "Subjugation":
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 320)
+            self.subjugation_cooldown_days = max(self.subjugation_cooldown_days, 3650)
+        elif war_type == "Holy War":
+            self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 250)
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 60)
+        self._change_realm_opinion(target_rid, -18)
+
+    def _selected_target_realm(self):
+        if self.selected_province is None:
+            return None
+        rid = self.selected_province.realm_id
+        if rid == self.player_realm_id:
+            return None
+        if not (0 <= rid < len(self.world.realm_names)):
+            return None
+        return rid
+
+    def _action_promote_relations(self):
+        target_rid = self._selected_target_realm()
+        if target_rid is None:
+            self.modal.show(
+                "No Target Selected",
+                [
+                    "Select a foreign realm before sending diplomatic envoys.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        gold_cost = 25
+        if self.resources.get("gold", 0) < gold_cost:
+            self.modal.show(
+                "Insufficient Gold",
+                [
+                    f"Promoting relations costs {gold_cost} gold.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        self.resources["gold"] -= gold_cost
+        diplomacy = self._stat_value(self.character, "Diplomacy", default=8)
+        gain = max(5, int(round(6 + diplomacy * 0.6 + self.world.rnd.randint(0, 3))))
+        new_opinion = self._change_realm_opinion(target_rid, gain)
+        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 5
+        target_name = self._get_war_target_name(target_rid)
+        self.push_log(f"{self.date}: Envoys improved relations with {target_name} ({new_opinion:+d}).")
+        self.modal.show(
+            "Diplomacy",
+            [
+                f"Your envoys impressed {target_name}.",
+                f"Opinion is now {new_opinion:+d}.",
+            ],
+            [
+                ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
+
+    def _action_fabricate_claim(self):
+        target_rid = self._selected_target_realm()
+        if target_rid is None:
+            self.modal.show(
+                "No Target Selected",
+                [
+                    "Select a foreign realm to fabricate a claim.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        if target_rid in self.realm_claims:
+            self.modal.show(
+                "Claim Already Held",
+                [
+                    "You already have a claim on this realm.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        cooldown = int(self.claim_fabrication_cooldowns.get(target_rid, 0))
+        if cooldown > 0:
+            self.modal.show(
+                "Scheme Already Running",
+                [
+                    f"You must wait {self._days_label(cooldown)} before trying again.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        gold_cost = 45
+        piety_cost = 35
+        if self.resources.get("gold", 0) < gold_cost or self.resources.get("piety", 0) < piety_cost:
+            self.modal.show(
+                "Insufficient Resources",
+                [
+                    f"Fabricating a claim costs {gold_cost} gold and {piety_cost} piety.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        self.resources["gold"] -= gold_cost
+        self.resources["piety"] -= piety_cost
+        intrigue = self._stat_value(self.character, "Intrigue", default=8)
+        chance = float(clamp(0.20 + intrigue * 0.03, 0.20, 0.85))
+        success = self.world.rnd.random() < chance
+        discovered = self.world.rnd.random() < (0.30 if success else 0.60)
+        self.claim_fabrication_cooldowns[target_rid] = 540
+        target_name = self._get_war_target_name(target_rid)
+
+        lines = [f"Scheme chance: {int(round(chance * 100))}%."]
+        if success:
+            self.realm_claims.add(target_rid)
+            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 35
+            if discovered:
+                self._change_realm_opinion(target_rid, -12)
+                lines.append("Claim forged, but your agents were noticed.")
+            else:
+                self._change_realm_opinion(target_rid, -5)
+                lines.append("Claim forged in secret.")
+            self.push_log(f"{self.date}: A claim was fabricated on {target_name}.")
+            title = "Claim Fabricated"
+        else:
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 20)
+            if discovered:
+                self._change_realm_opinion(target_rid, -25)
+                lines.append("The forgery failed and your involvement was exposed.")
+            else:
+                self._change_realm_opinion(target_rid, -8)
+                lines.append("The scheme failed, but direct blame remains uncertain.")
+            self.push_log(f"{self.date}: Claim fabrication failed in {target_name}.")
+            title = "Claim Failed"
+
+        self.modal.show(
+            title,
+            lines,
+            [
+                ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
+
+    def _action_arrange_marriage(self):
+        target_rid = self._selected_target_realm()
+        if target_rid is None:
+            self.modal.show(
+                "No Target Selected",
+                [
+                    "Select a foreign realm before proposing a dynastic marriage.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        if target_rid in self.alliances:
+            self.modal.show(
+                "Already Allied",
+                [
+                    "You already have a marriage alliance with this realm.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        prestige_cost = 70
+        if self.resources.get("prestige", 0) < prestige_cost:
+            self.modal.show(
+                "Insufficient Prestige",
+                [
+                    f"Marriage diplomacy costs {prestige_cost} prestige.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        target_ruler = self.world.realm_rulers[target_rid]
+        dip = self._stat_value(self.character, "Diplomacy", default=8)
+        target_dip = self._stat_value(target_ruler, "Diplomacy", default=8)
+        opinion = self._get_realm_opinion(target_rid)
+        heirs_ready = isinstance(self.character.get("heir"), dict) and isinstance(target_ruler.get("heir"), dict)
+
+        chance = 0.28 + (opinion + 100) / 260.0 + (dip - target_dip) * 0.02
+        if heirs_ready:
+            chance += 0.12
+        chance = float(clamp(chance, 0.10, 0.92))
+
+        self.resources["prestige"] -= prestige_cost
+        success = self.world.rnd.random() < chance
+        target_name = self._get_war_target_name(target_rid)
+
+        if success:
+            self.alliances.add(target_rid)
+            self.realm_truces[target_rid] = max(int(self.realm_truces.get(target_rid, 0)), 365)
+            new_opinion = self._change_realm_opinion(target_rid, +24)
+            self.push_log(f"{self.date}: Marriage alliance signed with {target_name}.")
+            self.modal.show(
+                "Marriage Alliance",
+                [
+                    f"{target_name} accepted your dynastic marriage proposal.",
+                    f"Opinion is now {new_opinion:+d}.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        new_opinion = self._change_realm_opinion(target_rid, -8)
+        self.push_log(f"{self.date}: {target_name} rejected a marriage proposal.")
+        self.modal.show(
+            "Proposal Rejected",
+            [
+                f"{target_name} declined your marriage offer.",
+                f"Opinion is now {new_opinion:+d}.",
+            ],
+            [
+                ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
+
+    def _action_plot_murder(self):
+        target_rid = self._selected_target_realm()
+        if target_rid is None:
+            self.modal.show(
+                "No Target Selected",
+                [
+                    "Select a foreign ruler before opening an assassination plot.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        gold_cost = 60
+        prestige_cost = 30
+        if self.resources.get("gold", 0) < gold_cost or self.resources.get("prestige", 0) < prestige_cost:
+            self.modal.show(
+                "Insufficient Resources",
+                [
+                    f"Assassination plots cost {gold_cost} gold and {prestige_cost} prestige.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        target_ruler = self.world.realm_rulers[target_rid]
+        intrigue = self._stat_value(self.character, "Intrigue", default=8)
+        target_intrigue = self._stat_value(target_ruler, "Intrigue", default=8)
+        opinion = self._get_realm_opinion(target_rid)
+
+        chance = 0.12 + (intrigue - target_intrigue) * 0.04 + max(0, -opinion) * 0.002
+        chance = float(clamp(chance, 0.05, 0.80))
+
+        self.resources["gold"] -= gold_cost
+        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_cost)
+
+        target_name = self._get_war_target_name(target_rid)
+        success = self.world.rnd.random() < chance
+        if success:
+            self._change_realm_opinion(target_rid, -35)
+            self.alliances.discard(target_rid)
+            self._handle_ruler_death(target_rid, "was assassinated")
+            self.push_log(f"{self.date}: Your plot succeeded in {target_name}.")
+            self.modal.show(
+                "Assassination Success",
+                [
+                    f"The ruler of {target_name} was killed.",
+                    "A succession crisis begins.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        discovered = self.world.rnd.random() < 0.60
+        if discovered:
+            self._change_realm_opinion(target_rid, -45)
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
+            lines = [
+                "The plot failed and your agents were exposed.",
+                "Your reputation suffers badly.",
+            ]
+        else:
+            self._change_realm_opinion(target_rid, -12)
+            lines = [
+                "The plot failed quietly.",
+                "Suspicion lingers at court.",
+            ]
+        self.push_log(f"{self.date}: Assassination plot failed in {target_name}.")
+        self.modal.show(
+            "Assassination Failed",
+            lines,
+            [
+                ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
 
     def _left_panel_draw_rect(self):
         rect = self.layout.left
@@ -1030,6 +1749,9 @@ class GameApp:
         rid = max(0, min(int(rid), len(self.world.realm_names) - 1))
         self.player_realm_id = rid
         self.world.player_realm_id = rid
+        self.resources["gold"] = 200
+        self.resources["piety"] = 1000
+        self.resources["prestige"] = 350
 
         cap_pid = None
         if 0 <= rid < len(self.world.realm_capitals):
@@ -1048,6 +1770,7 @@ class GameApp:
         apply_trait_effects(self.character)
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self._baseline_population = max(1, self.population)
@@ -1055,6 +1778,7 @@ class GameApp:
         self.threat = self._compute_threat()
         self._update_army_max()
         self._init_enemy_armies()
+        self._init_diplomacy_state()
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]
@@ -1262,6 +1986,18 @@ class GameApp:
                 self._siege_province(pid)
 
     def _start_war(self, target_rid, war_type="Conquest", goal_pid=None):
+        allowed, reason = self._can_declare_war_type(target_rid, war_type)
+        if not allowed:
+            self.modal.show(
+                "Cannot Declare War",
+                [
+                    reason,
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
         if self._get_war_by_target(target_rid):
             target_name = self._get_war_target_name(target_rid)
             self.modal.show(
@@ -1290,6 +2026,7 @@ class GameApp:
             "total_provs": total_provs,
         }
         self._war_next_id += 1
+        self._pay_war_cost(target_rid, war_type)
         self.wars.append(war)
         self._ensure_enemy_army_for_war(target_rid)
         self._war_focus_id = war["id"]
@@ -1300,21 +2037,52 @@ class GameApp:
 
     def _open_war_type_modal(self, target_rid):
         target_name = self._get_war_target_name(target_rid)
+        claim_ok, claim_msg = self._can_declare_war_type(target_rid, "Conquest")
+        sub_ok, sub_msg = self._can_declare_war_type(target_rid, "Subjugation")
+        holy_ok, holy_msg = self._can_declare_war_type(target_rid, "Holy War")
+
         self.modal.show(
             "Declare War",
             [
                 f"Select a war type against {target_name}.",
                 "Then choose a province to annex as your war goal.",
+                f"Claim War: {claim_msg}",
+                f"Subjugation: {sub_msg}",
+                f"Holy War: {holy_msg}",
             ],
             [
-                ("Conquest", "accept", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Conquest")),
-                ("Subjugation", "primary", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Subjugation")),
-                ("Holy War", "secondary", lambda rid=target_rid: self._begin_war_goal_selection(rid, "Holy War")),
+                (
+                    "Claim War",
+                    "accept" if claim_ok else "disabled",
+                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Conquest")) if claim_ok else (lambda: None),
+                ),
+                (
+                    "Subjugation",
+                    "primary" if sub_ok else "disabled",
+                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Subjugation")) if sub_ok else (lambda: None),
+                ),
+                (
+                    "Holy War",
+                    "secondary" if holy_ok else "disabled",
+                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Holy War")) if holy_ok else (lambda: None),
+                ),
                 ("Cancel", "deny", lambda: self._cancel_pending_war()),
             ],
         )
 
     def _begin_war_goal_selection(self, target_rid, war_type):
+        allowed, reason = self._can_declare_war_type(target_rid, war_type)
+        if not allowed:
+            self.modal.show(
+                "War Not Available",
+                [
+                    reason,
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
         self.modal.close()
         self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
         self._war_goal_selecting = True
@@ -1369,6 +2137,8 @@ class GameApp:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self._update_army_max()
+        if war.get("war_type") == "Conquest":
+            self.realm_claims.discard(old_rid)
 
         self.push_log(f"{self.date}: Annexed {prov.name}.")
 
@@ -1535,6 +2305,7 @@ class GameApp:
                 enemy["route"] = []
                 enemy["target_pid"] = None
                 enemy["raising"] = False
+            self.realm_truces[target_id] = max(int(self.realm_truces.get(target_id, 0)), 365 * 5)
         self.push_log(f"{self.date}: {log_message}")
         self.modal.show(
             "War Resolved",
@@ -2384,46 +3155,21 @@ class GameApp:
             self.left_panel_open = True
             return
         if action == "npc_promote_relations":
-            target_rid = None
-            target_name = None
-            if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
-                target_rid = self.selected_province.realm_id
-                if 0 <= target_rid < len(self.world.realm_rulers):
-                    target_name = self.world.realm_rulers[target_rid].get(
-                        "name",
-                        self.world.realm_names[target_rid] if 0 <= target_rid < len(self.world.realm_names) else "NPC Realm",
-                    )
-            if target_rid is None:
-                self.modal.show(
-                    "No Target Selected",
-                    [
-                        "Select a foreign realm (click a province) to promote relations.",
-                    ],
-                    [
-                        ("OK", "accept", lambda: self.modal.close()),
-                    ],
-                )
-            else:
-                self.modal.show(
-                    "Not Implemented",
-                    [
-                        f"Promote relations with {target_name} is a placeholder action.",
-                    ],
-                    [
-                        ("OK", "accept", lambda: self.modal.close()),
-                    ],
-                )
+            self._action_promote_relations()
+            return
+        if action == "npc_fabricate_claim":
+            self._action_fabricate_claim()
+            return
+        if action == "npc_arrange_marriage":
+            self._action_arrange_marriage()
+            return
+        if action == "npc_plot_murder":
+            self._action_plot_murder()
             return
         if action == "npc_declare_war":
             target_rid = None
-            target_name = None
             if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
                 target_rid = self.selected_province.realm_id
-                if 0 <= target_rid < len(self.world.realm_rulers):
-                    target_name = self.world.realm_rulers[target_rid].get(
-                        "name",
-                        self.world.realm_names[target_rid] if 0 <= target_rid < len(self.world.realm_names) else "NPC Realm",
-                    )
             if target_rid is None:
                 self.modal.show(
                     "No Target Selected",
@@ -2571,18 +3317,31 @@ class GameApp:
                 self._update_siege_tick()
                 self._update_army_movement()
                 self._update_enemy_ai_tick()
+                self._tick_politics_day()
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
+                    if self.date.month == 1:
+                        self._annual_dynasty_tick()
 
             self._time_accum -= whole
 
     def _apply_monthly_resource_rates(self):
-        for res in ("gold", "piety"):
+        self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
+        for res in ("gold", "piety", "prestige"):
             rate = self.resources.get(f"{res}_rate", 0)
             if rate == 0:
                 continue
             self.resources[res] += rate
+
+        # Opinions drift slowly toward neutral over time.
+        for rid, opinion in list(self.realm_relations.items()):
+            if opinion > 0:
+                self.realm_relations[rid] = opinion - 1
+            elif opinion < 0:
+                self.realm_relations[rid] = opinion + 1
+
         # Food production comes from farms; consumption scales with population.
         production, consumption = self._compute_food_values()
         self.food = (production, consumption)
@@ -2844,6 +3603,7 @@ class GameApp:
                 npc_target = self._get_npc_target()
                 left_state["npc_target"] = npc_target
                 left_state["npc_actions_enabled"] = True
+                left_state["diplomacy"] = self._diplomacy_snapshot(npc_target.get("id")) if npc_target else None
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))

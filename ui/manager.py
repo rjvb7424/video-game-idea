@@ -444,14 +444,20 @@ class UIManager:
         def pill_rect(x, w):
             return pygame.Rect(x, y, w, bh)
 
-        if avail >= (2 * min_pill + gap):
+        if avail >= (3 * min_pill + 2 * gap):
+            per_w = min(max_pill, (avail - (2 * gap)) // 3)
+            r1 = pill_rect(x_left, per_w)
+            r2 = pill_rect(r1.right + gap, per_w)
+            r3 = pill_rect(r2.right + gap, per_w)
+            self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
+            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
+            self._draw_resource(surface, r3, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
+        elif avail >= (2 * min_pill + gap):
             per_w = min(max_pill, (avail - gap) // 2)
             r1 = pill_rect(x_left, per_w)
             r2 = pill_rect(r1.right + gap, per_w)
-
             self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
-
+            self._draw_resource(surface, r2, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
         elif avail >= 120:
             r1 = pill_rect(x_left, min(avail, max_pill))
             self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
@@ -694,19 +700,33 @@ class UIManager:
             btns.append((b_close, "left_panel_close"))
 
         btn_h = 28
-        btn_gap = 8
+        btn_gap = 6
         y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
-        promote_rect = draw_secondary_button(surface, "Promote Relations", content.left, y, content.w, btn_h)
-        war_rect = draw_deny_button(surface, "Declare War", content.left, y + btn_h + btn_gap, content.w, btn_h)
+        action_rows = [
+            ("Promote Relations", "secondary", "npc_promote_relations"),
+            ("Fabricate Claim", "primary", "npc_fabricate_claim"),
+            ("Arrange Marriage", "primary", "npc_arrange_marriage"),
+            ("Plot Assassination", "deny", "npc_plot_murder"),
+            ("Declare War", "deny", "npc_declare_war"),
+        ]
+        action_rects = []
+        for label, style, action_name in action_rows:
+            if style == "primary":
+                rect_btn = draw_primary_button(surface, label, content.left, y, content.w, btn_h)
+            elif style == "secondary":
+                rect_btn = draw_secondary_button(surface, label, content.left, y, content.w, btn_h)
+            else:
+                rect_btn = draw_deny_button(surface, label, content.left, y, content.w, btn_h)
+            action_rects.append((rect_btn, action_name))
+            y = rect_btn.bottom + btn_gap
         if npc_target and actions_enabled:
-            btns.append((promote_rect, "npc_promote_relations"))
-            btns.append((war_rect, "npc_declare_war"))
+            btns.extend(action_rects)
         else:
-            veil = pygame.Surface(promote_rect.size, pygame.SRCALPHA)
-            veil.fill((20, 20, 20, 110))
-            surface.blit(veil, promote_rect.topleft)
-            surface.blit(veil, war_rect.topleft)
-        y = y + (btn_h * 2) + btn_gap + 8
+            for rect_btn, _ in action_rects:
+                veil = pygame.Surface(rect_btn.size, pygame.SRCALPHA)
+                veil.fill((20, 20, 20, 110))
+                surface.blit(veil, rect_btn.topleft)
+        y += 2
 
         target_info = npc_target
         if target_info is None:
@@ -731,6 +751,27 @@ class UIManager:
         y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Faith: {target_info.get('faith','—')}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Culture: {target_info.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        diplomacy = state.get("diplomacy")
+        if isinstance(diplomacy, dict):
+            y = draw_header_text(surface, "Diplomacy", content.left, y + 2, color=(230, 224, 208))
+            opinion = int(diplomacy.get("opinion", 0))
+            if opinion >= 35:
+                opinion_col = (155, 190, 155)
+            elif opinion <= -35:
+                opinion_col = (200, 150, 150)
+            else:
+                opinion_col = (220, 214, 198)
+            y = draw_body_text(surface, f"Opinion: {opinion:+d}", content.left, y, color=opinion_col)
+            y = draw_body_text(surface, f"Claim: {'Yes' if diplomacy.get('claimed') else 'No'}", content.left, y, color=(220, 214, 198))
+            y = draw_body_text(surface, f"Alliance: {'Yes' if diplomacy.get('allied') else 'No'}", content.left, y, color=(220, 214, 198))
+            truce_days = int(diplomacy.get("truce_days", 0))
+            if truce_days > 0:
+                truce_text = f"{truce_days}d" if truce_days < 365 else f"{truce_days / 365.0:.1f}y"
+                y = draw_body_text(surface, f"Truce: {truce_text}", content.left, y, color=(195, 170, 145))
+            claim_cd = int(diplomacy.get("claim_cooldown_days", 0))
+            if claim_cd > 0:
+                cd_text = f"{claim_cd}d" if claim_cd < 365 else f"{claim_cd / 365.0:.1f}y"
+                y = draw_body_text(surface, f"Fabrication CD: {cd_text}", content.left, y, color=(195, 170, 145))
         y += 6
 
         y = self._draw_character_details(surface, content, y, c)
