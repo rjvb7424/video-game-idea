@@ -117,6 +117,8 @@ class GameApp:
             "gold_rate": +1,
             "piety": 1000,
             "prestige": 350,
+            "renown": 120,
+            "renown_rate": 1,
         }
 
         # War state (multiple active wars supported)
@@ -164,6 +166,21 @@ class GameApp:
         self.alliances = set()
         self.subjugation_cooldown_days = 0
         self._init_diplomacy_state()
+
+        # CK3-style character systems
+        self.active_schemes = []
+        self._next_scheme_id = 1
+        self.hooks = {}
+        self.lifestyle_focuses = ("diplomacy", "martial", "stewardship", "intrigue", "learning")
+        self.lifestyle_focus = "stewardship"
+        self.lifestyle_xp = {k: 0.0 for k in self.lifestyle_focuses}
+        self.lifestyle_perks = {k: 0 for k in self.lifestyle_focuses}
+        self._lifestyle_picker_index = self.lifestyle_focuses.index(self.lifestyle_focus)
+        self.stress = 12.0
+        self._stress_break_level = 0
+        self.dread = 0.0
+        self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
         # Approximation: able-bodied levy pool (~12% of total population).
         self.army_pop_ratio = 0.12
@@ -328,12 +345,59 @@ class GameApp:
                 break
         return int(default)
 
+    def _perk_level(self, focus):
+        if not isinstance(getattr(self, "lifestyle_perks", None), dict):
+            return 0
+        return int(self.lifestyle_perks.get(focus, 0))
+
+    @staticmethod
+    def _lifestyle_label(focus):
+        labels = {
+            "diplomacy": "Diplomacy",
+            "martial": "Martial",
+            "stewardship": "Stewardship",
+            "intrigue": "Intrigue",
+            "learning": "Learning",
+        }
+        return labels.get(str(focus), str(focus).title())
+
+    def _focus_stat_key(self, focus):
+        mapping = {
+            "diplomacy": "Diplomacy",
+            "martial": "Martial",
+            "stewardship": "Stewardship",
+            "intrigue": "Intrigue",
+            "learning": "Learning",
+        }
+        return mapping.get(focus, "Stewardship")
+
+    @staticmethod
+    def _scheme_label(scheme_type):
+        labels = {
+            "sway": "Sway",
+            "claim": "Fabricate Claim",
+            "murder": "Murder",
+        }
+        return labels.get(scheme_type, str(scheme_type).title())
+
+    @staticmethod
+    def _scheme_category(scheme_type):
+        if scheme_type == "sway":
+            return "personal"
+        return "hostile"
+
+    @staticmethod
+    def _traits_of(character):
+        if not isinstance(character, dict):
+            return set()
+        return set(character.get("traits", []))
+
     def _compute_prestige_rate(self, character):
         dip = self._stat_value(character, "Diplomacy", default=8)
         martial = self._stat_value(character, "Martial", default=8)
         prowess = self._stat_value(character, "Prowess", default=8)
         rate = int(round((dip + martial + prowess) / 9.0)) - 2
-        traits = set(character.get("traits", [])) if isinstance(character, dict) else set()
+        traits = self._traits_of(character)
         if "proud" in traits:
             rate += 1
         if "humble" in traits:
@@ -341,6 +405,16 @@ class GameApp:
         if "diligent" in traits:
             rate += 1
         if "lazy" in traits:
+            rate -= 1
+        focus = getattr(self, "lifestyle_focus", None)
+        if focus in ("diplomacy", "martial"):
+            rate += 1
+        rate += max(0, self._perk_level("diplomacy") // 2)
+        rate += max(0, self._perk_level("martial") // 3)
+        stress_now = float(getattr(self, "stress", 0.0))
+        if stress_now >= 200:
+            rate -= 3
+        elif stress_now >= 100:
             rate -= 1
         return int(clamp(rate, -5, 8))
 
@@ -444,12 +518,21 @@ class GameApp:
             return None
         truce = int(self.realm_truces.get(rid, 0))
         claim_cd = int(self.claim_fabrication_cooldowns.get(rid, 0))
+        hook = getattr(self, "hooks", {}).get(rid)
+        hook_days = int(hook.get("days", 0)) if isinstance(hook, dict) else 0
+        hook_strength = hook.get("strength", "none") if isinstance(hook, dict) else "none"
+        schemes = [s for s in getattr(self, "active_schemes", []) if s.get("target_id") == rid]
+        scheme = schemes[0] if schemes else None
         return {
             "opinion": self._get_realm_opinion(rid),
             "claimed": rid in self.realm_claims,
             "allied": rid in self.alliances,
             "truce_days": truce,
             "claim_cooldown_days": claim_cd,
+            "hook_days": hook_days,
+            "hook_strength": hook_strength,
+            "scheme_name": self._scheme_label(scheme.get("type")) if isinstance(scheme, dict) else None,
+            "scheme_progress": float(scheme.get("progress", 0.0)) if isinstance(scheme, dict) else 0.0,
         }
 
     @staticmethod
@@ -466,6 +549,306 @@ class GameApp:
             values[key] = int(values[key]) - 1
             if values[key] <= 0:
                 values.pop(key, None)
+
+    def _set_lifestyle_focus(self, focus):
+        if focus not in self.lifestyle_focuses:
+            return False
+        if focus == self.lifestyle_focus:
+            return False
+        self.lifestyle_focus = focus
+        self._lifestyle_picker_index = self.lifestyle_focuses.index(focus)
+        # Focus swaps are powerful in CK3-like play, so they carry some stress.
+        self._adjust_stress(8.0, reason="Changed lifestyle focus")
+        self.push_log(f"{self.date}: You adopt a {self._lifestyle_label(focus)} focus.")
+        return True
+
+    def _lifestyle_xp_threshold(self, focus):
+        perks = self._perk_level(focus)
+        return 70.0 + 30.0 * perks
+
+    def _tick_lifestyle_day(self):
+        focus = self.lifestyle_focus
+        stat_key = self._focus_stat_key(focus)
+        stat_val = self._stat_value(self.character, stat_key, default=8)
+        perk = self._perk_level(focus)
+
+        gain = 0.28 + (stat_val * 0.035) + (perk * 0.01)
+        if self.wars and focus == "martial":
+            gain += 0.20
+        if focus == "intrigue" and any(s.get("type") == "murder" for s in self.active_schemes):
+            gain += 0.08
+        if focus == "learning" and self.stress >= 120:
+            gain += 0.05
+        if self.stress >= 220:
+            gain *= 0.85
+
+        self.lifestyle_xp[focus] = float(self.lifestyle_xp.get(focus, 0.0)) + max(0.05, gain)
+        threshold = self._lifestyle_xp_threshold(focus)
+        while self.lifestyle_xp[focus] >= threshold:
+            self.lifestyle_xp[focus] -= threshold
+            self.lifestyle_perks[focus] = self._perk_level(focus) + 1
+            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 20
+            self.resources["renown"] = int(self.resources.get("renown", 0)) + 10
+            self.push_log(
+                f"{self.date}: {self._lifestyle_label(focus)} perk unlocked "
+                f"(Tier {self._perk_level(focus)})."
+            )
+            threshold = self._lifestyle_xp_threshold(focus)
+
+    def _add_hook(self, target_rid, strength="weak", days=365 * 5):
+        if target_rid is None:
+            return
+        strength = "strong" if strength == "strong" else "weak"
+        old = self.hooks.get(target_rid)
+        if isinstance(old, dict):
+            old_strength = old.get("strength", "weak")
+            if old_strength == "strong":
+                strength = "strong"
+            days = max(int(old.get("days", 0)), int(days))
+        self.hooks[target_rid] = {
+            "strength": strength,
+            "days": max(1, int(days)),
+        }
+
+    def _consume_hook(self, target_rid):
+        hook = self.hooks.get(target_rid)
+        if not isinstance(hook, dict):
+            return None
+        self.hooks.pop(target_rid, None)
+        return hook
+
+    def _tick_hooks_day(self):
+        for rid in list(self.hooks.keys()):
+            entry = self.hooks.get(rid)
+            if not isinstance(entry, dict):
+                self.hooks.pop(rid, None)
+                continue
+            entry["days"] = int(entry.get("days", 0)) - 1
+            if entry["days"] <= 0:
+                self.hooks.pop(rid, None)
+
+    def _active_scheme(self, *, scheme_type=None, target_id=None, category=None):
+        for scheme in self.active_schemes:
+            if scheme_type is not None and scheme.get("type") != scheme_type:
+                continue
+            if target_id is not None and scheme.get("target_id") != target_id:
+                continue
+            if category is not None and scheme.get("category") != category:
+                continue
+            return scheme
+        return None
+
+    def _scheme_speed(self, scheme):
+        if not isinstance(scheme, dict):
+            return 0.0
+        scheme_type = scheme.get("type")
+        if scheme_type == "sway":
+            stat_key = "Diplomacy"
+            focus = "diplomacy"
+        elif scheme_type == "claim":
+            stat_key = "Learning"
+            focus = "learning"
+        else:
+            stat_key = "Intrigue"
+            focus = "intrigue"
+
+        stat = self._stat_value(self.character, stat_key, default=8)
+        perk = self._perk_level(focus)
+        base = float(scheme.get("base_power", 0.8))
+        mult = 0.45 + (stat / 18.0) + (perk * 0.07)
+        if self.lifestyle_focus == focus:
+            mult += 0.20
+        if self.stress >= 200:
+            mult *= 0.80
+        elif self.stress >= 100:
+            mult *= 0.92
+        return max(0.10, base * mult)
+
+    def _start_scheme(self, scheme_type, target_rid, *, success_chance, exposure_chance, base_power, min_days=45):
+        if target_rid is None or target_rid == self.player_realm_id:
+            return False, "Invalid target."
+        if self._active_scheme(scheme_type=scheme_type, target_id=target_rid):
+            return False, "Scheme already running on this target."
+
+        category = self._scheme_category(scheme_type)
+        if self._active_scheme(category=category):
+            return False, f"You already have an active {category} scheme."
+
+        scheme = {
+            "id": self._next_scheme_id,
+            "type": scheme_type,
+            "target_id": int(target_rid),
+            "category": category,
+            "progress": 0.0,
+            "days": 0,
+            "base_power": float(base_power),
+            "success_chance": float(clamp(success_chance, 0.05, 0.95)),
+            "exposure_chance": float(clamp(exposure_chance, 0.05, 0.95)),
+            "min_days": max(20, int(min_days)),
+        }
+        self._next_scheme_id += 1
+        self.active_schemes.append(scheme)
+        return True, "Scheme started."
+
+    def _tick_schemes_day(self):
+        if not self.active_schemes:
+            return
+        finished_ids = []
+        for scheme in self.active_schemes:
+            scheme["days"] = int(scheme.get("days", 0)) + 1
+            scheme["progress"] = float(scheme.get("progress", 0.0)) + self._scheme_speed(scheme)
+            if scheme["progress"] >= 100.0 and scheme["days"] >= int(scheme.get("min_days", 20)):
+                finished_ids.append(scheme.get("id"))
+        if not finished_ids:
+            return
+        for sid in finished_ids:
+            scheme = next((s for s in self.active_schemes if s.get("id") == sid), None)
+            if scheme is None:
+                continue
+            self._resolve_scheme(scheme)
+        self.active_schemes = [s for s in self.active_schemes if s.get("id") not in set(finished_ids)]
+
+    def _resolve_scheme(self, scheme):
+        if not isinstance(scheme, dict):
+            return
+        scheme_type = scheme.get("type")
+        target_rid = scheme.get("target_id")
+        target_name = self._get_war_target_name(target_rid)
+        success_roll = self.world.rnd.random()
+        success = success_roll < float(scheme.get("success_chance", 0.5))
+        exposed = self.world.rnd.random() < float(scheme.get("exposure_chance", 0.35))
+
+        if scheme_type == "sway":
+            if success:
+                gain = 14 + self.world.rnd.randint(5, 14)
+                op = self._change_realm_opinion(target_rid, gain)
+                if op >= 55 and self.world.rnd.random() < 0.25:
+                    self._add_hook(target_rid, "weak", days=365 * 3)
+                    self.push_log(f"{self.date}: You gained a weak hook on {target_name}.")
+                self._adjust_stress(-4.0)
+                self.push_log(f"{self.date}: Sway scheme succeeded against {target_name} ({op:+d}).")
+            else:
+                self._change_realm_opinion(target_rid, -7 if exposed else -3)
+                self._adjust_stress(3.0)
+                self.push_log(f"{self.date}: Sway scheme failed against {target_name}.")
+            return
+
+        if scheme_type == "claim":
+            self.claim_fabrication_cooldowns[target_rid] = max(
+                int(self.claim_fabrication_cooldowns.get(target_rid, 0)),
+                365,
+            )
+            if success:
+                self.realm_claims.add(target_rid)
+                self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 40
+                self.resources["renown"] = int(self.resources.get("renown", 0)) + 15
+                self._change_realm_opinion(target_rid, -10 if exposed else -4)
+                self._adjust_stress(+2.0)
+                self.push_log(f"{self.date}: Fabricated claim on {target_name}.")
+            else:
+                self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 25)
+                self._change_realm_opinion(target_rid, -20 if exposed else -8)
+                self._adjust_stress(+6.0)
+                self.push_log(f"{self.date}: Claim fabrication failed against {target_name}.")
+            return
+
+        if scheme_type == "murder":
+            if success:
+                self._change_realm_opinion(target_rid, -32)
+                self.alliances.discard(target_rid)
+                self.dread = clamp(float(self.dread) + 24.0, 0.0, 100.0)
+                self._adjust_stress(+8.0)
+                self._handle_ruler_death(target_rid, "was murdered")
+                self.push_log(f"{self.date}: Murder scheme succeeded in {target_name}.")
+                if not self.modal.open:
+                    self.modal.show(
+                        "Murder Scheme Success",
+                        [
+                            f"You eliminated the ruler of {target_name}.",
+                            "Succession upheaval weakens the realm.",
+                        ],
+                        [
+                            ("OK", "accept", lambda: self.modal.close()),
+                        ],
+                    )
+            else:
+                self._change_realm_opinion(target_rid, -42 if exposed else -12)
+                if exposed:
+                    self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
+                self._adjust_stress(+14.0 if exposed else +7.0)
+                self.push_log(f"{self.date}: Murder scheme failed in {target_name}.")
+            return
+
+    def _adjust_stress(self, delta, reason=None):
+        old = float(self.stress)
+        self.stress = clamp(old + float(delta), 0.0, 300.0)
+        if self.stress < (self._stress_break_level * 100) - 10:
+            self._stress_break_level = int(self.stress // 100)
+        if reason and int(old // 25) != int(self.stress // 25):
+            self.push_log(f"{self.date}: Stress {reason.lower()} ({int(round(self.stress))}/300).")
+        self._check_stress_break()
+
+    def _daily_stress_delta(self):
+        traits = self._traits_of(self.character)
+        delta = 0.05
+        if self.wars:
+            delta += 0.12
+        if self.active_schemes:
+            delta += 0.06
+        if "patient" in traits:
+            delta -= 0.10
+        if "temperate" in traits:
+            delta -= 0.05
+        if "wrathful" in traits:
+            delta += 0.08
+        if "vengeful" in traits:
+            delta += 0.04
+        if self.lifestyle_focus == "learning":
+            delta -= 0.05
+        if self._perk_level("learning") >= 3:
+            delta -= 0.04
+        if self._perk_level("intrigue") >= 3 and any(s.get("type") == "murder" for s in self.active_schemes):
+            delta -= 0.03
+        return delta
+
+    def _check_stress_break(self):
+        level = int(self.stress // 100)
+        level = max(0, min(3, level))
+        if level <= self._stress_break_level:
+            return
+        self._stress_break_level = level
+        self._trigger_stress_break(level)
+
+    def _trigger_stress_break(self, level):
+        relief = 25 + level * 20
+        event = self.world.rnd.choice(("drink", "charity", "isolate"))
+        if event == "drink":
+            self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - (18 + 9 * level))
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - (8 + 6 * level))
+            line = "You seek relief in excess."
+        elif event == "charity":
+            self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - (22 + 8 * level))
+            self.resources["piety"] = int(self.resources.get("piety", 0)) + (15 + 8 * level)
+            line = "You donate heavily to quiet your conscience."
+        else:
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - (15 + 10 * level))
+            self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - (6 + 5 * level))
+            line = "You withdraw from court and governance."
+
+        self.stress = clamp(self.stress - relief, 0.0, 300.0)
+        self.push_log(f"{self.date}: A stress break hits your court. {line}")
+        if not self.modal.open:
+            self.modal.show(
+                "Stress Break",
+                [
+                    f"Stress reached a dangerous level ({level}/3).",
+                    line,
+                    f"Stress reduced to {int(round(self.stress))}/300.",
+                ],
+                [
+                    ("Continue", "accept", lambda: self.modal.close()),
+                ],
+            )
 
     @staticmethod
     def _age_person(person):
@@ -627,6 +1010,9 @@ class GameApp:
             self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 30)
             self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
             self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
+            self.stress = clamp(float(self.stress) * 0.45, 0.0, 300.0)
+            self._stress_break_level = int(self.stress // 100)
+            self.dread = clamp(float(self.dread) * 0.40, 0.0, 100.0)
             if not self.modal.open:
                 self.modal.show(
                     "Succession",
@@ -656,6 +1042,10 @@ class GameApp:
     def _tick_politics_day(self):
         self._decrement_days_map(self.realm_truces)
         self._decrement_days_map(self.claim_fabrication_cooldowns)
+        self._tick_hooks_day()
+        self._tick_schemes_day()
+        self._tick_lifestyle_day()
+        self._adjust_stress(self._daily_stress_delta())
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
 
@@ -670,6 +1060,10 @@ class GameApp:
 
         if war_type == "Conquest":
             if target_rid not in self.realm_claims:
+                claim_scheme = self._active_scheme(scheme_type="claim", target_id=target_rid)
+                if claim_scheme is not None:
+                    prog = int(round(float(claim_scheme.get("progress", 0.0))))
+                    return False, f"Claim scheme in progress ({prog}%)."
                 return False, "Requires a fabricated claim."
             if self.resources.get("prestige", 0) < 75:
                 return False, "Need 75 prestige."
@@ -705,6 +1099,7 @@ class GameApp:
         elif war_type == "Holy War":
             self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 250)
             self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 60)
+        self.dread = clamp(float(self.dread) + 4.0, 0.0, 100.0)
         self._change_realm_opinion(target_rid, -18)
 
     def _selected_target_realm(self):
@@ -731,12 +1126,12 @@ class GameApp:
             )
             return
 
-        gold_cost = 25
+        gold_cost = 18
         if self.resources.get("gold", 0) < gold_cost:
             self.modal.show(
                 "Insufficient Gold",
                 [
-                    f"Promoting relations costs {gold_cost} gold.",
+                    f"Starting a sway scheme costs {gold_cost} gold.",
                 ],
                 [
                     ("OK", "accept", lambda: self.modal.close()),
@@ -744,18 +1139,51 @@ class GameApp:
             )
             return
 
+        if self._active_scheme(scheme_type="sway", target_id=target_rid):
+            self.modal.show(
+                "Scheme Already Running",
+                [
+                    "You already have an active sway scheme on this ruler.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
+        dip = self._stat_value(self.character, "Diplomacy", default=8)
+        chance = float(clamp(0.62 + dip * 0.02 + self._perk_level("diplomacy") * 0.03, 0.35, 0.95))
+        ok, msg = self._start_scheme(
+            "sway",
+            target_rid,
+            success_chance=chance,
+            exposure_chance=0.10,
+            base_power=0.95,
+            min_days=35,
+        )
+        if not ok:
+            self.modal.show(
+                "Cannot Start Scheme",
+                [msg],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return
+
         self.resources["gold"] -= gold_cost
-        diplomacy = self._stat_value(self.character, "Diplomacy", default=8)
-        gain = max(5, int(round(6 + diplomacy * 0.6 + self.world.rnd.randint(0, 3))))
-        new_opinion = self._change_realm_opinion(target_rid, gain)
-        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 5
         target_name = self._get_war_target_name(target_rid)
-        self.push_log(f"{self.date}: Envoys improved relations with {target_name} ({new_opinion:+d}).")
+        sway_stress = 1.5
+        traits = self._traits_of(self.character)
+        if "wrathful" in traits or "vengeful" in traits:
+            sway_stress += 2.0
+        if "forgiving" in traits or "patient" in traits:
+            sway_stress -= 1.0
+        self._adjust_stress(max(-1.0, sway_stress))
+        self.push_log(f"{self.date}: You begin a sway scheme targeting {target_name}.")
         self.modal.show(
-            "Diplomacy",
+            "Sway Scheme Started",
             [
-                f"Your envoys impressed {target_name}.",
-                f"Opinion is now {new_opinion:+d}.",
+                f"Your chancellor begins swaying {target_name}.",
+                "Progress advances each day and resolves automatically.",
             ],
             [
                 ("OK", "accept", lambda: self.modal.close()),
@@ -801,6 +1229,18 @@ class GameApp:
             )
             return
 
+        if self._active_scheme(scheme_type="claim", target_id=target_rid):
+            self.modal.show(
+                "Scheme Already Running",
+                [
+                    "Your court chaplain is already fabricating this claim.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
         gold_cost = 45
         piety_cost = 35
         if self.resources.get("gold", 0) < gold_cost or self.resources.get("piety", 0) < piety_cost:
@@ -815,41 +1255,38 @@ class GameApp:
             )
             return
 
+        learning = self._stat_value(self.character, "Learning", default=8)
+        intrigue = self._stat_value(self.character, "Intrigue", default=8)
+        chance = float(clamp(0.20 + learning * 0.03 + intrigue * 0.015 + self._perk_level("learning") * 0.03, 0.15, 0.88))
+        exposure = float(clamp(0.45 - intrigue * 0.015 - self._perk_level("intrigue") * 0.03, 0.12, 0.65))
+        ok, msg = self._start_scheme(
+            "claim",
+            target_rid,
+            success_chance=chance,
+            exposure_chance=exposure,
+            base_power=0.72,
+            min_days=80,
+        )
+        if not ok:
+            self.modal.show(
+                "Cannot Start Scheme",
+                [msg],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return
+
         self.resources["gold"] -= gold_cost
         self.resources["piety"] -= piety_cost
-        intrigue = self._stat_value(self.character, "Intrigue", default=8)
-        chance = float(clamp(0.20 + intrigue * 0.03, 0.20, 0.85))
-        success = self.world.rnd.random() < chance
-        discovered = self.world.rnd.random() < (0.30 if success else 0.60)
-        self.claim_fabrication_cooldowns[target_rid] = 540
         target_name = self._get_war_target_name(target_rid)
-
-        lines = [f"Scheme chance: {int(round(chance * 100))}%."]
-        if success:
-            self.realm_claims.add(target_rid)
-            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 35
-            if discovered:
-                self._change_realm_opinion(target_rid, -12)
-                lines.append("Claim forged, but your agents were noticed.")
-            else:
-                self._change_realm_opinion(target_rid, -5)
-                lines.append("Claim forged in secret.")
-            self.push_log(f"{self.date}: A claim was fabricated on {target_name}.")
-            title = "Claim Fabricated"
-        else:
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 20)
-            if discovered:
-                self._change_realm_opinion(target_rid, -25)
-                lines.append("The forgery failed and your involvement was exposed.")
-            else:
-                self._change_realm_opinion(target_rid, -8)
-                lines.append("The scheme failed, but direct blame remains uncertain.")
-            self.push_log(f"{self.date}: Claim fabrication failed in {target_name}.")
-            title = "Claim Failed"
+        self._adjust_stress(+2.0)
+        self.push_log(f"{self.date}: Claim fabrication scheme started in {target_name}.")
 
         self.modal.show(
-            title,
-            lines,
+            "Claim Scheme Started",
+            [
+                f"Your clergy begins forging evidence against {target_name}.",
+                f"Estimated success chance: {int(round(chance * 100))}%.",
+            ],
             [
                 ("OK", "accept", lambda: self.modal.close()),
             ],
@@ -899,25 +1336,44 @@ class GameApp:
         target_dip = self._stat_value(target_ruler, "Diplomacy", default=8)
         opinion = self._get_realm_opinion(target_rid)
         heirs_ready = isinstance(self.character.get("heir"), dict) and isinstance(target_ruler.get("heir"), dict)
+        hook = self.hooks.get(target_rid)
 
         chance = 0.28 + (opinion + 100) / 260.0 + (dip - target_dip) * 0.02
         if heirs_ready:
             chance += 0.12
+        if self.lifestyle_focus == "diplomacy":
+            chance += 0.06
+        chance += self._perk_level("diplomacy") * 0.02
+        chance += float(self.dread) * 0.001
+        if isinstance(hook, dict):
+            if hook.get("strength") == "strong":
+                chance += 0.40
+            else:
+                chance += 0.20
         chance = float(clamp(chance, 0.10, 0.92))
 
         self.resources["prestige"] -= prestige_cost
         success = self.world.rnd.random() < chance
         target_name = self._get_war_target_name(target_rid)
+        used_hook = False
+
+        if not success and isinstance(hook, dict):
+            # Use leverage to force the final negotiation step.
+            success = True
+            used_hook = True
+            self._consume_hook(target_rid)
 
         if success:
             self.alliances.add(target_rid)
             self.realm_truces[target_rid] = max(int(self.realm_truces.get(target_rid, 0)), 365)
             new_opinion = self._change_realm_opinion(target_rid, +24)
+            self.resources["renown"] = int(self.resources.get("renown", 0)) + 25
             self.push_log(f"{self.date}: Marriage alliance signed with {target_name}.")
             self.modal.show(
                 "Marriage Alliance",
                 [
                     f"{target_name} accepted your dynastic marriage proposal.",
+                    "Leverage from a hook secured the terms." if used_hook else "The match is celebrated by both courts.",
                     f"Opinion is now {new_opinion:+d}.",
                 ],
                 [
@@ -927,6 +1383,7 @@ class GameApp:
             return
 
         new_opinion = self._change_realm_opinion(target_rid, -8)
+        self._adjust_stress(+3.0)
         self.push_log(f"{self.date}: {target_name} rejected a marriage proposal.")
         self.modal.show(
             "Proposal Rejected",
@@ -953,6 +1410,18 @@ class GameApp:
             )
             return
 
+        if self._active_scheme(scheme_type="murder", target_id=target_rid):
+            self.modal.show(
+                "Scheme Already Running",
+                [
+                    "A murder scheme is already active on this ruler.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+
         gold_cost = 60
         prestige_cost = 30
         if self.resources.get("gold", 0) < gold_cost or self.resources.get("prestige", 0) < prestige_cost:
@@ -972,51 +1441,110 @@ class GameApp:
         target_intrigue = self._stat_value(target_ruler, "Intrigue", default=8)
         opinion = self._get_realm_opinion(target_rid)
 
-        chance = 0.12 + (intrigue - target_intrigue) * 0.04 + max(0, -opinion) * 0.002
-        chance = float(clamp(chance, 0.05, 0.80))
-
-        self.resources["gold"] -= gold_cost
-        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_cost)
-
-        target_name = self._get_war_target_name(target_rid)
-        success = self.world.rnd.random() < chance
-        if success:
-            self._change_realm_opinion(target_rid, -35)
-            self.alliances.discard(target_rid)
-            self._handle_ruler_death(target_rid, "was assassinated")
-            self.push_log(f"{self.date}: Your plot succeeded in {target_name}.")
+        chance = 0.10 + (intrigue - target_intrigue) * 0.035 + max(0, -opinion) * 0.002
+        if self.lifestyle_focus == "intrigue":
+            chance += 0.06
+        chance += self._perk_level("intrigue") * 0.02
+        chance = float(clamp(chance, 0.05, 0.82))
+        exposure = float(clamp(0.62 - intrigue * 0.02 - self._perk_level("intrigue") * 0.03, 0.12, 0.72))
+        ok, msg = self._start_scheme(
+            "murder",
+            target_rid,
+            success_chance=chance,
+            exposure_chance=exposure,
+            base_power=0.66,
+            min_days=95,
+        )
+        if not ok:
             self.modal.show(
-                "Assassination Success",
-                [
-                    f"The ruler of {target_name} was killed.",
-                    "A succession crisis begins.",
-                ],
-                [
-                    ("OK", "accept", lambda: self.modal.close()),
-                ],
+                "Cannot Start Scheme",
+                [msg],
+                [("OK", "accept", lambda: self.modal.close())],
             )
             return
 
-        discovered = self.world.rnd.random() < 0.60
-        if discovered:
-            self._change_realm_opinion(target_rid, -45)
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
-            lines = [
-                "The plot failed and your agents were exposed.",
-                "Your reputation suffers badly.",
-            ]
-        else:
-            self._change_realm_opinion(target_rid, -12)
-            lines = [
-                "The plot failed quietly.",
-                "Suspicion lingers at court.",
-            ]
-        self.push_log(f"{self.date}: Assassination plot failed in {target_name}.")
+        self.resources["gold"] -= gold_cost
+        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_cost)
+        target_name = self._get_war_target_name(target_rid)
+        murder_stress = 5.0
+        traits = self._traits_of(self.character)
+        if "forgiving" in traits or "humble" in traits:
+            murder_stress += 6.0
+        if "vengeful" in traits or "wrathful" in traits:
+            murder_stress -= 2.0
+        self._adjust_stress(max(0.0, murder_stress))
+        self.push_log(f"{self.date}: Murder scheme started against {target_name}.")
         self.modal.show(
-            "Assassination Failed",
-            lines,
+            "Murder Scheme Started",
+            [
+                f"Agents infiltrate the court of {target_name}.",
+                f"Estimated success chance: {int(round(chance * 100))}%.",
+            ],
             [
                 ("OK", "accept", lambda: self.modal.close()),
+            ],
+        )
+
+    def _open_lifestyle_focus_modal(self):
+        focus = self.lifestyle_focuses[self._lifestyle_picker_index]
+        current = self.lifestyle_focus
+        stat_key = self._focus_stat_key(focus)
+        stat_val = self._stat_value(self.character, stat_key, default=8)
+        xp = float(self.lifestyle_xp.get(focus, 0.0))
+        need = self._lifestyle_xp_threshold(focus)
+        lines = [
+            f"Current focus: {self._lifestyle_label(current)}",
+            f"Candidate focus: {self._lifestyle_label(focus)}",
+            f"{self._lifestyle_label(focus)} perks: {self._perk_level(focus)}",
+            f"XP progress: {int(xp)}/{int(need)}",
+            f"{stat_key}: {stat_val}",
+            f"Stress: {int(round(self.stress))}/300",
+        ]
+        self.modal.show(
+            "Lifestyle Focus",
+            lines,
+            [
+                ("Prev", "secondary", lambda: self._cycle_lifestyle_focus(-1)),
+                ("Adopt", "accept", lambda: self._adopt_lifestyle_focus()),
+                ("Next", "secondary", lambda: self._cycle_lifestyle_focus(+1)),
+            ],
+        )
+
+    def _cycle_lifestyle_focus(self, delta):
+        if not self.lifestyle_focuses:
+            return
+        self._lifestyle_picker_index = (self._lifestyle_picker_index + int(delta)) % len(self.lifestyle_focuses)
+        self._open_lifestyle_focus_modal()
+
+    def _adopt_lifestyle_focus(self):
+        focus = self.lifestyle_focuses[self._lifestyle_picker_index]
+        self._set_lifestyle_focus(focus)
+        self._open_lifestyle_focus_modal()
+
+    def _open_scheme_overview(self):
+        lines = [
+            f"Stress: {int(round(self.stress))}/300",
+            f"Dread: {int(round(self.dread))}/100",
+            f"Focus: {self._lifestyle_label(self.lifestyle_focus)}",
+            f"Renown: {int(self.resources.get('renown', 0))}",
+            "",
+            "Active schemes:",
+        ]
+        if not self.active_schemes:
+            lines.append("None")
+        else:
+            for scheme in self.active_schemes:
+                target = self._get_war_target_name(scheme.get("target_id"))
+                p = int(round(float(scheme.get("progress", 0.0))))
+                lines.append(f"{self._scheme_label(scheme.get('type'))}: {target} ({p}%)")
+        lines.append("")
+        lines.append(f"Active hooks: {len(self.hooks)}")
+        self.modal.show(
+            "Court & Schemes",
+            lines,
+            [
+                ("Lifestyle", "primary", lambda: self._open_lifestyle_focus_modal()),
+                ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
 
@@ -1750,8 +2278,11 @@ class GameApp:
         self.player_realm_id = rid
         self.world.player_realm_id = rid
         self.resources["gold"] = 200
+        self.resources["gold_rate"] = 1
         self.resources["piety"] = 1000
         self.resources["prestige"] = 350
+        self.resources["renown"] = 120
+        self.resources["renown_rate"] = 1
 
         cap_pid = None
         if 0 <= rid < len(self.world.realm_capitals):
@@ -1779,6 +2310,16 @@ class GameApp:
         self._update_army_max()
         self._init_enemy_armies()
         self._init_diplomacy_state()
+        self.active_schemes = []
+        self._next_scheme_id = 1
+        self.hooks = {}
+        self.lifestyle_focus = "stewardship"
+        self.lifestyle_xp = {k: 0.0 for k in self.lifestyle_focuses}
+        self.lifestyle_perks = {k: 0 for k in self.lifestyle_focuses}
+        self._lifestyle_picker_index = self.lifestyle_focuses.index(self.lifestyle_focus)
+        self.stress = 12.0
+        self._stress_break_level = 0
+        self.dread = 0.0
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]
@@ -2137,6 +2678,7 @@ class GameApp:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self._update_army_max()
+        self.resources["renown"] = int(self.resources.get("renown", 0)) + 12
         if war.get("war_type") == "Conquest":
             self.realm_claims.discard(old_rid)
 
@@ -2768,11 +3310,15 @@ class GameApp:
             enemy["pos"] = self.world.provinces[retreat_pid].center.copy()
             retreat_name = self.world.provinces[retreat_pid].name
             outcome = "Victory"
+            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 6
+            self.dread = clamp(float(self.dread) + 1.5, 0.0, 100.0)
+            self._adjust_stress(-1.8)
         else:
             retreat_pid = self._pick_retreat_province(battle_pid, self.player_realm_id)
             self._set_army_prov(retreat_pid)
             retreat_name = self.world.provinces[retreat_pid].name
             outcome = "Defeat"
+            self._adjust_stress(+4.0)
 
         self._update_fog_from_army()
 
@@ -3254,6 +3800,12 @@ class GameApp:
             self.set_speed(3)
         elif action == "open_menu":
             self.open_menu()
+        elif action == "decisions":
+            self._open_lifestyle_focus_modal()
+        elif action == "council":
+            self._open_scheme_overview()
+        elif action == "court":
+            self._open_scheme_overview()
         elif action == "build_farm":
             self._build_selected_building("farm")
         elif action.startswith("building_slot:"):
@@ -3279,9 +3831,6 @@ class GameApp:
             "ledger",
             "realm",
             "military",
-            "decisions",
-            "court",
-            "council",
             "view_realm",
             "set_rally",
             "rally",
@@ -3327,9 +3876,27 @@ class GameApp:
             self._time_accum -= whole
 
     def _apply_monthly_resource_rates(self):
-        self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
+        stewardship_bonus = self._perk_level("stewardship") // 2
+        if self.lifestyle_focus == "stewardship":
+            stewardship_bonus += 1
+        stress_penalty = 2 if self.stress >= 220 else (1 if self.stress >= 120 else 0)
+        self.resources["gold_rate"] = 1 + stewardship_bonus - stress_penalty
+
+        piety_rate = compute_piety_rate(self.character)[0]
+        piety_rate += self._perk_level("learning") // 2
+        if self.lifestyle_focus == "learning":
+            piety_rate += 1
+        self.resources["piety_rate"] = int(piety_rate)
+
         self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
-        for res in ("gold", "piety", "prestige"):
+        renown_rate = 1 + (self._realm_size(self.player_realm_id) // 3)
+        renown_rate += len(self.alliances) // 2
+        renown_rate += self._perk_level("diplomacy") // 4
+        if self.wars:
+            renown_rate += 1
+        self.resources["renown_rate"] = int(max(0, renown_rate))
+
+        for res in ("gold", "piety", "prestige", "renown"):
             rate = self.resources.get(f"{res}_rate", 0)
             if rate == 0:
                 continue
@@ -3341,6 +3908,12 @@ class GameApp:
                 self.realm_relations[rid] = opinion - 1
             elif opinion < 0:
                 self.realm_relations[rid] = opinion + 1
+
+        self.dread = clamp(float(self.dread) - 3.5, 0.0, 100.0)
+        monthly_stress_relief = -2.0 - (0.5 * self._perk_level("learning"))
+        if self.lifestyle_focus == "learning":
+            monthly_stress_relief -= 1.0
+        self._adjust_stress(monthly_stress_relief)
 
         # Food production comes from farms; consumption scales with population.
         production, consumption = self._compute_food_values()
@@ -3584,6 +4157,11 @@ class GameApp:
                     "threat": self.threat,
                     "building_menu_slot": self._building_menu_slot,
                     "wars": self.wars,
+                    "stress": int(round(self.stress)),
+                    "dread": int(round(self.dread)),
+                    "lifestyle_focus": self.lifestyle_focus,
+                    "lifestyle_perks": dict(self.lifestyle_perks),
+                    "active_schemes": list(self.active_schemes),
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))

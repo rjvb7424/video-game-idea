@@ -389,6 +389,27 @@ class UIManager:
 
         right_edge = menu_rect.left - gap
 
+        council_label = "Council"
+        council_w = max(106, BODY_FONT.size(council_label)[0] + 26)
+        council_rect = pygame.Rect(right_edge - council_w, y, council_w, bh)
+        b_council = draw_secondary_button(surface, council_label, council_rect.x, council_rect.y, council_rect.w, council_rect.h)
+        btns.append((b_council, "council"))
+        right_edge = council_rect.left - gap
+
+        decisions_label = "Decisions"
+        decisions_w = max(116, BODY_FONT.size(decisions_label)[0] + 26)
+        decisions_rect = pygame.Rect(right_edge - decisions_w, y, decisions_w, bh)
+        b_decisions = draw_secondary_button(
+            surface,
+            decisions_label,
+            decisions_rect.x,
+            decisions_rect.y,
+            decisions_rect.w,
+            decisions_rect.h,
+        )
+        btns.append((b_decisions, "decisions"))
+        right_edge = decisions_rect.left - gap
+
         # ---------- RIGHT SIDE: Manpower ----------
         army = state.get("army")
         if isinstance(army, dict):
@@ -433,18 +454,44 @@ class UIManager:
             threat_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
             self._draw_meter(surface, threat_rect, "Threat", threat, fill_color=(170, 90, 90))
             right_edge = threat_rect.left - gap
+
+        stress = state.get("stress")
+        if stress is not None:
+            stress_text = f"{int(stress)}/300"
+            stress_w = max(150, BODY_FONT.size(f"Stress: {stress_text}")[0] + 32)
+            stress_rect = pygame.Rect(right_edge - stress_w, y, stress_w, bh)
+            self._draw_resource(surface, stress_rect, "Stress", stress_text, rate=None, icon_color=(170, 90, 90))
+            right_edge = stress_rect.left - gap
+
+        dread = state.get("dread")
+        if dread is not None:
+            dread_text = f"{int(dread)}/100"
+            dread_w = max(145, BODY_FONT.size(f"Dread: {dread_text}")[0] + 32)
+            dread_rect = pygame.Rect(right_edge - dread_w, y, dread_w, bh)
+            self._draw_resource(surface, dread_rect, "Dread", dread_text, rate=None, icon_color=(140, 100, 100))
+            right_edge = dread_rect.left - gap
         # ---------- MIDDLE: Resources fill the remaining space ----------
         res = state["resources"]
         x_left = rect.left + pad
         avail = max(0, right_edge - x_left)
 
-        min_pill = 150
-        max_pill = 190
+        min_pill = 132
+        max_pill = 178
 
         def pill_rect(x, w):
             return pygame.Rect(x, y, w, bh)
 
-        if avail >= (3 * min_pill + 2 * gap):
+        if avail >= (4 * min_pill + 3 * gap):
+            per_w = min(max_pill, (avail - (3 * gap)) // 4)
+            r1 = pill_rect(x_left, per_w)
+            r2 = pill_rect(r1.right + gap, per_w)
+            r3 = pill_rect(r2.right + gap, per_w)
+            r4 = pill_rect(r3.right + gap, per_w)
+            self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
+            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
+            self._draw_resource(surface, r3, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
+            self._draw_resource(surface, r4, "Renown", res.get("renown", 0), res.get("renown_rate", 0), icon_color=(120, 140, 170))
+        elif avail >= (3 * min_pill + 2 * gap):
             per_w = min(max_pill, (avail - (2 * gap)) // 3)
             r1 = pill_rect(x_left, per_w)
             r2 = pill_rect(r1.right + gap, per_w)
@@ -703,10 +750,10 @@ class UIManager:
         btn_gap = 6
         y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
         action_rows = [
-            ("Promote Relations", "secondary", "npc_promote_relations"),
-            ("Fabricate Claim", "primary", "npc_fabricate_claim"),
+            ("Start Sway Scheme", "secondary", "npc_promote_relations"),
+            ("Fabricate Claim Scheme", "primary", "npc_fabricate_claim"),
             ("Arrange Marriage", "primary", "npc_arrange_marriage"),
-            ("Plot Assassination", "deny", "npc_plot_murder"),
+            ("Start Murder Scheme", "deny", "npc_plot_murder"),
             ("Declare War", "deny", "npc_declare_war"),
         ]
         action_rects = []
@@ -768,10 +815,38 @@ class UIManager:
             if truce_days > 0:
                 truce_text = f"{truce_days}d" if truce_days < 365 else f"{truce_days / 365.0:.1f}y"
                 y = draw_body_text(surface, f"Truce: {truce_text}", content.left, y, color=(195, 170, 145))
+            hook_days = int(diplomacy.get("hook_days", 0))
+            hook_strength = str(diplomacy.get("hook_strength", "none")).title()
+            if hook_days > 0:
+                hook_text = f"{hook_days}d" if hook_days < 365 else f"{hook_days / 365.0:.1f}y"
+                y = draw_body_text(surface, f"Hook: {hook_strength} ({hook_text})", content.left, y, color=(170, 185, 205))
             claim_cd = int(diplomacy.get("claim_cooldown_days", 0))
             if claim_cd > 0:
                 cd_text = f"{claim_cd}d" if claim_cd < 365 else f"{claim_cd / 365.0:.1f}y"
                 y = draw_body_text(surface, f"Fabrication CD: {cd_text}", content.left, y, color=(195, 170, 145))
+            scheme_name = diplomacy.get("scheme_name")
+            if scheme_name:
+                scheme_progress = int(round(float(diplomacy.get("scheme_progress", 0.0))))
+                y = draw_body_text(surface, f"Scheme: {scheme_name} ({scheme_progress}%)", content.left, y, color=(180, 190, 165))
+
+        lifestyle_focus = state.get("lifestyle_focus")
+        lifestyle_perks = state.get("lifestyle_perks")
+        active_schemes = state.get("active_schemes")
+        stress = state.get("stress")
+        dread = state.get("dread")
+        if lifestyle_focus is not None:
+            y = draw_header_text(surface, "Ruler Focus", content.left, y + 2, color=(230, 224, 208))
+            focus_label = str(lifestyle_focus).title()
+            y = draw_body_text(surface, f"Focus: {focus_label}", content.left, y, color=(220, 214, 198))
+            if isinstance(lifestyle_perks, dict):
+                perk_count = int(lifestyle_perks.get(lifestyle_focus, 0))
+                y = draw_body_text(surface, f"Perk Tier: {perk_count}", content.left, y, color=(200, 194, 178))
+        if stress is not None:
+            y = draw_body_text(surface, f"Stress: {int(stress)}/300", content.left, y, color=(200, 150, 150))
+        if dread is not None:
+            y = draw_body_text(surface, f"Dread: {int(dread)}/100", content.left, y, color=(185, 165, 165))
+        if isinstance(active_schemes, list):
+            y = draw_body_text(surface, f"Active Schemes: {len(active_schemes)}", content.left, y, color=(200, 194, 178))
         y += 6
 
         y = self._draw_character_details(surface, content, y, c)
