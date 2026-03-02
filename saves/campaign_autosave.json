@@ -1,0 +1,1808 @@
+{
+  "save_version": 2,
+  "storyteller_id": "cassius_classic",
+  "state": {
+    "date": {
+      "year": 1067,
+      "month": 4,
+      "day": 1
+    },
+    "player_realm_id": 2,
+    "resources": {
+      "gold": 185,
+      "piety": 1003,
+      "prestige": 302,
+      "renown": 133
+    },
+    "realm_relations": {
+      "0": 0,
+      "1": -1,
+      "3": 18,
+      "4": -5,
+      "5": -32,
+      "6": 1,
+      "7": -8,
+      "8": 9,
+      "9": 17,
+      "10": 5,
+      "11": -12,
+      "12": 0,
+      "13": -21,
+      "14": 6
+    },
+    "realm_claims": [
+      1
+    ],
+    "realm_truces": {},
+    "claim_fabrication_cooldowns": {},
+    "alliances": [],
+    "subjugation_cooldown_days": 0,
+    "active_schemes": [
+      {
+        "id": 1,
+        "type": "sway",
+        "target_id": 1,
+        "category": "personal",
+        "progress": 25.27,
+        "days": 28,
+        "base_power": 0.95,
+        "success_chance": 0.8,
+        "exposure_chance": 0.1,
+        "min_days": 35
+      }
+    ],
+    "hooks": {},
+    "lifestyle_focus": "stewardship",
+    "lifestyle_xp": {
+      "diplomacy": 0.0,
+      "martial": 0.0,
+      "stewardship": 49.00000000000005,
+      "intrigue": 0.0,
+      "learning": 0.0
+    },
+    "lifestyle_perks": {
+      "diplomacy": 0,
+      "martial": 0,
+      "stewardship": 0,
+      "intrigue": 0,
+      "learning": 0
+    },
+    "stress": 10.840000000000007,
+    "dread": 0.5,
+    "decision_cooldowns": {},
+    "raid_cooldown_days": 191,
+    "ai_war_cooldown_days": 50,
+    "wars": [
+      {
+        "id": 1,
+        "target_id": 1,
+        "war_type": "Conquest",
+        "goal_pid": 25,
+        "progress": 0.0,
+        "days": 28,
+        "ready_prompted": false,
+        "sieged": [],
+        "total_provs": 3,
+        "attacker": "player",
+        "attacker_broken_days": 0
+      }
+    ],
+    "war_next_id": 2,
+    "war_focus_id": 1,
+    "army": {
+      "raised": 359,
+      "morale": 100.0,
+      "raising": false,
+      "selected": false,
+      "prov_id": 25,
+      "route": []
+    },
+    "enemy_armies": [
+      {
+        "realm_id": 4,
+        "prov_id": 13,
+        "army": {
+          "raised": 304,
+          "max": 358,
+          "morale": 100.0
+        },
+        "raising": false,
+        "route": [],
+        "target_pid": null,
+        "ai_state": "idle"
+      },
+      {
+        "realm_id": 1,
+        "prov_id": 33,
+        "army": {
+          "raised": 238,
+          "max": 238,
+          "morale": 95.5
+        },
+        "raising": false,
+        "route": [],
+        "target_pid": 33,
+        "ai_state": "avoid"
+      }
+    ],
+    "selected_province_id": 25,
+    "campaign_start_provinces": 5,
+    "campaign_target_provinces": 14,
+    "insolvency_days": 0,
+    "famine_days": 0,
+    "crisis_days": 0,
+    "campaign_result": null,
+    "campaign_over_day": null,
+    "last_played_realm_id": 2,
+    "baseline_population": 2980,
+    "log": [
+      "Time paused.",
+      "March 4, 1067: Select a war goal province in King Ketil.",
+      "March 4, 1067: You begin a sway scheme targeting King Ketil.",
+      "March 4, 1067: War goal must be in King Ketil.",
+      "March 4, 1067: Selected Fjalluvik.",
+      "March 4, 1067: Declared war on King Ketil.",
+      "March 4, 1067: Selected Bjornivik.",
+      "March 4, 1067: Selected Thoraheim.",
+      "Your levies begin to muster.",
+      "March 4, 1067: Army selected.",
+      "March 4, 1067: Army selected.",
+      "Time resumes.",
+      "Time paused.",
+      "March 7, 1067: You adopted a cat.",
+      "Time speed set to 1.",
+      "Time speed set to 3.",
+      "Time paused.",
+      "March 14, 1067: You sent the cat away. The omens fade.",
+      "Time speed set to 3.",
+      "March 17, 1067: King Gunnar raids your border, but your levies repel them.",
+      "Time paused.",
+      "Time speed set to 1.",
+      "March 20, 1067: Army marching to Bjornivik.",
+      "March 22, 1067: Begin siege preparations in Bjornivik.",
+      "March 25, 1067: Selected Bjornivik.",
+      "Time paused.",
+      "March 26, 1067: You ignored the stray cat.",
+      "Time speed set to 1.",
+      "Time speed set to 3.",
+      "March 29, 1067: Siege of Bjornivik begins."
+    ]
+  },
+  "world": {
+    "provinces": [
+      {
+        "id": 0,
+        "realm_id": 6,
+        "population": 424,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 1,
+        "realm_id": 8,
+        "population": 475,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 2,
+        "realm_id": 0,
+        "population": 638,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 3,
+        "realm_id": 11,
+        "population": 404,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 4,
+        "realm_id": 12,
+        "population": 322,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 5,
+        "realm_id": 7,
+        "population": 477,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 6,
+        "realm_id": 6,
+        "population": 617,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 7,
+        "realm_id": 10,
+        "population": 560,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 8,
+        "realm_id": 14,
+        "population": 993,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 9,
+        "realm_id": 2,
+        "population": 761,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 10,
+        "realm_id": 2,
+        "population": 592,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 11,
+        "realm_id": 0,
+        "population": 416,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 12,
+        "realm_id": 3,
+        "population": 355,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 13,
+        "realm_id": 4,
+        "population": 431,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 14,
+        "realm_id": 1,
+        "population": 756,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 15,
+        "realm_id": 11,
+        "population": 546,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 16,
+        "realm_id": 3,
+        "population": 826,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 17,
+        "realm_id": 9,
+        "population": 346,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 18,
+        "realm_id": 5,
+        "population": 804,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 19,
+        "realm_id": 6,
+        "population": 368,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 20,
+        "realm_id": 13,
+        "population": 993,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 21,
+        "realm_id": 10,
+        "population": 307,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 22,
+        "realm_id": 11,
+        "population": 557,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 23,
+        "realm_id": 10,
+        "population": 485,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 24,
+        "realm_id": 2,
+        "population": 609,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 25,
+        "realm_id": 1,
+        "population": 572,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 26,
+        "realm_id": 9,
+        "population": 334,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 27,
+        "realm_id": 8,
+        "population": 525,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 28,
+        "realm_id": 7,
+        "population": 312,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 29,
+        "realm_id": 2,
+        "population": 473,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 30,
+        "realm_id": 6,
+        "population": 604,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 31,
+        "realm_id": 10,
+        "population": 282,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 32,
+        "realm_id": 4,
+        "population": 658,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 33,
+        "realm_id": 1,
+        "population": 659,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 34,
+        "realm_id": 3,
+        "population": 835,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 35,
+        "realm_id": 5,
+        "population": 619,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 36,
+        "realm_id": 4,
+        "population": 796,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 37,
+        "realm_id": 12,
+        "population": 671,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 38,
+        "realm_id": 8,
+        "population": 668,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 39,
+        "realm_id": 11,
+        "population": 749,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 40,
+        "realm_id": 0,
+        "population": 513,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 41,
+        "realm_id": 8,
+        "population": 855,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 42,
+        "realm_id": 0,
+        "population": 419,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 43,
+        "realm_id": 7,
+        "population": 688,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 44,
+        "realm_id": 9,
+        "population": 644,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 45,
+        "realm_id": 6,
+        "population": 356,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 46,
+        "realm_id": 7,
+        "population": 511,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 47,
+        "realm_id": 4,
+        "population": 318,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 48,
+        "realm_id": 10,
+        "population": 754,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 49,
+        "realm_id": 5,
+        "population": 590,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 50,
+        "realm_id": 8,
+        "population": 457,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 51,
+        "realm_id": 4,
+        "population": 778,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 52,
+        "realm_id": 3,
+        "population": 455,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 53,
+        "realm_id": 3,
+        "population": 508,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 54,
+        "realm_id": 2,
+        "population": 557,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 55,
+        "realm_id": 10,
+        "population": 592,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 56,
+        "realm_id": 11,
+        "population": 724,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 57,
+        "realm_id": 9,
+        "population": 663,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 58,
+        "realm_id": 5,
+        "population": 308,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "id": 59,
+        "realm_id": 5,
+        "population": 659,
+        "buildings": [
+          {
+            "id": "farm",
+            "level": 1
+          },
+          null,
+          null
+        ]
+      },
+      {
+        "id": 60,
+        "realm_id": 6,
+        "population": 612,
+        "buildings": [
+          null,
+          null,
+          null
+        ]
+      }
+    ],
+    "realm_capitals": [
+      2,
+      33,
+      29,
+      52,
+      13,
+      59,
+      0,
+      46,
+      38,
+      17,
+      7,
+      3,
+      4,
+      20,
+      8
+    ],
+    "realm_rulers": [
+      {
+        "name": "Queen Brynhild",
+        "title": "Queen of Sigraborg",
+        "house": "House Haraldsson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 58,
+        "traits": [
+          "humble",
+          "gluttonous",
+          "chaste"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            8
+          ],
+          [
+            "Martial",
+            7
+          ],
+          [
+            "Stewardship",
+            6
+          ],
+          [
+            "Intrigue",
+            6
+          ],
+          [
+            "Learning",
+            13
+          ],
+          [
+            "Prowess",
+            7
+          ]
+        ],
+        "base_stats": {
+          "Diplomacy": 7,
+          "Martial": 7,
+          "Stewardship": 7,
+          "Intrigue": 7,
+          "Learning": 11,
+          "Prowess": 7
+        }
+      },
+      {
+        "name": "King Ketil",
+        "title": "King of Vikeholm",
+        "house": "House Ragnvaldsson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "male",
+        "age": 55,
+        "traits": [
+          "patient",
+          "vengeful",
+          "chaste"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            8
+          ],
+          [
+            "Martial",
+            10
+          ],
+          [
+            "Stewardship",
+            8
+          ],
+          [
+            "Intrigue",
+            5
+          ],
+          [
+            "Learning",
+            12
+          ],
+          [
+            "Prowess",
+            9
+          ]
+        ],
+        "spouse": {
+          "name": "Queen Helga",
+          "title": "Queen of Vikeholm",
+          "house": "House Ragnvaldsson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 54
+        },
+        "base_stats": {
+          "Diplomacy": 9,
+          "Martial": 9,
+          "Stewardship": 7,
+          "Intrigue": 6,
+          "Learning": 10,
+          "Prowess": 9
+        }
+      },
+      {
+        "name": "Queen Alfhild",
+        "title": "Queen of Fjallauholt",
+        "house": "House Lodbrok",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 55,
+        "traits": [
+          "vengeful",
+          "patient",
+          "proud"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            9
+          ],
+          [
+            "Martial",
+            12
+          ],
+          [
+            "Stewardship",
+            12
+          ],
+          [
+            "Intrigue",
+            14
+          ],
+          [
+            "Learning",
+            8
+          ],
+          [
+            "Prowess",
+            11
+          ]
+        ],
+        "spouse": {
+          "name": "King Arne",
+          "title": "King of Fjallauholt",
+          "house": "House Lodbrok",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 53
+        },
+        "base_stats": {
+          "Diplomacy": 11,
+          "Martial": 11,
+          "Stewardship": 11,
+          "Intrigue": 14,
+          "Learning": 7,
+          "Prowess": 9
+        },
+        "heir": {
+          "name": "Prince Rolf",
+          "title": "Prince of Fjallauholt",
+          "house": "House Lodbrok",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 16
+        }
+      },
+      {
+        "name": "Queen Ingrid",
+        "title": "Queen of Rimuborg",
+        "house": "House Lodbrok",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 57,
+        "traits": [
+          "charitable",
+          "temperate",
+          "proud"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            9
+          ],
+          [
+            "Martial",
+            9
+          ],
+          [
+            "Stewardship",
+            10
+          ],
+          [
+            "Intrigue",
+            8
+          ],
+          [
+            "Learning",
+            8
+          ],
+          [
+            "Prowess",
+            9
+          ]
+        ],
+        "spouse": {
+          "name": "King Ketil",
+          "title": "King of Rimuborg",
+          "house": "House Lodbrok",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 31
+        },
+        "heir": {
+          "name": "Princess Helga",
+          "title": "Princess of Rimuborg",
+          "house": "House Lodbrok",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 7
+        },
+        "base_stats": {
+          "Diplomacy": 8,
+          "Martial": 9,
+          "Stewardship": 8,
+          "Intrigue": 9,
+          "Learning": 7,
+          "Prowess": 8
+        }
+      },
+      {
+        "name": "Queen Ragnhild",
+        "title": "Queen of Sigraufell",
+        "house": "House Hvitserk",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 34,
+        "traits": [
+          "forgiving",
+          "temperate",
+          "humble"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            10
+          ],
+          [
+            "Martial",
+            3
+          ],
+          [
+            "Stewardship",
+            14
+          ],
+          [
+            "Intrigue",
+            10
+          ],
+          [
+            "Learning",
+            11
+          ],
+          [
+            "Prowess",
+            5
+          ]
+        ],
+        "spouse": {
+          "name": "King Rolf",
+          "title": "King of Sigraufell",
+          "house": "House Hvitserk",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 19
+        },
+        "heir": {
+          "name": "Princess Ragnhild",
+          "title": "Princess of Sigraufell",
+          "house": "House Hvitserk",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 3
+        },
+        "base_stats": {
+          "Diplomacy": 7,
+          "Martial": 4,
+          "Stewardship": 13,
+          "Intrigue": 10,
+          "Learning": 9,
+          "Prowess": 7
+        }
+      },
+      {
+        "name": "King Gunnar",
+        "title": "King of Hrafnoholt",
+        "house": "House Sigurdsson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "male",
+        "age": 51,
+        "traits": [
+          "vengeful",
+          "temperate",
+          "proud"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            5
+          ],
+          [
+            "Martial",
+            7
+          ],
+          [
+            "Stewardship",
+            7
+          ],
+          [
+            "Intrigue",
+            9
+          ],
+          [
+            "Learning",
+            12
+          ],
+          [
+            "Prowess",
+            15
+          ]
+        ],
+        "base_stats": {
+          "Diplomacy": 7,
+          "Martial": 5,
+          "Stewardship": 6,
+          "Intrigue": 9,
+          "Learning": 11,
+          "Prowess": 14
+        }
+      },
+      {
+        "name": "Queen Sigrid",
+        "title": "Queen of Hrafnauvik",
+        "house": "House Sturlung",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 22,
+        "traits": [
+          "patient",
+          "proud",
+          "chaste"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            8
+          ],
+          [
+            "Martial",
+            9
+          ],
+          [
+            "Stewardship",
+            5
+          ],
+          [
+            "Intrigue",
+            7
+          ],
+          [
+            "Learning",
+            10
+          ],
+          [
+            "Prowess",
+            11
+          ]
+        ],
+        "spouse": {
+          "name": "King Hakon",
+          "title": "King of Hrafnauvik",
+          "house": "House Sturlung",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 51
+        },
+        "base_stats": {
+          "Diplomacy": 9,
+          "Martial": 10,
+          "Stewardship": 4,
+          "Intrigue": 8,
+          "Learning": 8,
+          "Prowess": 9
+        }
+      },
+      {
+        "name": "Queen Helga",
+        "title": "Queen of Vikauheim",
+        "house": "House Skallagrimsson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 38,
+        "traits": [
+          "forgiving",
+          "charitable",
+          "humble"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            18
+          ],
+          [
+            "Martial",
+            10
+          ],
+          [
+            "Stewardship",
+            12
+          ],
+          [
+            "Intrigue",
+            7
+          ],
+          [
+            "Learning",
+            10
+          ],
+          [
+            "Prowess",
+            12
+          ]
+        ],
+        "spouse": {
+          "name": "King Styrbjorn",
+          "title": "King of Vikauheim",
+          "house": "House Skallagrimsson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 49
+        },
+        "base_stats": {
+          "Diplomacy": 13,
+          "Martial": 11,
+          "Stewardship": 11,
+          "Intrigue": 8,
+          "Learning": 9,
+          "Prowess": 13
+        }
+      },
+      {
+        "name": "King Bjorn",
+        "title": "King of Frostauholt",
+        "house": "House Lodbrok",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "male",
+        "age": 30,
+        "traits": [
+          "charitable",
+          "diligent",
+          "chaste"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            13
+          ],
+          [
+            "Martial",
+            8
+          ],
+          [
+            "Stewardship",
+            9
+          ],
+          [
+            "Intrigue",
+            7
+          ],
+          [
+            "Learning",
+            13
+          ],
+          [
+            "Prowess",
+            6
+          ]
+        ],
+        "base_stats": {
+          "Diplomacy": 11,
+          "Martial": 8,
+          "Stewardship": 6,
+          "Intrigue": 10,
+          "Learning": 11,
+          "Prowess": 6
+        }
+      },
+      {
+        "name": "Queen Solveig",
+        "title": "Queen of Ulfogard",
+        "house": "House Yngling",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 50,
+        "traits": [
+          "forgiving",
+          "humble",
+          "wrathful"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            14
+          ],
+          [
+            "Martial",
+            11
+          ],
+          [
+            "Stewardship",
+            6
+          ],
+          [
+            "Intrigue",
+            9
+          ],
+          [
+            "Learning",
+            10
+          ],
+          [
+            "Prowess",
+            14
+          ]
+        ],
+        "heir": {
+          "name": "Prince Ivar",
+          "title": "Prince of Ulfogard",
+          "house": "House Yngling",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 7
+        },
+        "base_stats": {
+          "Diplomacy": 12,
+          "Martial": 10,
+          "Stewardship": 6,
+          "Intrigue": 9,
+          "Learning": 9,
+          "Prowess": 14
+        }
+      },
+      {
+        "name": "Queen Ylva",
+        "title": "Queen of Hrafnefjord",
+        "house": "House Eiriksson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 40,
+        "traits": [
+          "wrathful",
+          "diligent",
+          "chaste"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            4
+          ],
+          [
+            "Martial",
+            12
+          ],
+          [
+            "Stewardship",
+            13
+          ],
+          [
+            "Intrigue",
+            11
+          ],
+          [
+            "Learning",
+            9
+          ],
+          [
+            "Prowess",
+            6
+          ]
+        ],
+        "spouse": {
+          "name": "King Eirik",
+          "title": "King of Hrafnefjord",
+          "house": "House Eiriksson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 18
+        },
+        "heir": {
+          "name": "Prince Styrbjorn",
+          "title": "Prince of Hrafnefjord",
+          "house": "House Eiriksson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 3
+        },
+        "base_stats": {
+          "Diplomacy": 5,
+          "Martial": 10,
+          "Stewardship": 11,
+          "Intrigue": 13,
+          "Learning": 7,
+          "Prowess": 5
+        }
+      },
+      {
+        "name": "King Bjorn",
+        "title": "King of Rimuness",
+        "house": "House Hardrada",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "male",
+        "age": 52,
+        "traits": [
+          "forgiving",
+          "lustful",
+          "temperate"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            10
+          ],
+          [
+            "Martial",
+            8
+          ],
+          [
+            "Stewardship",
+            13
+          ],
+          [
+            "Intrigue",
+            12
+          ],
+          [
+            "Learning",
+            7
+          ],
+          [
+            "Prowess",
+            8
+          ]
+        ],
+        "spouse": {
+          "name": "Queen Freydis",
+          "title": "Queen of Rimuness",
+          "house": "House Hardrada",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 34
+        },
+        "heir": {
+          "name": "Princess Gunnhild",
+          "title": "Princess of Rimuness",
+          "house": "House Hardrada",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 4
+        },
+        "base_stats": {
+          "Diplomacy": 7,
+          "Martial": 9,
+          "Stewardship": 12,
+          "Intrigue": 10,
+          "Learning": 7,
+          "Prowess": 9
+        }
+      },
+      {
+        "name": "Duchess Liv",
+        "title": "Duchess of Eiruheim",
+        "house": "House Fairhair",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 30,
+        "traits": [
+          "patient",
+          "diligent",
+          "temperate"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            10
+          ],
+          [
+            "Martial",
+            8
+          ],
+          [
+            "Stewardship",
+            16
+          ],
+          [
+            "Intrigue",
+            7
+          ],
+          [
+            "Learning",
+            11
+          ],
+          [
+            "Prowess",
+            8
+          ]
+        ],
+        "spouse": {
+          "name": "Duke Sten",
+          "title": "Duke of Eiruheim",
+          "house": "House Fairhair",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 39
+        },
+        "base_stats": {
+          "Diplomacy": 10,
+          "Martial": 9,
+          "Stewardship": 12,
+          "Intrigue": 8,
+          "Learning": 8,
+          "Prowess": 9
+        }
+      },
+      {
+        "name": "Countess Freydis",
+        "title": "Countess of Rimygard",
+        "house": "House Hauksson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "female",
+        "age": 31,
+        "traits": [
+          "forgiving",
+          "humble",
+          "charitable"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            13
+          ],
+          [
+            "Martial",
+            7
+          ],
+          [
+            "Stewardship",
+            11
+          ],
+          [
+            "Intrigue",
+            8
+          ],
+          [
+            "Learning",
+            9
+          ],
+          [
+            "Prowess",
+            5
+          ]
+        ],
+        "spouse": {
+          "name": "Count Ragnar",
+          "title": "Count of Rimygard",
+          "house": "House Hauksson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 30
+        },
+        "heir": {
+          "name": "Leif",
+          "title": "Heir of Rimygard",
+          "house": "House Hauksson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 15
+        },
+        "base_stats": {
+          "Diplomacy": 8,
+          "Martial": 8,
+          "Stewardship": 10,
+          "Intrigue": 9,
+          "Learning": 8,
+          "Prowess": 6
+        }
+      },
+      {
+        "name": "Count Harald",
+        "title": "Count of Sigraumark",
+        "house": "House Haraldsson",
+        "culture": "Nordfolken",
+        "faith": "Nordfolken Mythology",
+        "gender": "male",
+        "age": 60,
+        "traits": [
+          "greedy",
+          "vengeful",
+          "humble"
+        ],
+        "stats": [
+          [
+            "Diplomacy",
+            7
+          ],
+          [
+            "Martial",
+            14
+          ],
+          [
+            "Stewardship",
+            10
+          ],
+          [
+            "Intrigue",
+            5
+          ],
+          [
+            "Learning",
+            9
+          ],
+          [
+            "Prowess",
+            8
+          ]
+        ],
+        "spouse": {
+          "name": "Countess Ase",
+          "title": "Countess of Sigraumark",
+          "house": "House Haraldsson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "female",
+          "age": 54
+        },
+        "base_stats": {
+          "Diplomacy": 8,
+          "Martial": 12,
+          "Stewardship": 8,
+          "Intrigue": 5,
+          "Learning": 8,
+          "Prowess": 9
+        }
+      }
+    ],
+    "realm_sizes": [
+      4,
+      3,
+      5,
+      5,
+      5,
+      5,
+      6,
+      4,
+      5,
+      4,
+      6,
+      5,
+      2,
+      1,
+      1
+    ]
+  }
+}

@@ -815,6 +815,7 @@ class UIManager:
                 "title": (ruler or {}).get("title", c.get("title", "—")),
                 "faith": (ruler or {}).get("faith", c.get("faith", "—")),
                 "culture": (ruler or {}).get("culture", c.get("culture", "—")),
+                "manpower_total": state.get("character_realm_manpower"),
             }
 
         y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
@@ -824,6 +825,9 @@ class UIManager:
         y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Faith: {target_info.get('faith','—')}", content.left, y, color=(220, 214, 198))
         y = draw_body_text(surface, f"Culture: {target_info.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        manpower_total = target_info.get("manpower_total")
+        if manpower_total is not None:
+            y = draw_body_text(surface, f"Manpower: {int(manpower_total):,}", content.left, y, color=(200, 194, 178))
         diplomacy = state.get("diplomacy")
         if isinstance(diplomacy, dict):
             y = draw_header_text(surface, "Diplomacy", content.left, y + 2, color=(230, 224, 208))
@@ -1050,6 +1054,9 @@ class UIManager:
 
             safe_header("Realm")
             safe_body(realm_name, color=(235, 228, 210))
+            realm_manpower = state.get("selected_realm_manpower")
+            if realm_manpower is not None:
+                safe_body(f"Manpower: {int(realm_manpower):,}", color=(200, 194, 178))
 
             if y + 10 < y_limit:
                 y += 6

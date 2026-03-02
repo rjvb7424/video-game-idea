@@ -352,6 +352,7 @@ class GameApp:
             "culture": ruler.get("culture", "—"),
             "traits": ruler.get("traits", []),
             "realm_name": realm_name or "Realm",
+            "manpower_total": self._realm_total_manpower(rid),
         }
 
     @staticmethod
@@ -445,6 +446,15 @@ class GameApp:
         if hasattr(self.world, "realm_sizes") and 0 <= rid < len(self.world.realm_sizes):
             return max(1, int(self.world.realm_sizes[rid]))
         return max(1, sum(1 for p in self.world.provinces if p.realm_id == rid))
+
+    def _realm_total_manpower(self, rid):
+        if rid is None or not (0 <= rid < len(self.world.realm_names)):
+            return 0
+        pop = self.world.total_population_for_realm(rid)
+        effects = self._realm_building_effects(rid)
+        levy_mult = 1.0 + float(effects.get("levy_mult_bonus", 0.0))
+        manpower = int(round(pop * self.army_pop_ratio * max(0.20, levy_mult)))
+        return max(0, manpower)
 
     def _player_province_count(self, rid=None):
         if rid is None:
@@ -1224,7 +1234,7 @@ class GameApp:
         war = {
             "id": self._war_next_id,
             "target_id": attacker_rid,
-            "war_type": "Invasion",
+            "war_type": "Conquest",
             "goal_pid": goal_pid,
             "progress": 0.0,
             "days": 0,
@@ -1232,6 +1242,7 @@ class GameApp:
             "sieged": set(),
             "total_provs": total_provs,
             "attacker": "ai",
+            "attacker_broken_days": 0,
         }
         self._war_next_id += 1
         self.wars.append(war)
@@ -1244,12 +1255,12 @@ class GameApp:
 
         attacker_name = self._get_war_target_name(attacker_rid)
         goal_name = self.world.provinces[goal_pid].name if 0 <= goal_pid < len(self.world.provinces) else "frontier lands"
-        self.push_log(f"{self.date}: {attacker_name} declares an invasion for {goal_name}.")
+        self.push_log(f"{self.date}: {attacker_name} declares a conquest for {goal_name}.")
         if not self.modal.open:
             self.modal.show(
                 "Enemy Declaration",
                 [
-                    f"{attacker_name} declared war on your realm.",
+                    f"{attacker_name} declared a conquest war on your realm.",
                     f"They demand {goal_name} if you surrender.",
                     "Raise levies and hold your frontier.",
                 ],
@@ -2386,7 +2397,7 @@ class GameApp:
                     {
                         "id": int(war.get("id", 0)),
                         "target_id": int(war.get("target_id", -1)),
-                        "war_type": str(war.get("war_type", "Conquest")),
+                        "war_type": "Conquest",
                         "goal_pid": war.get("goal_pid"),
                         "progress": float(war.get("progress", 0.0)),
                         "days": int(war.get("days", 0)),
@@ -2394,6 +2405,7 @@ class GameApp:
                         "sieged": sorted(int(pid) for pid in self._get_war_sieged_set(war)),
                         "total_provs": int(war.get("total_provs", 0)),
                         "attacker": str(war.get("attacker", "player")),
+                        "attacker_broken_days": max(0, int(war.get("attacker_broken_days", 0))),
                     }
                     for war in self.wars
                 ],
@@ -2731,10 +2743,14 @@ class GameApp:
                     continue
                 if 0 <= pid < len(self.world.provinces):
                     sieged.add(pid)
+            try:
+                attacker_broken_days = max(0, int(entry.get("attacker_broken_days", 0)))
+            except (TypeError, ValueError):
+                attacker_broken_days = 0
             war = {
                 "id": war_id,
                 "target_id": target_id,
-                "war_type": str(entry.get("war_type", "Conquest")),
+                "war_type": "Conquest",
                 "goal_pid": goal_pid,
                 "progress": float(clamp(float(entry.get("progress", 0.0)), 0.0, 100.0)),
                 "days": max(0, int(entry.get("days", 0))),
@@ -2742,6 +2758,7 @@ class GameApp:
                 "sieged": sieged,
                 "total_provs": max(0, int(entry.get("total_provs", 0))),
                 "attacker": str(entry.get("attacker", "player")),
+                "attacker_broken_days": attacker_broken_days,
             }
             self.wars.append(war)
         self._war_next_id = max(
@@ -3632,6 +3649,7 @@ class GameApp:
                     "character": ruler,
                     "npc_target": self._get_npc_target(self.realm_candidate_id),
                     "npc_actions_enabled": False,
+                    "character_realm_manpower": self._realm_total_manpower(self.realm_candidate_id),
                 },
             ),
         )
@@ -3873,17 +3891,97 @@ class GameApp:
         war["progress"] = max(0.0, min(100.0, progress))
         return war["progress"]
 
+    def _attacker_army_state(self, war):
+        if not war:
+            return 0, False
+        if war.get("attacker") == "player":
+            return int(self.army.get("raised", 0)), bool(self.army_raising)
+        rid = war.get("target_id")
+        enemy = self._get_enemy_army_for_realm(rid)
+        if enemy is None:
+            return 0, False
+        return int(enemy.get("army", {}).get("raised", 0)), bool(enemy.get("raising", False))
+
+    def _war_reparation_amount(self, war):
+        days = max(0, int((war or {}).get("days", 0)))
+        sieged = len(self._get_war_sieged_set(war or {}))
+        raw = 40 + (days // 8) + (sieged * 10)
+        return int(clamp(raw, 35, 220))
+
+    def _apply_defender_reparations(self, war):
+        due = self._war_reparation_amount(war)
+        if war.get("attacker") == "player":
+            treasury = int(self.resources.get("gold", 0))
+            paid = min(due, treasury)
+            debt = due - paid
+            self.resources["gold"] = max(0, treasury - paid)
+            prestige_loss = 24 + (debt // 3)
+            renown_loss = 10 + (debt // 6)
+            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_loss)
+            self.resources["renown"] = max(0, int(self.resources.get("renown", 0)) - renown_loss)
+            self._adjust_stress(+8.0)
+            self._recompute_resource_rates()
+            return {"due": due, "paid": paid, "debt": debt}
+
+        self.resources["gold"] = int(self.resources.get("gold", 0)) + due
+        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 18
+        self.resources["renown"] = int(self.resources.get("renown", 0)) + 10
+        self._adjust_stress(-4.0)
+        self._recompute_resource_rates()
+        return {"due": due, "paid": due, "debt": 0}
+
+    def _resolve_defender_victory(self, war, reason=None):
+        if not war:
+            return "War ended."
+        target_name = self._get_war_target_name(war)
+        goal_pid = war.get("goal_pid")
+        goal_name = "the disputed province"
+        if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces):
+            goal_name = self.world.provinces[goal_pid].name
+        rep = self._apply_defender_reparations(war)
+        if war.get("attacker") == "player":
+            detail = f"{target_name} held {goal_name}. You paid {rep['paid']} gold in reparations."
+            if rep.get("debt", 0) > 0:
+                detail += " Unable to pay in full; prestige and renown were lost."
+            if reason:
+                return f"{reason} {detail}"
+            return detail
+        detail = f"You repelled {target_name}'s conquest of {goal_name} and received {rep['paid']} gold in reparations."
+        if reason:
+            return f"{reason} {detail}"
+        return detail
+
+    def _check_attacker_breakdown(self, war):
+        raised, raising = self._attacker_army_state(war)
+        broken_days = int(war.get("attacker_broken_days", 0))
+        if raised <= 0 and not raising:
+            broken_days += 1
+        else:
+            broken_days = 0
+        war["attacker_broken_days"] = broken_days
+        if broken_days < 14:
+            return None
+        return self._resolve_defender_victory(war, reason="Attacker forces collapsed.")
+
     def _update_war_tick(self):
         if not self.wars:
             return
         war_to_prompt = None
-        for war in self.wars:
+        resolved = []
+        for war in list(self.wars):
             war["days"] += 1
             self._update_war_progress(war)
+            defender_msg = self._check_attacker_breakdown(war)
+            if defender_msg is not None:
+                resolved.append((war.get("id"), defender_msg))
+                continue
             if war["progress"] >= 100.0 and not war.get("ready_prompted"):
                 war["ready_prompted"] = True
                 if war_to_prompt is None:
                     war_to_prompt = war
+        for wid, msg in resolved:
+            if wid is not None and self._get_war_by_id(wid):
+                self._end_war(wid, msg)
         if war_to_prompt and not self.modal.open:
             self._open_war_details(war_to_prompt["id"])
 
@@ -3996,6 +4094,7 @@ class GameApp:
                 self._siege_province(pid)
 
     def _start_war(self, target_rid, war_type="Conquest", goal_pid=None):
+        war_type = "Conquest"
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not allowed:
             self.modal.show(
@@ -4035,6 +4134,7 @@ class GameApp:
             "sieged": set(),
             "total_provs": total_provs,
             "attacker": "player",
+            "attacker_broken_days": 0,
         }
         self._war_next_id += 1
         self._pay_war_cost(target_rid, war_type)
@@ -4050,39 +4150,28 @@ class GameApp:
     def _open_war_type_modal(self, target_rid):
         target_name = self._get_war_target_name(target_rid)
         claim_ok, claim_msg = self._can_declare_war_type(target_rid, "Conquest")
-        sub_ok, sub_msg = self._can_declare_war_type(target_rid, "Subjugation")
-        holy_ok, holy_msg = self._can_declare_war_type(target_rid, "Holy War")
 
         self.modal.show(
             "Declare War",
             [
-                f"Select a war type against {target_name}.",
-                "Then choose a province to annex as your war goal.",
-                f"Claim War: {claim_msg}",
-                f"Subjugation: {sub_msg}",
-                f"Holy War: {holy_msg}",
+                f"Declare a Conquest war against {target_name}.",
+                "You will then choose one province as your annexation war goal.",
+                f"Conquest requirements: {claim_msg}",
+                "Attacker victory at 100% annexes the chosen province.",
+                "If the attacker is defeated, they must pay reparations.",
             ],
             [
                 (
-                    "Claim War",
+                    "Conquest",
                     "accept" if claim_ok else "disabled",
                     (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Conquest")) if claim_ok else (lambda: None),
-                ),
-                (
-                    "Subjugation",
-                    "primary" if sub_ok else "disabled",
-                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Subjugation")) if sub_ok else (lambda: None),
-                ),
-                (
-                    "Holy War",
-                    "secondary" if holy_ok else "disabled",
-                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Holy War")) if holy_ok else (lambda: None),
                 ),
                 ("Cancel", "deny", lambda: self._cancel_pending_war()),
             ],
         )
 
     def _begin_war_goal_selection(self, target_rid, war_type):
+        war_type = "Conquest"
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not allowed:
             self.modal.show(
@@ -4257,6 +4346,11 @@ class GameApp:
         total = war.get("total_provs") or 0
         war_type = war.get("war_type", "Conquest")
         attacker = war.get("attacker", "player")
+        attacker_rid = self.player_realm_id if attacker == "player" else war.get("target_id")
+        defender_rid = war.get("target_id") if attacker == "player" else self.player_realm_id
+        attacker_manpower = self._realm_total_manpower(attacker_rid)
+        defender_manpower = self._realm_total_manpower(defender_rid)
+        reparations = self._war_reparation_amount(war)
         goal_pid = war.get("goal_pid")
         goal_name = None
         if goal_pid is not None and 0 <= goal_pid < len(self.world.provinces):
@@ -4274,8 +4368,11 @@ class GameApp:
                 f"War goal: {goal_name if goal_name else 'None'}.",
                 f"War progress: {progress}%.",
                 f"Sieged provinces: {len(sieged)}/{total}.",
-                "Surrender cedes territory in defensive wars." if attacker == "ai" else "Surrender ends this war immediately.",
-                "Press demands is available at 100%.",
+                f"Attacker manpower: {attacker_manpower:,}.",
+                f"Defender manpower: {defender_manpower:,}.",
+                "Attacker wins at 100% and takes the war-goal province.",
+                f"Defender victory keeps current borders and forces about {reparations}g reparations from attacker.",
+                "Surrender grants attacker's conquest demand." if attacker == "ai" else "Surrender concedes the war and pays reparations.",
             ],
             [
                 ("Surrender", "deny", lambda: self._surrender_war(war_id)),
@@ -4297,7 +4394,8 @@ class GameApp:
             else:
                 self._end_war(war_id, f"Surrendered to {target_name}.")
             return
-        self._end_war(war_id, f"Surrendered to {target_name}.")
+        msg = self._resolve_defender_victory(war, reason=f"You surrendered against {target_name}.")
+        self._end_war(war_id, msg)
 
     def _apply_enemy_demands(self, war):
         if not war:
@@ -4389,6 +4487,10 @@ class GameApp:
                     ("OK", "accept", lambda: self.modal.close()),
                 ],
             )
+            return
+        if war.get("attacker") == "ai":
+            msg = self._resolve_defender_victory(war, reason="Defender victory secured.")
+            self._end_war(war_id, msg)
             return
         self._apply_war_demands(war)
         target_name = self._get_war_target_name(war)
@@ -5820,6 +5922,11 @@ class GameApp:
                     "lifestyle_focus": self.lifestyle_focus,
                     "lifestyle_perks": dict(self.lifestyle_perks),
                     "active_schemes": list(self.active_schemes),
+                    "selected_realm_manpower": (
+                        self._realm_total_manpower(self.selected_province.realm_id)
+                        if self.selected_province is not None
+                        else None
+                    ),
                 }
 
                 clip_draw(self.screen, self.layout.top, lambda: clickables.extend(self.ui.draw_top_bar(self.screen, self.layout.top, state)))
@@ -5840,6 +5947,7 @@ class GameApp:
                 left_state["npc_target"] = npc_target
                 left_state["npc_actions_enabled"] = True
                 left_state["diplomacy"] = self._diplomacy_snapshot(npc_target.get("id")) if npc_target else None
+                left_state["character_realm_manpower"] = self._realm_total_manpower(left_realm_id)
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))
                 clickables.extend(self._draw_right_panel_animated(self.screen, state))
