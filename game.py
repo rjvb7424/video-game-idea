@@ -207,6 +207,15 @@ class GameApp:
         self.threat = self._compute_threat()
         self._update_army_max()
         self._init_enemy_armies()
+        self._campaign_start_provinces = self._player_province_count()
+        self._campaign_target_provinces = self._compute_campaign_target_provinces(self._campaign_start_provinces)
+        self._insolvency_days = 0
+        self._famine_days = 0
+        self._crisis_days = 0
+        self.campaign_result = None
+        self._campaign_over_day = None
+        self.last_played_realm_id = self.player_realm_id
+        self._recompute_resource_rates()
 
         self.log = [
             "January 8, 1067: Rumors of usurpation spread in Carinthia.",
@@ -423,6 +432,28 @@ class GameApp:
             return max(1, int(self.world.realm_sizes[rid]))
         return max(1, sum(1 for p in self.world.provinces if p.realm_id == rid))
 
+    def _player_province_count(self, rid=None):
+        if rid is None:
+            rid = self.player_realm_id
+        return sum(1 for p in self.world.provinces if p.realm_id == rid)
+
+    def _compute_campaign_target_provinces(self, start_count=None):
+        if start_count is None:
+            start_count = self._player_province_count()
+        start_count = max(1, int(start_count))
+        total = max(1, len(self.world.provinces))
+        share_target = int(math.ceil(total * 0.22))
+        return max(start_count + 1, min(total, max(start_count + 3, share_target)))
+
+    def _campaign_progress_percent(self):
+        start = max(1, int(self._campaign_start_provinces))
+        target = max(start + 1, int(self._campaign_target_provinces))
+        held = self._player_province_count()
+        if held <= start:
+            return 0
+        span = max(1, target - start)
+        return int(clamp(round(((held - start) / span) * 100.0), 0, 100))
+
     @staticmethod
     def _realm_core_name(realm_name):
         if " of " in realm_name:
@@ -560,6 +591,7 @@ class GameApp:
         # Focus swaps are powerful in CK3-like play, so they carry some stress.
         self._adjust_stress(8.0, reason="Changed lifestyle focus")
         self.push_log(f"{self.date}: You adopt a {self._lifestyle_label(focus)} focus.")
+        self._recompute_resource_rates()
         return True
 
     def _lifestyle_xp_threshold(self, focus):
@@ -584,16 +616,20 @@ class GameApp:
 
         self.lifestyle_xp[focus] = float(self.lifestyle_xp.get(focus, 0.0)) + max(0.05, gain)
         threshold = self._lifestyle_xp_threshold(focus)
+        unlocked = False
         while self.lifestyle_xp[focus] >= threshold:
             self.lifestyle_xp[focus] -= threshold
             self.lifestyle_perks[focus] = self._perk_level(focus) + 1
             self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 20
             self.resources["renown"] = int(self.resources.get("renown", 0)) + 10
+            unlocked = True
             self.push_log(
                 f"{self.date}: {self._lifestyle_label(focus)} perk unlocked "
                 f"(Tier {self._perk_level(focus)})."
             )
             threshold = self._lifestyle_xp_threshold(focus)
+        if unlocked:
+            self._recompute_resource_rates()
 
     def _add_hook(self, target_rid, strength="weak", days=365 * 5):
         if target_rid is None:
@@ -731,6 +767,7 @@ class GameApp:
                 self._change_realm_opinion(target_rid, -7 if exposed else -3)
                 self._adjust_stress(3.0)
                 self.push_log(f"{self.date}: Sway scheme failed against {target_name}.")
+            self._recompute_resource_rates()
             return
 
         if scheme_type == "claim":
@@ -750,6 +787,7 @@ class GameApp:
                 self._change_realm_opinion(target_rid, -20 if exposed else -8)
                 self._adjust_stress(+6.0)
                 self.push_log(f"{self.date}: Claim fabrication failed against {target_name}.")
+            self._recompute_resource_rates()
             return
 
         if scheme_type == "murder":
@@ -777,6 +815,7 @@ class GameApp:
                     self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
                 self._adjust_stress(+14.0 if exposed else +7.0)
                 self.push_log(f"{self.date}: Murder scheme failed in {target_name}.")
+            self._recompute_resource_rates()
             return
 
     def _adjust_stress(self, delta, reason=None):
@@ -1013,6 +1052,7 @@ class GameApp:
             self.stress = clamp(float(self.stress) * 0.45, 0.0, 300.0)
             self._stress_break_level = int(self.stress // 100)
             self.dread = clamp(float(self.dread) * 0.40, 0.0, 100.0)
+            self._recompute_resource_rates()
             if not self.modal.open:
                 self.modal.show(
                     "Succession",
@@ -1048,6 +1088,102 @@ class GameApp:
         self._adjust_stress(self._daily_stress_delta())
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
+        self._tick_campaign_day()
+
+    def _finish_campaign(self, result, summary_lines):
+        if self.campaign_result is not None:
+            return
+        if result not in ("victory", "defeat"):
+            return
+        self.campaign_result = result
+        self._campaign_over_day = date_ordinal(self.date)
+        self.speed_level = 0
+        title = "Dynasty Victory" if result == "victory" else "Dynasty Defeat"
+        self.push_log(f"{self.date}: Campaign {result}.")
+        self.modal.show(
+            title,
+            summary_lines,
+            [
+                ("Continue", "accept", lambda: self.modal.close()),
+                ("Realm", "secondary", lambda: self._open_realm_overview()),
+                ("Main Menu", "deny", lambda: self._return_to_main_menu()),
+            ],
+        )
+
+    def _tick_campaign_day(self):
+        if self.campaign_result is not None:
+            return
+
+        held = self._player_province_count()
+        if held <= 0:
+            self._finish_campaign(
+                "defeat",
+                [
+                    "Your dynasty has no land remaining.",
+                    "You can continue in sandbox or return to the main menu.",
+                ],
+            )
+            return
+
+        gold = int(self.resources.get("gold", 0))
+        if gold < 0:
+            self._insolvency_days += 1
+        else:
+            self._insolvency_days = max(0, self._insolvency_days - 3)
+
+        production, consumption = self.food
+        severe_famine = consumption > 0 and production < (consumption * 0.80)
+        if severe_famine:
+            self._famine_days += 1
+        else:
+            self._famine_days = max(0, self._famine_days - 2)
+
+        if self.stress >= 285:
+            self._crisis_days += 1
+        else:
+            self._crisis_days = max(0, self._crisis_days - 3)
+
+        if self._insolvency_days >= 540:
+            self._finish_campaign(
+                "defeat",
+                [
+                    "Your realm has been insolvent for too long.",
+                    "Vassals and levies abandon the crown.",
+                ],
+            )
+            return
+
+        if self._famine_days >= 240:
+            self._finish_campaign(
+                "defeat",
+                [
+                    "A prolonged famine shattered your realm.",
+                    "Control collapses as provinces revolt.",
+                ],
+            )
+            return
+
+        if self._crisis_days >= 180:
+            self._finish_campaign(
+                "defeat",
+                [
+                    "You ruled under unbearable stress for too long.",
+                    "Court authority breaks down into chaos.",
+                ],
+            )
+            return
+
+        target = int(self._campaign_target_provinces)
+        renown = int(self.resources.get("renown", 0))
+        prestige = int(self.resources.get("prestige", 0))
+        if held >= target and (renown >= 260 or prestige >= 650):
+            self._finish_campaign(
+                "victory",
+                [
+                    f"You secured {held} provinces (target: {target}).",
+                    f"Dynasty standing reached Renown {renown} and Prestige {prestige}.",
+                ],
+            )
 
     def _can_declare_war_type(self, target_rid, war_type):
         if target_rid is None or target_rid == self.player_realm_id:
@@ -1368,6 +1504,7 @@ class GameApp:
             self.realm_truces[target_rid] = max(int(self.realm_truces.get(target_rid, 0)), 365)
             new_opinion = self._change_realm_opinion(target_rid, +24)
             self.resources["renown"] = int(self.resources.get("renown", 0)) + 25
+            self._recompute_resource_rates()
             self.push_log(f"{self.date}: Marriage alliance signed with {target_name}.")
             self.modal.show(
                 "Marriage Alliance",
@@ -1544,9 +1681,243 @@ class GameApp:
             lines,
             [
                 ("Lifestyle", "primary", lambda: self._open_lifestyle_focus_modal()),
+                ("Military", "secondary", lambda: self._open_military_overview()),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
+
+    def _open_realm_overview(self):
+        held = self._player_province_count()
+        target = int(self._campaign_target_provinces)
+        progress = self._campaign_progress_percent()
+        claims = len(self.realm_claims)
+        alliances = len(self.alliances)
+        lines = [
+            f"Realm size: {held}/{len(self.world.provinces)} provinces",
+            f"Campaign progress: {progress}% ({held}/{target} provinces toward victory)",
+            f"Dynasty: Prestige {int(self.resources.get('prestige', 0))}, Renown {int(self.resources.get('renown', 0))}",
+            f"Diplomacy: {claims} claims, {alliances} alliances, {len(self.wars)} active wars",
+            f"Stress and dread: {int(round(self.stress))}/300, {int(round(self.dread))}/100",
+        ]
+        if self.campaign_result is None:
+            lines.append("Victory condition: hold target provinces and reach high renown or prestige.")
+            if self._insolvency_days > 0:
+                lines.append(f"Insolvency pressure: {self._insolvency_days}/540 days")
+            if self._famine_days > 0:
+                lines.append(f"Famine pressure: {self._famine_days}/240 days")
+            if self._crisis_days > 0:
+                lines.append(f"Stress crisis pressure: {self._crisis_days}/180 days")
+        elif self.campaign_result == "victory":
+            lines.append("Campaign status: Victory achieved.")
+        else:
+            lines.append("Campaign status: Defeat condition reached.")
+        self.modal.show(
+            "Realm Overview",
+            lines,
+            [
+                ("Ledger", "primary", lambda: self._open_ledger_overview()),
+                ("Military", "secondary", lambda: self._open_military_overview()),
+                ("Close", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
+    def _open_military_overview(self):
+        raised = int(self.army.get("raised", 0))
+        max_army = int(self.army.get("max", 0))
+        morale = int(round(float(self.army.get("morale", 0))))
+        raising = "Yes" if self.army_raising else "No"
+        rally_pid = self._get_player_capital_pid()
+        rally_name = "None"
+        if rally_pid is not None and 0 <= rally_pid < len(self.world.provinces):
+            rally_name = self.world.provinces[rally_pid].name
+
+        lines = [
+            f"Levies raised: {raised:,}/{max_army:,}",
+            f"Army morale: {morale}/100",
+            f"Currently mustering: {raising}",
+            f"Rally point: {rally_name}",
+            f"Active wars: {len(self.wars)}",
+        ]
+        if self._siege_state is not None:
+            pid = self._siege_state.get("pid")
+            prov_name = self.world.provinces[pid].name if isinstance(pid, int) and 0 <= pid < len(self.world.provinces) else "Unknown"
+            stage = str(self._siege_state.get("stage", "prep")).title()
+            lines.append(f"Current siege: {prov_name} ({stage})")
+
+        if self.wars:
+            for war in self.wars[:3]:
+                name = self._get_war_target_name(war)
+                prog = self._format_war_progress(war.get("progress", 0.0))
+                lines.append(f"{name}: {prog}% war score")
+        else:
+            lines.append("No wars are currently active.")
+
+        war_action = (
+            ("War List", "primary", lambda: self._open_war_overview())
+            if self.wars
+            else ("War List", "disabled", lambda: None)
+        )
+        self.modal.show(
+            "Military Overview",
+            lines,
+            [
+                war_action,
+                ("Rally Army", "secondary", lambda: self._rally_army_to_capital()),
+                ("Close", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
+    def _open_ledger_overview(self):
+        gold = int(self.resources.get("gold", 0))
+        piety = int(self.resources.get("piety", 0))
+        prestige = int(self.resources.get("prestige", 0))
+        renown = int(self.resources.get("renown", 0))
+        gold_rate = int(self.resources.get("gold_rate", 0))
+        piety_rate = int(self.resources.get("piety_rate", 0))
+        prestige_rate = int(self.resources.get("prestige_rate", 0))
+        renown_rate = int(self.resources.get("renown_rate", 0))
+        farms = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="farm"))
+        production, consumption = self.food
+        net_food = int(production - consumption)
+        lines = [
+            f"Gold: {gold} ({gold_rate:+d}/month)",
+            f"Piety: {piety} ({piety_rate:+d}/month)",
+            f"Prestige: {prestige} ({prestige_rate:+d}/month)",
+            f"Renown: {renown} ({renown_rate:+d}/month)",
+            f"Food: {int(production):,} produced vs {int(consumption):,} consumed ({net_food:+,})",
+            f"Farm holdings: {farms}",
+        ]
+        if self.wars:
+            lines.append("War pressure: active wars increase upkeep risk and political stress.")
+        if self.stress >= 220:
+            lines.append("High stress is currently reducing your effective income.")
+
+        self.modal.show(
+            "Realm Ledger",
+            lines,
+            [
+                ("Realm", "primary", lambda: self._open_realm_overview()),
+                ("Close", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
+    def _set_rally_point(self, pid, announce=True):
+        if pid is None or not (0 <= pid < len(self.world.provinces)):
+            return False
+        prov = self.world.provinces[pid]
+        if prov.realm_id != self.player_realm_id:
+            return False
+        self.world.player_capital_pid = pid
+        if self.army.get("raised", 0) <= 0 and not self.army_raising:
+            self._set_army_prov(pid)
+        if announce:
+            self.push_log(f"{self.date}: Rally point moved to {prov.name}.")
+        return True
+
+    def _rally_army_to_capital(self):
+        rally_pid = self._get_player_capital_pid()
+        if rally_pid is None:
+            self.push_log("No rally point available.")
+            return
+        if self.army.get("raised", 0) <= 0:
+            self._set_army_prov(rally_pid)
+            self.push_log("Army is not raised; rally point updated for future mustering.")
+            self._open_military_overview()
+            return
+        self._ensure_army_position()
+        start_pid = self.army_prov_id
+        if start_pid is None or start_pid == rally_pid:
+            self.push_log("Army already at rally point.")
+            self._open_military_overview()
+            return
+        route = self._find_province_path(start_pid, rally_pid)
+        if not route:
+            self.push_log("No route to rally point.")
+            self._open_military_overview()
+            return
+        self.army_route = route
+        self.army_step_from = start_pid
+        self.army_step_to = route[0]
+        self.army_step_progress = 0.0
+        self.army_selected = True
+        self.push_log(f"{self.date}: Army rally ordered.")
+        self._open_military_overview()
+
+    def _open_campaign_briefing(self):
+        held = self._player_province_count()
+        target = int(self._campaign_target_provinces)
+        self.modal.show(
+            "Campaign Briefing",
+            [
+                f"You begin with {held} provinces.",
+                f"Primary goal: secure at least {target} provinces and build dynasty renown.",
+                "Use schemes, alliances, and wars to expand while managing stress, food, and treasury.",
+            ],
+            [
+                ("Begin", "accept", lambda: self.modal.close()),
+                ("Realm Goals", "secondary", lambda: self._open_realm_overview()),
+            ],
+        )
+
+    def _set_window_preset(self, mode):
+        if mode == "desktop":
+            self._apply_window_size_desktop()
+        elif mode == "1280":
+            self._apply_window_size((1280, 720), remember=True)
+        elif mode == "1600":
+            self._apply_window_size((1600, 900), remember=True)
+        self._open_settings_modal()
+
+    def _open_settings_modal(self):
+        w, h = self.screen.get_size()
+        self.modal.show(
+            "Settings",
+            [
+                f"Current window: {w}x{h}",
+                "Choose a resolution preset for this session.",
+            ],
+            [
+                ("1280x720", "primary", lambda: self._set_window_preset("1280")),
+                ("1600x900", "secondary", lambda: self._set_window_preset("1600")),
+                ("Close", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
+    def _resume_last_realm_from_menu(self):
+        rid = self.last_played_realm_id
+        if rid is None or not (0 <= rid < len(self.world.realm_names)):
+            self.modal.show(
+                "No Campaign Available",
+                [
+                    "No previous realm is available in this session.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        if not self.storyteller and self.storytellers:
+            self._apply_storyteller(self.storytellers[0])
+        self._start_game_for_realm(rid)
+        self.mode = "game"
+        self.camera.set_viewport(self._get_map_rect().size)
+        self.left_panel_open = False
+        self._left_panel_anim = 0.0
+        self.right_panel_open = True
+        self._right_panel_anim = 1.0
+        self._open_campaign_briefing()
+
+    def _return_to_main_menu(self):
+        self.modal.close()
+        self.mode = "menu"
+        self.speed_level = 0
+        self.selected_province = None
+        self.left_panel_open = False
+        self.right_panel_open = False
+        self._left_panel_anim = 0.0
+        self._right_panel_anim = 0.0
+        self._war_goal_selecting = False
+        self._pending_war = None
 
     def _left_panel_draw_rect(self):
         rect = self.layout.left
@@ -2308,6 +2679,16 @@ class GameApp:
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
         self._update_army_max()
+        self.army["raised"] = 0
+        self.army["morale"] = 77
+        self.army_raising = False
+        self.army_selected = False
+        self.army_route = []
+        self.army_step_from = None
+        self.army_step_to = None
+        self.army_step_progress = 0.0
+        self.army_pos = None
+        self.army_prov_id = None
         self._init_enemy_armies()
         self._init_diplomacy_state()
         self.active_schemes = []
@@ -2346,6 +2727,15 @@ class GameApp:
         self._siege_overlay_key = None
         self._siege_stripe_base = None
         self._siege_stripe_base_key = None
+        self.last_played_realm_id = rid
+        self._campaign_start_provinces = self._player_province_count()
+        self._campaign_target_provinces = self._compute_campaign_target_provinces(self._campaign_start_provinces)
+        self._insolvency_days = 0
+        self._famine_days = 0
+        self._crisis_days = 0
+        self.campaign_result = None
+        self._campaign_over_day = None
+        self._recompute_resource_rates()
 
     def _get_war_by_id(self, war_id):
         for war in self.wars:
@@ -2572,6 +2962,7 @@ class GameApp:
         self._ensure_enemy_army_for_war(target_rid)
         self._war_focus_id = war["id"]
         self._update_war_progress(war)
+        self._recompute_resource_rates()
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
         self._open_war_details(war["id"])
@@ -2679,6 +3070,7 @@ class GameApp:
         self.food = self._compute_food_values()
         self._update_army_max()
         self.resources["renown"] = int(self.resources.get("renown", 0)) + 12
+        self._recompute_resource_rates()
         if war.get("war_type") == "Conquest":
             self.realm_claims.discard(old_rid)
 
@@ -2848,6 +3240,7 @@ class GameApp:
                 enemy["target_pid"] = None
                 enemy["raising"] = False
             self.realm_truces[target_id] = max(int(self.realm_truces.get(target_id, 0)), 365 * 5)
+        self._recompute_resource_rates()
         self.push_log(f"{self.date}: {log_message}")
         self.modal.show(
             "War Resolved",
@@ -2907,14 +3300,18 @@ class GameApp:
             self.push_log(f"Time speed set to {level}.")
 
     def open_menu(self):
+        held = self._player_province_count()
+        target = int(self._campaign_target_provinces)
+        progress = self._campaign_progress_percent()
         self.modal.show(
             "Game Menu",
             [
-                "This is a functional UI modal (no assets) to demonstrate real flow.",
-                "Exit cleanly to desktop, or close to return to the map.",
+                f"Campaign progress: {progress}% ({held}/{target} provinces).",
+                "Pause, review your realm, or return to desktop.",
             ],
             [
-                ("Close", "secondary", lambda: self.modal.close()),
+                ("Resume", "accept", lambda: self.modal.close()),
+                ("Realm", "primary", lambda: self._open_realm_overview()),
                 ("Exit", "deny", lambda: self._exit_game()),
             ],
         )
@@ -3637,26 +4034,33 @@ class GameApp:
             self.modal.close()
             return
         if action == "menu_load":
+            rid = self.last_played_realm_id
+            if rid is None or not (0 <= rid < len(self.world.realm_names)):
+                self.modal.show(
+                    "No Campaign Available",
+                    [
+                        "No previous realm is available in this session.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+                return
+            realm_name = self.world.realm_names[rid]
             self.modal.show(
-                "Not Implemented",
+                "Quick Resume",
                 [
-                    "Load game is a placeholder action.",
+                    f"Resume as {realm_name}.",
+                    "This continues the last realm played in this session.",
                 ],
                 [
-                    ("OK", "accept", lambda: self.modal.close()),
+                    ("Resume", "accept", lambda: self._resume_last_realm_from_menu()),
+                    ("Cancel", "secondary", lambda: self.modal.close()),
                 ],
             )
             return
         if action == "menu_settings":
-            self.modal.show(
-                "Not Implemented",
-                [
-                    "Settings is a placeholder action.",
-                ],
-                [
-                    ("OK", "accept", lambda: self.modal.close()),
-                ],
-            )
+            self._open_settings_modal()
             return
         if action == "storyteller_back":
             self.realm_candidate_id = None
@@ -3690,6 +4094,9 @@ class GameApp:
             self.camera.set_viewport(self._get_map_rect().size)
             self.left_panel_open = False
             self._left_panel_anim = 0.0
+            self.right_panel_open = True
+            self._right_panel_anim = 1.0
+            self._open_campaign_briefing()
             return
         if action == "right_panel_close":
             self.right_panel_open = False
@@ -3761,6 +4168,8 @@ class GameApp:
                     self._update_fog_from_army()
                     self.push_log("Your levies begin to muster.")
             return
+        if action == "disband":
+            action = "disband_army"
         if action == "disband_army":
             if self.army.get("raised", 0) <= 0:
                 return
@@ -3800,6 +4209,28 @@ class GameApp:
             self.set_speed(3)
         elif action == "open_menu":
             self.open_menu()
+        elif action in ("realm", "view_realm"):
+            self._open_realm_overview()
+        elif action == "ledger":
+            self._open_ledger_overview()
+        elif action == "military":
+            self._open_military_overview()
+        elif action == "set_rally":
+            if self.selected_province is None or self.selected_province.realm_id != self.player_realm_id:
+                self.modal.show(
+                    "No Valid Rally Point",
+                    [
+                        "Select one of your own provinces to set a rally point.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+            else:
+                self._set_rally_point(self.selected_province.id, announce=True)
+                self._open_military_overview()
+        elif action == "rally":
+            self._rally_army_to_capital()
         elif action == "decisions":
             self._open_lifestyle_focus_modal()
         elif action == "council":
@@ -3827,25 +4258,6 @@ class GameApp:
                     self._upgrade_selected_building(slot_idx)
                 elif verb == "demolish":
                     self._demolish_selected_building(slot_idx)
-        elif action in (
-            "ledger",
-            "realm",
-            "military",
-            "view_realm",
-            "set_rally",
-            "rally",
-            "disband",
-        ):
-            self.modal.show(
-                "Not Implemented",
-                [
-                    f"'{action}' is a placeholder action.",
-                    "The UI is fully functional; game logic can be connected here.",
-                ],
-                [
-                    ("OK", "accept", lambda: self.modal.close()),
-                ],
-            )
 
     def _update_time(self, dt):
         days_per_sec = self.speed_days_per_sec.get(self.speed_level, 0)
@@ -3875,7 +4287,7 @@ class GameApp:
 
             self._time_accum -= whole
 
-    def _apply_monthly_resource_rates(self):
+    def _recompute_resource_rates(self):
         stewardship_bonus = self._perk_level("stewardship") // 2
         if self.lifestyle_focus == "stewardship":
             stewardship_bonus += 1
@@ -3895,6 +4307,9 @@ class GameApp:
         if self.wars:
             renown_rate += 1
         self.resources["renown_rate"] = int(max(0, renown_rate))
+
+    def _apply_monthly_resource_rates(self):
+        self._recompute_resource_rates()
 
         for res in ("gold", "piety", "prestige", "renown"):
             rate = self.resources.get(f"{res}_rate", 0)

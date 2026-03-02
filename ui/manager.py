@@ -410,6 +410,13 @@ class UIManager:
         btns.append((b_decisions, "decisions"))
         right_edge = decisions_rect.left - gap
 
+        realm_label = "Realm"
+        realm_w = max(96, BODY_FONT.size(realm_label)[0] + 24)
+        realm_rect = pygame.Rect(right_edge - realm_w, y, realm_w, bh)
+        b_realm = draw_secondary_button(surface, realm_label, realm_rect.x, realm_rect.y, realm_rect.w, realm_rect.h)
+        btns.append((b_realm, "realm"))
+        right_edge = realm_rect.left - gap
+
         # ---------- RIGHT SIDE: Manpower ----------
         army = state.get("army")
         if isinstance(army, dict):
