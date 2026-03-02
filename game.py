@@ -16,6 +16,12 @@ from systems.buildings import (
     get_building_id,
     get_building_level,
     building_food_output,
+    building_gold_upkeep,
+    building_gold_rate_bonus,
+    building_piety_rate_bonus,
+    building_prestige_rate_bonus,
+    building_levy_mult_bonus,
+    building_stress_monthly_relief,
     building_max_level,
 )
 from systems.characters import generate_heir, generate_ruler, generate_spouse
@@ -179,6 +185,8 @@ class GameApp:
         self.stress = 12.0
         self._stress_break_level = 0
         self.dread = 0.0
+        self.decision_cooldowns = {}
+        self._raid_cooldown_days = 45
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
         self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
@@ -1082,13 +1090,91 @@ class GameApp:
     def _tick_politics_day(self):
         self._decrement_days_map(self.realm_truces)
         self._decrement_days_map(self.claim_fabrication_cooldowns)
+        self._decrement_days_map(self.decision_cooldowns)
         self._tick_hooks_day()
         self._tick_schemes_day()
         self._tick_lifestyle_day()
+        self._tick_border_pressure_day()
         self._adjust_stress(self._daily_stress_delta())
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
         self._tick_campaign_day()
+
+    def _tick_border_pressure_day(self):
+        if self.campaign_result is not None:
+            return
+        if self._raid_cooldown_days > 0:
+            self._raid_cooldown_days -= 1
+            return
+
+        neighbors = list(self._get_neighbor_realms(self.player_realm_id))
+        if not neighbors:
+            self._raid_cooldown_days = 25
+            return
+
+        hostiles = []
+        for rid in neighbors:
+            if rid in self.alliances:
+                continue
+            if int(self.realm_truces.get(rid, 0)) > 0:
+                continue
+            opinion = self._get_realm_opinion(rid)
+            if opinion <= 10:
+                hostiles.append((rid, opinion))
+        if not hostiles:
+            self._raid_cooldown_days = 20
+            return
+
+        avg_hostility = -sum(op for _, op in hostiles) / max(1, len(hostiles))
+        chance = 0.0015 + (self.threat / 18000.0) + (avg_hostility / 18000.0)
+        if self.wars:
+            chance *= 1.15
+        if self.world.rnd.random() >= chance:
+            return
+
+        hostiles.sort(key=lambda item: item[1])  # lowest opinion first
+        attacker_rid = hostiles[0][0]
+        attacker_name = self._get_war_target_name(attacker_rid)
+
+        raised = int(self.army.get("raised", 0))
+        max_army = int(self.army.get("max", 0))
+        morale = float(self.army.get("morale", 0))
+        defended = raised >= max(180, int(max_army * 0.35)) and morale >= 45.0
+
+        if defended:
+            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 18
+            self.resources["renown"] = int(self.resources.get("renown", 0)) + 6
+            self._adjust_stress(-2.0)
+            self._change_realm_opinion(attacker_rid, -8)
+            self.push_log(f"{self.date}: {attacker_name} raids your border, but your levies repel them.")
+        else:
+            gold_loss = 22 + self.world.rnd.randint(10, 45)
+            self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - gold_loss)
+            self.world.adjust_population_for_realm(self.player_realm_id, -0.004)
+            self.population = self.world.total_population_for_realm(self.player_realm_id)
+            self.food = self._compute_food_values()
+            self._update_army_max()
+            self._adjust_stress(+5.0)
+            self._change_realm_opinion(attacker_rid, -14)
+            self.push_log(
+                f"{self.date}: {attacker_name} raids your border. "
+                f"You lose {gold_loss} gold and local holdings are damaged."
+            )
+            if not self.modal.open:
+                self.modal.show(
+                    "Border Raid",
+                    [
+                        f"{attacker_name} launched a raid into your frontier.",
+                        f"Losses: {gold_loss} gold and reduced local population.",
+                        "Raise and position your army to deter future raids.",
+                    ],
+                    [
+                        ("OK", "accept", lambda: self.modal.close()),
+                    ],
+                )
+
+        self._recompute_resource_rates()
+        self._raid_cooldown_days = 110 + self.world.rnd.randint(0, 120)
 
     def _finish_campaign(self, result, summary_lines):
         if self.campaign_result is not None:
@@ -1622,6 +1708,159 @@ class GameApp:
             ],
         )
 
+    def _decision_available(self, key, *, gold=0, piety=0, prestige=0, requires_peace=False):
+        cd = int(self.decision_cooldowns.get(key, 0))
+        if cd > 0:
+            return False, f"Cooldown: {self._days_label(cd)}"
+        if requires_peace and self.wars:
+            return False, "Unavailable while at war."
+        if self.resources.get("gold", 0) < gold:
+            return False, f"Need {gold} gold."
+        if self.resources.get("piety", 0) < piety:
+            return False, f"Need {piety} piety."
+        if self.resources.get("prestige", 0) < prestige:
+            return False, f"Need {prestige} prestige."
+        return True, "Ready"
+
+    def _open_decisions_modal(self):
+        feast_ok, feast_msg = self._decision_available("feast", gold=55, requires_peace=True)
+        pilgrim_ok, pilgrim_msg = self._decision_available("pilgrimage", gold=85, requires_peace=False)
+        epic_ok, epic_msg = self._decision_available("epic", gold=75, prestige=25, requires_peace=False)
+
+        lines = [
+            "Major Decisions",
+            f"Hold Feast: {feast_msg}",
+            f"Go on Pilgrimage: {pilgrim_msg}",
+            f"Commission Epic: {epic_msg}",
+            "",
+            f"Resources: Gold {int(self.resources.get('gold', 0))}, "
+            f"Piety {int(self.resources.get('piety', 0))}, "
+            f"Prestige {int(self.resources.get('prestige', 0))}",
+        ]
+        self.modal.show(
+            "Decisions",
+            lines,
+            [
+                (
+                    "Feast",
+                    "primary" if feast_ok else "disabled",
+                    (lambda: self._decision_hold_feast()) if feast_ok else (lambda: None),
+                ),
+                (
+                    "Pilgrimage",
+                    "secondary" if pilgrim_ok else "disabled",
+                    (lambda: self._decision_go_on_pilgrimage()) if pilgrim_ok else (lambda: None),
+                ),
+                (
+                    "Epic",
+                    "secondary" if epic_ok else "disabled",
+                    (lambda: self._decision_commission_epic()) if epic_ok else (lambda: None),
+                ),
+                ("Close", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
+    def _decision_hold_feast(self):
+        ok, msg = self._decision_available("feast", gold=55, requires_peace=True)
+        if not ok:
+            self.modal.show("Decision Unavailable", [msg], [("OK", "accept", lambda: self._open_decisions_modal())])
+            return
+
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 55)
+        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 22
+        self.decision_cooldowns["feast"] = 720
+
+        relief = -26.0
+        traits = self._traits_of(self.character)
+        if "greedy" in traits:
+            relief += 6.0
+        if "charitable" in traits or "patient" in traits:
+            relief -= 4.0
+        self._adjust_stress(relief, reason="managed through feasting")
+
+        for rid in range(len(self.world.realm_names)):
+            if rid == self.player_realm_id:
+                continue
+            self._change_realm_opinion(rid, +4)
+
+        self._recompute_resource_rates()
+        self.push_log(f"{self.date}: You hold a grand feast to calm the court.")
+        self.modal.show(
+            "Feast Held",
+            [
+                "The court celebrates and rivalries cool for a while.",
+                "Stress reduced, prestige gained, and foreign opinion improved.",
+            ],
+            [
+                ("OK", "accept", lambda: self._open_decisions_modal()),
+            ],
+        )
+
+    def _decision_go_on_pilgrimage(self):
+        ok, msg = self._decision_available("pilgrimage", gold=85)
+        if not ok:
+            self.modal.show("Decision Unavailable", [msg], [("OK", "accept", lambda: self._open_decisions_modal())])
+            return
+
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 85)
+        self.resources["piety"] = int(self.resources.get("piety", 0)) + 140
+        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 12
+        self.decision_cooldowns["pilgrimage"] = 960
+
+        relief = -19.0
+        traits = self._traits_of(self.character)
+        if "temperate" in traits or "humble" in traits:
+            relief -= 3.0
+        if "wrathful" in traits:
+            relief += 2.0
+        self._adjust_stress(relief, reason="eased by pilgrimage")
+
+        self._recompute_resource_rates()
+        self.push_log(f"{self.date}: You complete a long pilgrimage.")
+        self.modal.show(
+            "Pilgrimage Complete",
+            [
+                "Your ruler returns with renewed spiritual authority.",
+                "Piety and prestige increased; stress reduced.",
+            ],
+            [
+                ("OK", "accept", lambda: self._open_decisions_modal()),
+            ],
+        )
+
+    def _decision_commission_epic(self):
+        ok, msg = self._decision_available("epic", gold=75, prestige=25)
+        if not ok:
+            self.modal.show("Decision Unavailable", [msg], [("OK", "accept", lambda: self._open_decisions_modal())])
+            return
+
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 75)
+        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 25)
+        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 68
+        self.resources["renown"] = int(self.resources.get("renown", 0)) + 34
+        self.decision_cooldowns["epic"] = 1080
+
+        stress_change = 3.0
+        traits = self._traits_of(self.character)
+        if "proud" in traits:
+            stress_change -= 1.5
+        if "humble" in traits:
+            stress_change += 2.0
+        self._adjust_stress(stress_change, reason="strained by court pageantry")
+
+        self._recompute_resource_rates()
+        self.push_log(f"{self.date}: Court poets spread your dynasty's epic across the realm.")
+        self.modal.show(
+            "Epic Commissioned",
+            [
+                "Your legend grows in neighboring courts.",
+                "Renown and prestige rise, but the campaign is expensive.",
+            ],
+            [
+                ("OK", "accept", lambda: self._open_decisions_modal()),
+            ],
+        )
+
     def _open_lifestyle_focus_modal(self):
         focus = self.lifestyle_focuses[self._lifestyle_picker_index]
         current = self.lifestyle_focus
@@ -1698,7 +1937,13 @@ class GameApp:
             f"Dynasty: Prestige {int(self.resources.get('prestige', 0))}, Renown {int(self.resources.get('renown', 0))}",
             f"Diplomacy: {claims} claims, {alliances} alliances, {len(self.wars)} active wars",
             f"Stress and dread: {int(round(self.stress))}/300, {int(round(self.dread))}/100",
+            f"Border pressure: next raid check in {self._days_label(self._raid_cooldown_days)}",
         ]
+        remaining = [int(v) for v in self.decision_cooldowns.values() if int(v) > 0]
+        if remaining:
+            lines.append(f"Major decision cooldown: {self._days_label(min(remaining))}")
+        else:
+            lines.append("Major decision cooldown: Ready")
         if self.campaign_result is None:
             lines.append("Victory condition: hold target provinces and reach high renown or prestige.")
             if self._insolvency_days > 0:
@@ -1777,6 +2022,10 @@ class GameApp:
         prestige_rate = int(self.resources.get("prestige_rate", 0))
         renown_rate = int(self.resources.get("renown_rate", 0))
         farms = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="farm"))
+        tradeports = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="tradeport"))
+        temples = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="temple"))
+        barracks = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="barracks"))
+        effects = self._realm_building_effects(self.player_realm_id)
         production, consumption = self.food
         net_food = int(production - consumption)
         lines = [
@@ -1785,7 +2034,11 @@ class GameApp:
             f"Prestige: {prestige} ({prestige_rate:+d}/month)",
             f"Renown: {renown} ({renown_rate:+d}/month)",
             f"Food: {int(production):,} produced vs {int(consumption):,} consumed ({net_food:+,})",
-            f"Farm holdings: {farms}",
+            f"Holdings: Farms {farms}, Tradeports {tradeports}, Temples {temples}, Barracks {barracks}",
+            f"Building effects: +{int(round(effects.get('gold_rate_bonus', 0.0)))} gold rate, "
+            f"+{int(round(effects.get('piety_rate_bonus', 0.0)))} piety rate, "
+            f"+{int(round(effects.get('prestige_rate_bonus', 0.0)))} prestige rate, "
+            f"+{int(round(float(effects.get('levy_mult_bonus', 0.0)) * 100))}% levies",
         ]
         if self.wars:
             lines.append("War pressure: active wars increase upkeep risk and political stress.")
@@ -2701,6 +2954,8 @@ class GameApp:
         self.stress = 12.0
         self._stress_break_level = 0
         self.dread = 0.0
+        self.decision_cooldowns = {}
+        self._raid_cooldown_days = 45
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]
@@ -3329,7 +3584,10 @@ class GameApp:
         return int(clamp(round(threat), 0, 100))
 
     def _update_army_max(self):
-        max_army = int(round(self.population * self.army_pop_ratio))
+        base_max = int(round(self.population * self.army_pop_ratio))
+        effects = self._realm_building_effects(self.player_realm_id)
+        levy_mult = 1.0 + float(effects.get("levy_mult_bonus", 0.0))
+        max_army = int(round(base_max * max(0.20, levy_mult)))
         max_army = max(0, max_army)
         self.army["max"] = max_army
         if self.army["raised"] > max_army:
@@ -3904,6 +4162,29 @@ class GameApp:
         elif self._left_panel_anim > target:
             self._left_panel_anim = max(target, self._left_panel_anim - step)
 
+    def _realm_building_effects(self, rid):
+        effects = {
+            "gold_upkeep": 0.0,
+            "gold_rate_bonus": 0.0,
+            "piety_rate_bonus": 0.0,
+            "prestige_rate_bonus": 0.0,
+            "levy_mult_bonus": 0.0,
+            "stress_monthly_relief": 0.0,
+        }
+        for prov in self.world.provinces:
+            if prov.realm_id != rid:
+                continue
+            for b in getattr(prov, "buildings", []):
+                if b is None:
+                    continue
+                effects["gold_upkeep"] += building_gold_upkeep(b)
+                effects["gold_rate_bonus"] += building_gold_rate_bonus(b)
+                effects["piety_rate_bonus"] += building_piety_rate_bonus(b)
+                effects["prestige_rate_bonus"] += building_prestige_rate_bonus(b)
+                effects["levy_mult_bonus"] += building_levy_mult_bonus(b)
+                effects["stress_monthly_relief"] += building_stress_monthly_relief(b)
+        return effects
+
     def _compute_food_values(self):
         production = 0.0
         for prov in self.world.provinces:
@@ -3951,8 +4232,12 @@ class GameApp:
         if prov.realm_id != self.player_realm_id:
             self.push_log("Cannot build outside your realm.")
             return
+        bdef = BUILDINGS.get(building_id)
+        if bdef is None:
+            self.push_log("Unknown building type.")
+            return
         if slot_idx is None:
-            slot = prov.add_building(building_id)
+            slot = next((idx for idx, entry in enumerate(prov.buildings) if entry is None), -1)
             if slot < 0:
                 self.push_log(f"{prov.name} has no empty building slots.")
                 return
@@ -3963,12 +4248,21 @@ class GameApp:
             if prov.buildings[slot_idx] is not None:
                 self.push_log(f"Slot {slot_idx + 1} is already occupied.")
                 return
-            prov.buildings[slot_idx] = make_building(building_id, level=1)
             slot = slot_idx
-        bdef = BUILDINGS.get(building_id)
+        build_cost = max(0, int(getattr(bdef, "build_cost_gold", 0)))
+        if self.resources.get("gold", 0) < build_cost:
+            self.push_log(f"Need {build_cost} gold to build {bdef.name}.")
+            return
+        prov.buildings[slot] = make_building(building_id, level=1)
         bname = bdef.name if bdef else building_id
-        self.push_log(f"{self.date}: Built {bname} in {prov.name} (slot {slot + 1}).")
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - build_cost)
+        self.push_log(
+            f"{self.date}: Built {bname} in {prov.name} (slot {slot + 1}) "
+            f"for {build_cost} gold."
+        )
         self.food = self._compute_food_values()
+        self._recompute_resource_rates()
+        self._update_army_max()
         self._building_menu_slot = None
 
     def _upgrade_selected_building(self, slot_idx):
@@ -3998,8 +4292,23 @@ class GameApp:
             prov.buildings[slot_idx] = make_building(get_building_id(entry), level=new_level)
         bdef = BUILDINGS.get(get_building_id(entry))
         bname = bdef.name if bdef else get_building_id(entry)
-        self.push_log(f"{self.date}: Upgraded {bname} in {prov.name} (slot {slot_idx + 1}).")
+        base_cost = max(0, int(getattr(bdef, "upgrade_cost_gold", 0)))
+        upgrade_cost = int(round(base_cost * (1.0 + (0.55 * max(0, level - 1)))))
+        if self.resources.get("gold", 0) < upgrade_cost:
+            self.push_log(f"Need {upgrade_cost} gold to upgrade {bname}.")
+            if isinstance(entry, dict):
+                entry["level"] = level
+            else:
+                prov.buildings[slot_idx] = make_building(get_building_id(entry), level=level)
+            return
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - upgrade_cost)
+        self.push_log(
+            f"{self.date}: Upgraded {bname} in {prov.name} (slot {slot_idx + 1}) "
+            f"for {upgrade_cost} gold."
+        )
         self.food = self._compute_food_values()
+        self._recompute_resource_rates()
+        self._update_army_max()
         self._building_menu_slot = None
 
     def _demolish_selected_building(self, slot_idx):
@@ -4022,6 +4331,8 @@ class GameApp:
         prov.buildings[slot_idx] = None
         self.push_log(f"{self.date}: Demolished {bname} in {prov.name} (slot {slot_idx + 1}).")
         self.food = self._compute_food_values()
+        self._recompute_resource_rates()
+        self._update_army_max()
         self._building_menu_slot = None
 
     def _handle_action(self, action):
@@ -4232,7 +4543,7 @@ class GameApp:
         elif action == "rally":
             self._rally_army_to_capital()
         elif action == "decisions":
-            self._open_lifestyle_focus_modal()
+            self._open_decisions_modal()
         elif action == "council":
             self._open_scheme_overview()
         elif action == "court":
@@ -4288,19 +4599,25 @@ class GameApp:
             self._time_accum -= whole
 
     def _recompute_resource_rates(self):
+        effects = self._realm_building_effects(self.player_realm_id)
         stewardship_bonus = self._perk_level("stewardship") // 2
         if self.lifestyle_focus == "stewardship":
             stewardship_bonus += 1
         stress_penalty = 2 if self.stress >= 220 else (1 if self.stress >= 120 else 0)
-        self.resources["gold_rate"] = 1 + stewardship_bonus - stress_penalty
+        building_gold = int(round(float(effects.get("gold_rate_bonus", 0.0))))
+        upkeep_penalty = int(round(float(effects.get("gold_upkeep", 0.0)) * 0.45))
+        self.resources["gold_rate"] = 1 + stewardship_bonus + building_gold - stress_penalty - upkeep_penalty
 
         piety_rate = compute_piety_rate(self.character)[0]
         piety_rate += self._perk_level("learning") // 2
         if self.lifestyle_focus == "learning":
             piety_rate += 1
+        piety_rate += int(round(float(effects.get("piety_rate_bonus", 0.0))))
         self.resources["piety_rate"] = int(piety_rate)
 
-        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
+        prestige_rate = self._compute_prestige_rate(self.character)
+        prestige_rate += int(round(float(effects.get("prestige_rate_bonus", 0.0))))
+        self.resources["prestige_rate"] = int(prestige_rate)
         renown_rate = 1 + (self._realm_size(self.player_realm_id) // 3)
         renown_rate += len(self.alliances) // 2
         renown_rate += self._perk_level("diplomacy") // 4
@@ -4328,6 +4645,8 @@ class GameApp:
         monthly_stress_relief = -2.0 - (0.5 * self._perk_level("learning"))
         if self.lifestyle_focus == "learning":
             monthly_stress_relief -= 1.0
+        effects = self._realm_building_effects(self.player_realm_id)
+        monthly_stress_relief -= float(effects.get("stress_monthly_relief", 0.0))
         self._adjust_stress(monthly_stress_relief)
 
         # Food production comes from farms; consumption scales with population.

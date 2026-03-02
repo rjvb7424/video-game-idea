@@ -6,11 +6,15 @@ from core.geometry import shield_points
 from core.surfaces import make_noise_tile, tile_fill
 from systems.buildings import (
     BUILDINGS,
-    make_building,
     get_building_id,
     get_building_level,
     building_food_output,
     building_gold_upkeep,
+    building_gold_rate_bonus,
+    building_piety_rate_bonus,
+    building_prestige_rate_bonus,
+    building_levy_mult_bonus,
+    building_stress_monthly_relief,
     building_max_level,
 )
 from systems.traits import trait_alignment, compute_piety_rate, trait_name
@@ -353,10 +357,25 @@ class UIManager:
     def _draw_building_info(self, surface, x, y, y_limit, entry):
         food = building_food_output(entry)
         gold = building_gold_upkeep(entry)
+        gold_rate = building_gold_rate_bonus(entry)
+        piety_rate = building_piety_rate_bonus(entry)
+        prestige_rate = building_prestige_rate_bonus(entry)
+        levy_bonus = building_levy_mult_bonus(entry)
+        stress_relief = building_stress_monthly_relief(entry)
         lines = [
             f"Food: +{food:,.0f} / mo",
             f"Upkeep: {gold:,.1f}g / mo",
         ]
+        if gold_rate:
+            lines.append(f"Gold rate: +{gold_rate:,.1f}")
+        if piety_rate:
+            lines.append(f"Piety rate: +{piety_rate:,.1f}")
+        if prestige_rate:
+            lines.append(f"Prestige rate: +{prestige_rate:,.1f}")
+        if levy_bonus:
+            lines.append(f"Levies: +{levy_bonus * 100.0:,.1f}%")
+        if stress_relief:
+            lines.append(f"Stress relief: {stress_relief:,.1f} / mo")
         for line in lines:
             if y + FOOTER_FONT.get_height() + 6 > y_limit:
                 break
@@ -985,20 +1004,37 @@ class UIManager:
                     drop_w = max(120, content.w - 12)
 
                     if entry is None:
-                        btn_h = 26
-                        if y + btn_h <= y_limit:
-                            build_rect = draw_primary_button(surface, "Build Farm", drop_left, y, min(150, drop_w), btn_h)
-                            btns.append((build_rect, f"building_slot:{i}:build:farm"))
+                        btn_h = 24
+                        for bid, bdef in BUILDINGS.items():
+                            if y + btn_h > y_limit:
+                                break
+                            cost = int(getattr(bdef, "build_cost_gold", 0))
+                            label = f"Build {bdef.name} ({cost}g)"
+                            if bid == "farm":
+                                build_rect = draw_primary_button(surface, label, drop_left, y, min(220, drop_w), btn_h)
+                            else:
+                                build_rect = draw_secondary_button(surface, label, drop_left, y, min(220, drop_w), btn_h)
+                            btns.append((build_rect, f"building_slot:{i}:build:{bid}"))
                             y = build_rect.bottom + dropdown_gap
-                        preview = make_building("farm", level=1)
-                        y = self._draw_building_info(surface, drop_left, y, y_limit, preview)
+                        if y + FOOTER_FONT.get_height() + 6 <= y_limit:
+                            y = draw_footer_text(
+                                surface,
+                                "Farms feed, tradeports enrich, temples calm, barracks boost levies.",
+                                drop_left,
+                                y,
+                                color=(170, 162, 148),
+                            )
                     else:
                         btn_h = 26
                         level = get_building_level(entry)
                         max_level = building_max_level(entry)
                         can_upgrade = (max_level == 0) or (level < max_level)
+                        bdef = BUILDINGS.get(get_building_id(entry))
+                        up_base = int(getattr(bdef, "upgrade_cost_gold", 0)) if bdef else 0
+                        up_cost = int(round(up_base * (1.0 + (0.55 * max(0, level - 1)))))
                         if can_upgrade and y + btn_h <= y_limit:
-                            up_rect = draw_secondary_button(surface, "Upgrade", drop_left, y, min(140, drop_w), btn_h)
+                            up_label = f"Upgrade ({up_cost}g)" if up_cost > 0 else "Upgrade"
+                            up_rect = draw_secondary_button(surface, up_label, drop_left, y, min(170, drop_w), btn_h)
                             btns.append((up_rect, f"building_slot:{i}:upgrade"))
                             y = up_rect.bottom + dropdown_gap
                         elif not can_upgrade:
