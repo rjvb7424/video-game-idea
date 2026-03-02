@@ -2061,7 +2061,7 @@ class GameApp:
             lines,
             [
                 ("Lifestyle", "primary", lambda: self._open_lifestyle_focus_modal()),
-                ("Military", "secondary", lambda: self._open_military_overview()),
+                ("Military", "secondary", lambda: self._handle_action("military")),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
@@ -2101,8 +2101,9 @@ class GameApp:
             "Realm Overview",
             lines,
             [
-                ("Ledger", "primary", lambda: self._open_ledger_overview()),
-                ("Military", "secondary", lambda: self._open_military_overview()),
+                ("Ledger", "primary", lambda: self._handle_action("ledger")),
+                ("Military", "secondary", lambda: self._handle_action("military")),
+                ("Court", "secondary", lambda: self._handle_action("court")),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
@@ -2139,16 +2140,23 @@ class GameApp:
             lines.append("No wars are currently active.")
 
         war_action = (
-            ("War List", "primary", lambda: self._open_war_overview())
+            ("War List", "primary", lambda: self._handle_action("open_war_overview"))
             if self.wars
             else ("War List", "disabled", lambda: None)
+        )
+        rally_action = ("Rally Army", "secondary", lambda: self._handle_action("rally"))
+        utility_action = (
+            ("Disband", "deny", lambda: self._handle_action("disband"))
+            if raised > 0
+            else ("Set Rally", "secondary", lambda: self._handle_action("set_rally"))
         )
         self.modal.show(
             "Military Overview",
             lines,
             [
                 war_action,
-                ("Rally Army", "secondary", lambda: self._rally_army_to_capital()),
+                rally_action,
+                utility_action,
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
@@ -2190,7 +2198,8 @@ class GameApp:
             "Realm Ledger",
             lines,
             [
-                ("Realm", "primary", lambda: self._open_realm_overview()),
+                ("Build Farm", "secondary", lambda: self._handle_action("build_farm")),
+                ("Realm", "primary", lambda: self._handle_action("view_realm")),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
@@ -2249,7 +2258,7 @@ class GameApp:
             ],
             [
                 ("Begin", "accept", lambda: self.modal.close()),
-                ("Realm Goals", "secondary", lambda: self._open_realm_overview()),
+                ("Realm Goals", "secondary", lambda: self._handle_action("view_realm")),
             ],
         )
 
@@ -4472,8 +4481,8 @@ class GameApp:
             ],
             [
                 ("Resume", "accept", lambda: self.modal.close()),
-                ("Save", "primary", lambda: self._save_game_to_file(self.latest_save_path, autosave=False)),
-                ("Load", "secondary", lambda: self._open_load_game_modal()),
+                ("Save", "primary", lambda: self._handle_action("save_game")),
+                ("Load", "secondary", lambda: self._handle_action("load_game")),
                 ("Exit", "deny", lambda: self._exit_game()),
             ],
         )
