@@ -61,6 +61,7 @@ class Modal:
         yb = rect.bottom - 58
 
         for (label, kind, cb), btn_w in zip(self.actions, widths):
+            clickable = True
             if kind == "primary":
                 r = draw_primary_button(surface, label, x, yb, btn_w, btn_h)
             elif kind == "secondary":
@@ -74,9 +75,11 @@ class Modal:
                 pygame.draw.rect(surface, (20, 20, 20), r, 2, border_radius=8)
                 txt = BODY_FONT.render(label, True, (150, 150, 150))
                 surface.blit(txt, txt.get_rect(center=r.center))
+                clickable = False
             else:
                 r = draw_deny_button(surface, label, x, yb, btn_w, btn_h)
-            btns.append((r, cb))
+            if clickable:
+                btns.append((r, cb))
             x += btn_w + gap
 
         return btns

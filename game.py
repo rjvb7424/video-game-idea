@@ -5338,6 +5338,7 @@ class GameApp:
             try:
                 war_id = int(action.split(":", 1)[1])
             except ValueError:
+                self.push_log("Invalid war action.")
                 return
             self._open_war_details(war_id)
             return
@@ -5396,24 +5397,34 @@ class GameApp:
             return
         if action == "toggle_pause":
             self.toggle_pause()
+            return
         elif action == "speed_1":
             self.set_speed(1)
+            return
         elif action == "speed_2":
             self.set_speed(2)
+            return
         elif action == "speed_3":
             self.set_speed(3)
+            return
         elif action == "open_menu":
             self.open_menu()
+            return
         elif action == "save_game":
             self._save_game_to_file(self.latest_save_path, autosave=False)
+            return
         elif action == "load_game":
             self._open_load_game_modal()
+            return
         elif action in ("realm", "view_realm"):
             self._open_realm_overview()
+            return
         elif action == "ledger":
             self._open_ledger_overview()
+            return
         elif action == "military":
             self._open_military_overview()
+            return
         elif action == "set_rally":
             if self.selected_province is None or self.selected_province.realm_id != self.player_realm_id:
                 self.modal.show(
@@ -5428,35 +5439,49 @@ class GameApp:
             else:
                 self._set_rally_point(self.selected_province.id, announce=True)
                 self._open_military_overview()
+            return
         elif action == "rally":
             self._rally_army_to_capital()
+            return
         elif action == "decisions":
             self._open_decisions_modal()
+            return
         elif action == "council":
             self._open_scheme_overview()
+            return
         elif action == "court":
             self._open_scheme_overview()
+            return
         elif action == "build_farm":
             self._build_selected_building("farm")
+            return
         elif action.startswith("building_slot:"):
             parts = action.split(":")
-            if len(parts) >= 3:
-                try:
-                    slot_idx = int(parts[1])
-                except ValueError:
-                    return
-                verb = parts[2]
-                if verb == "toggle":
-                    if self._building_menu_slot == slot_idx:
-                        self._building_menu_slot = None
-                    else:
-                        self._building_menu_slot = slot_idx
-                elif verb == "build" and len(parts) >= 4:
-                    self._build_selected_building(parts[3], slot_idx=slot_idx)
-                elif verb == "upgrade":
-                    self._upgrade_selected_building(slot_idx)
-                elif verb == "demolish":
-                    self._demolish_selected_building(slot_idx)
+            if len(parts) < 3:
+                self.push_log("Invalid building action.")
+                return
+            try:
+                slot_idx = int(parts[1])
+            except ValueError:
+                self.push_log("Invalid building slot action.")
+                return
+            verb = parts[2]
+            if verb == "toggle":
+                if self._building_menu_slot == slot_idx:
+                    self._building_menu_slot = None
+                else:
+                    self._building_menu_slot = slot_idx
+            elif verb == "build" and len(parts) >= 4:
+                self._build_selected_building(parts[3], slot_idx=slot_idx)
+            elif verb == "upgrade":
+                self._upgrade_selected_building(slot_idx)
+            elif verb == "demolish":
+                self._demolish_selected_building(slot_idx)
+            else:
+                self.push_log(f"Unknown building action: {verb}")
+            return
+
+        self.push_log(f"Unknown UI action: {action}")
 
     def _update_time(self, dt):
         days_per_sec = self.speed_days_per_sec.get(self.speed_level, 0)
