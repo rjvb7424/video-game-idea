@@ -2262,18 +2262,34 @@ class GameApp:
             self._apply_window_size((1600, 900), remember=True)
         self._open_settings_modal()
 
+    def _set_autosave_interval(self, months):
+        months = int(months)
+        self._autosave_interval_months = max(0, min(12, months))
+        if self._autosave_interval_months == 0:
+            self.push_log("Autosave disabled.")
+        else:
+            self.push_log(f"Autosave set to every {self._autosave_interval_months} month(s).")
+        self._open_settings_modal()
+
     def _open_settings_modal(self):
         w, h = self.screen.get_size()
+        if self._autosave_interval_months <= 0:
+            autosave_line = "Autosave interval: Off."
+        else:
+            autosave_line = f"Autosave interval: every {self._autosave_interval_months} months."
         self.modal.show(
             "Settings",
             [
                 f"Current window: {w}x{h}",
                 "Choose a resolution preset for this session.",
-                f"Autosave interval: every {self._autosave_interval_months} months.",
+                autosave_line,
             ],
             [
                 ("1280x720", "primary", lambda: self._set_window_preset("1280")),
                 ("1600x900", "secondary", lambda: self._set_window_preset("1600")),
+                ("Autosave 1M", "secondary", lambda: self._set_autosave_interval(1)),
+                ("Autosave 3M", "secondary", lambda: self._set_autosave_interval(3)),
+                ("Autosave Off", "secondary", lambda: self._set_autosave_interval(0)),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
@@ -2903,7 +2919,13 @@ class GameApp:
         if os.path.exists(self.autosave_path):
             saves.append(("Autosave", self.autosave_path))
 
-        if not saves:
+        can_resume_session = (
+            self.mode == "menu"
+            and isinstance(self.last_played_realm_id, int)
+            and 0 <= self.last_played_realm_id < len(self.world.realm_names)
+        )
+
+        if not saves and not can_resume_session:
             self.modal.show(
                 "No Save Found",
                 ["No save files are available yet."],
@@ -2912,11 +2934,18 @@ class GameApp:
             return
 
         lines = ["Select a save file to load:"]
+        if can_resume_session:
+            rid = int(self.last_played_realm_id)
+            realm_name = self.world.realm_names[rid] if 0 <= rid < len(self.world.realm_names) else f"Realm {rid}"
+            lines.append(f"Session Resume: {realm_name}")
         for label, path in saves:
             lines.append(f"{label}: {os.path.basename(path)}")
         actions = []
+        if can_resume_session:
+            resume_style = "primary" if not saves else "secondary"
+            actions.append(("Session Resume", resume_style, lambda: self._resume_last_realm_from_menu()))
         for idx, (label, path) in enumerate(saves):
-            style = "accept" if idx == 0 else "secondary"
+            style = "accept" if idx == 0 and not can_resume_session else "secondary"
             actions.append((f"Load {label}", style, (lambda p=path: self._load_game_from_file(p, show_feedback=True))))
         actions.append(("Cancel", "secondary", lambda: self.modal.close()))
         self.modal.show("Load Game", lines, actions)
