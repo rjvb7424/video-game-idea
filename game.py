@@ -1,6 +1,7 @@
 import math
 import os
 import random
+import json
 import pygame
 
 import event_content
@@ -46,6 +47,10 @@ class GameApp:
         self.clock = pygame.time.Clock()
 
         self.mode = "menu"
+        self.save_dir = os.path.join(os.path.dirname(__file__), "saves")
+        self.latest_save_path = os.path.join(self.save_dir, "campaign_latest.json")
+        self.autosave_path = os.path.join(self.save_dir, "campaign_autosave.json")
+        self._autosave_interval_months = 3
         self.storyteller = None
         self._storyteller_start_day = None
         self.realm_select_page = 0
@@ -187,6 +192,7 @@ class GameApp:
         self.dread = 0.0
         self.decision_cooldowns = {}
         self._raid_cooldown_days = 45
+        self._ai_war_cooldown_days = 120
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
         self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
@@ -1095,6 +1101,7 @@ class GameApp:
         self._tick_schemes_day()
         self._tick_lifestyle_day()
         self._tick_border_pressure_day()
+        self._tick_ai_war_day()
         self._adjust_stress(self._daily_stress_delta())
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
@@ -1175,6 +1182,140 @@ class GameApp:
 
         self._recompute_resource_rates()
         self._raid_cooldown_days = 110 + self.world.rnd.randint(0, 120)
+
+    def _pick_enemy_war_goal_against_player(self, attacker_rid):
+        if attacker_rid is None or not (0 <= attacker_rid < len(self.world.realm_names)):
+            return None
+        player_provs = [p for p in self.world.provinces if p.realm_id == self.player_realm_id]
+        if not player_provs:
+            return None
+
+        border = []
+        for prov in player_provs:
+            if any(self.world.provinces[nb].realm_id == attacker_rid for nb in self._prov_adj[prov.id]):
+                border.append(prov)
+
+        candidates = border if border else player_provs
+        cap_pid = self._get_player_capital_pid()
+        if cap_pid is not None and len(candidates) > 1:
+            candidates = [p for p in candidates if p.id != cap_pid] or candidates
+        candidates.sort(key=lambda p: p.population)
+        return candidates[0].id if candidates else None
+
+    def _start_defensive_war(self, attacker_rid):
+        if attacker_rid is None or attacker_rid == self.player_realm_id:
+            return False
+        if attacker_rid in self.alliances:
+            return False
+        if self._get_war_by_target(attacker_rid):
+            return False
+        if int(self.realm_truces.get(attacker_rid, 0)) > 0:
+            return False
+
+        goal_pid = self._pick_enemy_war_goal_against_player(attacker_rid)
+        if goal_pid is None:
+            return False
+
+        if hasattr(self.world, "realm_sizes") and 0 <= attacker_rid < len(self.world.realm_sizes):
+            total_provs = int(self.world.realm_sizes[attacker_rid])
+        else:
+            total_provs = sum(1 for p in self.world.provinces if p.realm_id == attacker_rid)
+
+        war = {
+            "id": self._war_next_id,
+            "target_id": attacker_rid,
+            "war_type": "Invasion",
+            "goal_pid": goal_pid,
+            "progress": 0.0,
+            "days": 0,
+            "ready_prompted": False,
+            "sieged": set(),
+            "total_provs": total_provs,
+            "attacker": "ai",
+        }
+        self._war_next_id += 1
+        self.wars.append(war)
+        self._ensure_enemy_army_for_war(attacker_rid)
+        self._war_focus_id = war["id"]
+        self._update_war_progress(war)
+        self._change_realm_opinion(attacker_rid, -20)
+        self._adjust_stress(+3.0)
+        self._recompute_resource_rates()
+
+        attacker_name = self._get_war_target_name(attacker_rid)
+        goal_name = self.world.provinces[goal_pid].name if 0 <= goal_pid < len(self.world.provinces) else "frontier lands"
+        self.push_log(f"{self.date}: {attacker_name} declares an invasion for {goal_name}.")
+        if not self.modal.open:
+            self.modal.show(
+                "Enemy Declaration",
+                [
+                    f"{attacker_name} declared war on your realm.",
+                    f"They demand {goal_name} if you surrender.",
+                    "Raise levies and hold your frontier.",
+                ],
+                [
+                    ("View War", "accept", lambda wid=war["id"]: self._open_war_details(wid)),
+                ],
+            )
+        return True
+
+    def _tick_ai_war_day(self):
+        if self.campaign_result is not None:
+            return
+        if self._ai_war_cooldown_days > 0:
+            self._ai_war_cooldown_days -= 1
+            return
+        if len(self.wars) >= 3:
+            self._ai_war_cooldown_days = 45
+            return
+
+        neighbors = list(self._get_neighbor_realms(self.player_realm_id))
+        if not neighbors:
+            self._ai_war_cooldown_days = 30
+            return
+
+        player_effects = self._realm_building_effects(self.player_realm_id)
+        player_strength = max(
+            1.0,
+            self.population * self.army_pop_ratio * (1.0 + float(player_effects.get("levy_mult_bonus", 0.0))),
+        )
+
+        candidates = []
+        for rid in neighbors:
+            if rid in self.alliances:
+                continue
+            if self._get_war_by_target(rid):
+                continue
+            if int(self.realm_truces.get(rid, 0)) > 0:
+                continue
+
+            opinion = self._get_realm_opinion(rid)
+            if opinion > -18:
+                continue
+
+            enemy_pop = self.world.total_population_for_realm(rid)
+            enemy_strength = max(1.0, enemy_pop * self.army_pop_ratio)
+            ratio = enemy_strength / player_strength
+            hostility = max(0, -opinion)
+            chance = 0.0007 + hostility * 0.000035 + max(0.0, ratio - 0.90) * 0.0022 + self.threat * 0.000015
+            if self.wars:
+                chance *= 0.85
+            candidates.append((min(0.32, chance), rid))
+
+        if not candidates:
+            self._ai_war_cooldown_days = 25
+            return
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        chance, rid = candidates[0]
+        if self.world.rnd.random() >= chance:
+            self._ai_war_cooldown_days = 12
+            return
+
+        if self._start_defensive_war(rid):
+            self._ai_war_cooldown_days = 220
+        else:
+            self._ai_war_cooldown_days = 35
 
     def _finish_campaign(self, result, summary_lines):
         if self.campaign_result is not None:
@@ -2128,6 +2269,7 @@ class GameApp:
             [
                 f"Current window: {w}x{h}",
                 "Choose a resolution preset for this session.",
+                f"Autosave interval: every {self._autosave_interval_months} months.",
             ],
             [
                 ("1280x720", "primary", lambda: self._set_window_preset("1280")),
@@ -2135,6 +2277,649 @@ class GameApp:
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
+
+    def _ensure_save_dir(self):
+        os.makedirs(self.save_dir, exist_ok=True)
+
+    @staticmethod
+    def _decode_int_map(raw, *, min_value=None, max_value=None):
+        out = {}
+        if not isinstance(raw, dict):
+            return out
+        for key, value in raw.items():
+            try:
+                ik = int(key)
+                iv = int(value)
+            except (TypeError, ValueError):
+                continue
+            if min_value is not None:
+                iv = max(int(min_value), iv)
+            if max_value is not None:
+                iv = min(int(max_value), iv)
+            out[ik] = iv
+        return out
+
+    def _serialize_world_state(self):
+        provinces = []
+        for prov in self.world.provinces:
+            buildings = []
+            for entry in getattr(prov, "buildings", []):
+                if entry is None:
+                    buildings.append(None)
+                    continue
+                bid = get_building_id(entry)
+                if bid not in BUILDINGS:
+                    buildings.append(None)
+                    continue
+                buildings.append({
+                    "id": bid,
+                    "level": max(1, int(get_building_level(entry))),
+                })
+            provinces.append({
+                "id": int(prov.id),
+                "realm_id": int(prov.realm_id),
+                "population": int(prov.population),
+                "buildings": buildings,
+            })
+        return {
+            "provinces": provinces,
+            "realm_capitals": list(getattr(self.world, "realm_capitals", [])),
+            "realm_rulers": list(getattr(self.world, "realm_rulers", [])),
+            "realm_sizes": list(getattr(self.world, "realm_sizes", [])),
+        }
+
+    def _serialize_game_state(self):
+        return {
+            "save_version": 2,
+            "storyteller_id": self.storyteller.get("id") if isinstance(self.storyteller, dict) else None,
+            "state": {
+                "date": {"year": int(self.date.year), "month": int(self.date.month), "day": int(self.date.day)},
+                "player_realm_id": int(self.player_realm_id),
+                "resources": {
+                    "gold": int(self.resources.get("gold", 0)),
+                    "piety": int(self.resources.get("piety", 0)),
+                    "prestige": int(self.resources.get("prestige", 0)),
+                    "renown": int(self.resources.get("renown", 0)),
+                },
+                "realm_relations": {str(k): int(v) for k, v in self.realm_relations.items()},
+                "realm_claims": sorted(int(v) for v in self.realm_claims),
+                "realm_truces": {str(k): int(v) for k, v in self.realm_truces.items()},
+                "claim_fabrication_cooldowns": {str(k): int(v) for k, v in self.claim_fabrication_cooldowns.items()},
+                "alliances": sorted(int(v) for v in self.alliances),
+                "subjugation_cooldown_days": int(self.subjugation_cooldown_days),
+                "active_schemes": list(self.active_schemes),
+                "hooks": {str(k): dict(v) for k, v in self.hooks.items()},
+                "lifestyle_focus": str(self.lifestyle_focus),
+                "lifestyle_xp": {k: float(v) for k, v in self.lifestyle_xp.items()},
+                "lifestyle_perks": {k: int(v) for k, v in self.lifestyle_perks.items()},
+                "stress": float(self.stress),
+                "dread": float(self.dread),
+                "decision_cooldowns": {str(k): int(v) for k, v in self.decision_cooldowns.items()},
+                "raid_cooldown_days": int(self._raid_cooldown_days),
+                "ai_war_cooldown_days": int(self._ai_war_cooldown_days),
+                "wars": [
+                    {
+                        "id": int(war.get("id", 0)),
+                        "target_id": int(war.get("target_id", -1)),
+                        "war_type": str(war.get("war_type", "Conquest")),
+                        "goal_pid": war.get("goal_pid"),
+                        "progress": float(war.get("progress", 0.0)),
+                        "days": int(war.get("days", 0)),
+                        "ready_prompted": bool(war.get("ready_prompted", False)),
+                        "sieged": sorted(int(pid) for pid in self._get_war_sieged_set(war)),
+                        "total_provs": int(war.get("total_provs", 0)),
+                        "attacker": str(war.get("attacker", "player")),
+                    }
+                    for war in self.wars
+                ],
+                "war_next_id": int(self._war_next_id),
+                "war_focus_id": self._war_focus_id,
+                "army": {
+                    "raised": int(self.army.get("raised", 0)),
+                    "morale": float(self.army.get("morale", 0)),
+                    "raising": bool(self.army_raising),
+                    "selected": bool(self.army_selected),
+                    "prov_id": self.army_prov_id,
+                    "route": list(self.army_route),
+                },
+                "enemy_armies": [
+                    {
+                        "realm_id": int(enemy.get("realm_id", -1)),
+                        "prov_id": int(enemy.get("prov_id", -1)),
+                        "army": {
+                            "raised": int(enemy.get("army", {}).get("raised", 0)),
+                            "max": int(enemy.get("army", {}).get("max", 0)),
+                            "morale": float(enemy.get("army", {}).get("morale", 0)),
+                        },
+                        "raising": bool(enemy.get("raising", False)),
+                        "route": list(enemy.get("route", [])),
+                        "target_pid": enemy.get("target_pid"),
+                        "ai_state": str(enemy.get("ai_state", "idle")),
+                    }
+                    for enemy in self.enemy_armies
+                ],
+                "selected_province_id": self.selected_province.id if self.selected_province is not None else None,
+                "campaign_start_provinces": int(self._campaign_start_provinces),
+                "campaign_target_provinces": int(self._campaign_target_provinces),
+                "insolvency_days": int(self._insolvency_days),
+                "famine_days": int(self._famine_days),
+                "crisis_days": int(self._crisis_days),
+                "campaign_result": self.campaign_result,
+                "campaign_over_day": self._campaign_over_day,
+                "last_played_realm_id": self.last_played_realm_id,
+                "baseline_population": int(self._baseline_population),
+                "log": list(self.log[-30:]),
+            },
+            "world": self._serialize_world_state(),
+        }
+
+    def _save_game_to_file(self, path=None, autosave=False):
+        if self.mode != "game":
+            if not autosave:
+                self.modal.show(
+                    "Save Unavailable",
+                    ["Start a campaign before saving."],
+                    [("OK", "accept", lambda: self.modal.close())],
+                )
+            return False
+        if path is None:
+            path = self.latest_save_path
+        try:
+            self._ensure_save_dir()
+            payload = self._serialize_game_state()
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=True, indent=2)
+        except OSError as exc:
+            if not autosave:
+                self.modal.show(
+                    "Save Failed",
+                    [f"Could not write save file: {exc}"],
+                    [("OK", "accept", lambda: self.modal.close())],
+                )
+            return False
+
+        if autosave:
+            self.push_log(f"{self.date}: Autosaved campaign.")
+            return True
+
+        self.push_log(f"{self.date}: Saved campaign.")
+        self.modal.show(
+            "Game Saved",
+            [f"Saved to {os.path.basename(path)}."],
+            [("OK", "accept", lambda: self.modal.close())],
+        )
+        return True
+
+    def _rebuild_realm_metadata(self, preferred_capitals=None):
+        realm_n = len(self.world.realm_names)
+        sizes = [0 for _ in range(realm_n)]
+        first_prov = [-1 for _ in range(realm_n)]
+        for prov in self.world.provinces:
+            rid = int(prov.realm_id)
+            if not (0 <= rid < realm_n):
+                rid = 0
+                prov.realm_id = rid
+            sizes[rid] += 1
+            if first_prov[rid] == -1:
+                first_prov[rid] = prov.id
+
+        capitals = [-1 for _ in range(realm_n)]
+        if isinstance(preferred_capitals, list):
+            for rid in range(min(realm_n, len(preferred_capitals))):
+                try:
+                    pid = int(preferred_capitals[rid])
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= pid < len(self.world.provinces) and self.world.provinces[pid].realm_id == rid:
+                    capitals[rid] = pid
+        for rid in range(realm_n):
+            if capitals[rid] == -1:
+                capitals[rid] = first_prov[rid]
+
+        self.world.realm_sizes = sizes
+        self.world.realm_capitals = capitals
+        for prov in self.world.provinces:
+            prov.is_capital = False
+        for pid in capitals:
+            if isinstance(pid, int) and 0 <= pid < len(self.world.provinces):
+                self.world.provinces[pid].is_capital = True
+        if 0 <= self.player_realm_id < len(capitals):
+            self.world.player_capital_pid = capitals[self.player_realm_id]
+
+    def _apply_loaded_state(self, payload):
+        if not isinstance(payload, dict):
+            return False, "Invalid save payload."
+        state = payload.get("state")
+        world_state = payload.get("world")
+        if not isinstance(state, dict) or not isinstance(world_state, dict):
+            return False, "Save file is missing required sections."
+
+        try:
+            rid = int(state.get("player_realm_id", self.player_realm_id))
+        except (TypeError, ValueError):
+            return False, "Save file has an invalid player realm id."
+        if not (0 <= rid < len(self.world.realm_names)):
+            return False, "Saved realm id is out of bounds for this map."
+
+        self._start_game_for_realm(rid)
+
+        date_data = state.get("date", {})
+        try:
+            year = int(date_data.get("year", self.date.year))
+            month = int(date_data.get("month", self.date.month))
+            day = int(date_data.get("day", self.date.day))
+        except (TypeError, ValueError):
+            year, month, day = self.date.year, self.date.month, self.date.day
+        month = max(1, min(12, month))
+        max_day = GameDate.MONTH_LEN[month - 1]
+        day = max(1, min(max_day, day))
+        self.date = GameDate(year, month, day)
+
+        prov_data = world_state.get("provinces", [])
+        if isinstance(prov_data, list):
+            for idx, item in enumerate(prov_data):
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    pid = int(item.get("id", idx))
+                except (TypeError, ValueError):
+                    continue
+                if not (0 <= pid < len(self.world.provinces)):
+                    continue
+                prov = self.world.provinces[pid]
+                try:
+                    realm_id = int(item.get("realm_id", prov.realm_id))
+                except (TypeError, ValueError):
+                    realm_id = prov.realm_id
+                if 0 <= realm_id < len(self.world.realm_names):
+                    prov.realm_id = realm_id
+                try:
+                    population = int(item.get("population", prov.population))
+                except (TypeError, ValueError):
+                    population = prov.population
+                prov.population = max(1, population)
+                raw_buildings = item.get("buildings", [])
+                parsed_buildings = []
+                if isinstance(raw_buildings, list):
+                    for entry in raw_buildings[:prov.building_slots]:
+                        if entry is None:
+                            parsed_buildings.append(None)
+                            continue
+                        if isinstance(entry, str):
+                            if entry in BUILDINGS:
+                                parsed_buildings.append(make_building(entry, level=1))
+                            else:
+                                parsed_buildings.append(None)
+                            continue
+                        if not isinstance(entry, dict):
+                            parsed_buildings.append(None)
+                            continue
+                        bid = str(entry.get("id", ""))
+                        if bid not in BUILDINGS:
+                            parsed_buildings.append(None)
+                            continue
+                        try:
+                            lvl = int(entry.get("level", 1))
+                        except (TypeError, ValueError):
+                            lvl = 1
+                        parsed_buildings.append(make_building(bid, level=max(1, lvl)))
+                while len(parsed_buildings) < prov.building_slots:
+                    parsed_buildings.append(None)
+                prov.buildings = parsed_buildings
+
+        preferred_caps = world_state.get("realm_capitals")
+        self._rebuild_realm_metadata(preferred_caps if isinstance(preferred_caps, list) else None)
+
+        rulers = world_state.get("realm_rulers")
+        if isinstance(rulers, list) and len(rulers) == len(self.world.realm_rulers):
+            cleaned = []
+            for idx, entry in enumerate(rulers):
+                if not isinstance(entry, dict):
+                    cleaned.append(self.world.realm_rulers[idx])
+                    continue
+                ruler = dict(entry)
+                if "base_stats" not in ruler:
+                    ruler["base_stats"] = _stats_list_to_dict(ruler.get("stats", []))
+                ruler["traits"] = normalize_traits(ruler.get("traits", []))
+                apply_trait_effects(ruler)
+                cleaned.append(ruler)
+            self.world.realm_rulers = cleaned
+
+        resources = state.get("resources", {})
+        if isinstance(resources, dict):
+            for key in ("gold", "piety", "prestige", "renown"):
+                try:
+                    self.resources[key] = int(resources.get(key, self.resources.get(key, 0)))
+                except (TypeError, ValueError):
+                    pass
+
+        self.realm_relations = self._decode_int_map(state.get("realm_relations", {}), min_value=-100, max_value=100)
+        self.realm_claims = set(
+            int(v) for v in state.get("realm_claims", [])
+            if isinstance(v, (int, float, str)) and str(v).lstrip("-").isdigit()
+        )
+        self.realm_claims = {rid for rid in self.realm_claims if 0 <= rid < len(self.world.realm_names)}
+        self.realm_truces = self._decode_int_map(state.get("realm_truces", {}), min_value=0)
+        self.claim_fabrication_cooldowns = self._decode_int_map(
+            state.get("claim_fabrication_cooldowns", {}),
+            min_value=0,
+        )
+        self.alliances = set(
+            int(v) for v in state.get("alliances", [])
+            if isinstance(v, (int, float, str)) and str(v).lstrip("-").isdigit()
+        )
+        self.alliances = {rid for rid in self.alliances if 0 <= rid < len(self.world.realm_names)}
+        self.subjugation_cooldown_days = max(0, int(state.get("subjugation_cooldown_days", 0)))
+
+        self.active_schemes = []
+        for entry in state.get("active_schemes", []):
+            if not isinstance(entry, dict):
+                continue
+            stype = entry.get("type")
+            if stype not in ("sway", "claim", "murder"):
+                continue
+            try:
+                target = int(entry.get("target_id"))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= target < len(self.world.realm_names)) or target == self.player_realm_id:
+                continue
+            self.active_schemes.append(
+                {
+                    "id": int(entry.get("id", self._next_scheme_id)),
+                    "type": stype,
+                    "target_id": target,
+                    "category": self._scheme_category(stype),
+                    "progress": float(clamp(float(entry.get("progress", 0.0)), 0.0, 100.0)),
+                    "days": max(0, int(entry.get("days", 0))),
+                    "base_power": float(entry.get("base_power", 0.8)),
+                    "success_chance": float(clamp(float(entry.get("success_chance", 0.5)), 0.05, 0.95)),
+                    "exposure_chance": float(clamp(float(entry.get("exposure_chance", 0.35)), 0.05, 0.95)),
+                    "min_days": max(20, int(entry.get("min_days", 45))),
+                }
+            )
+        self._next_scheme_id = max(
+            int(state.get("next_scheme_id", 1)),
+            max((int(s.get("id", 0)) for s in self.active_schemes), default=0) + 1,
+        )
+
+        self.hooks = {}
+        hooks_data = state.get("hooks", {})
+        if isinstance(hooks_data, dict):
+            for key, value in hooks_data.items():
+                try:
+                    rid_key = int(key)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(value, dict):
+                    continue
+                strength = "strong" if value.get("strength") == "strong" else "weak"
+                days = max(1, int(value.get("days", 1)))
+                self.hooks[rid_key] = {"strength": strength, "days": days}
+
+        focus = str(state.get("lifestyle_focus", self.lifestyle_focus))
+        if focus in self.lifestyle_focuses:
+            self.lifestyle_focus = focus
+            self._lifestyle_picker_index = self.lifestyle_focuses.index(focus)
+        xp_data = state.get("lifestyle_xp", {})
+        perk_data = state.get("lifestyle_perks", {})
+        self.lifestyle_xp = {}
+        self.lifestyle_perks = {}
+        for key in self.lifestyle_focuses:
+            try:
+                self.lifestyle_xp[key] = float((xp_data or {}).get(key, 0.0))
+            except (TypeError, ValueError):
+                self.lifestyle_xp[key] = 0.0
+            try:
+                self.lifestyle_perks[key] = max(0, int((perk_data or {}).get(key, 0)))
+            except (TypeError, ValueError):
+                self.lifestyle_perks[key] = 0
+
+        self.stress = clamp(float(state.get("stress", self.stress)), 0.0, 300.0)
+        self._stress_break_level = int(self.stress // 100)
+        self.dread = clamp(float(state.get("dread", self.dread)), 0.0, 100.0)
+        self.decision_cooldowns = self._decode_int_map(state.get("decision_cooldowns", {}), min_value=0)
+        self._raid_cooldown_days = max(0, int(state.get("raid_cooldown_days", 45)))
+        self._ai_war_cooldown_days = max(0, int(state.get("ai_war_cooldown_days", 120)))
+
+        self.wars = []
+        for entry in state.get("wars", []):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                war_id = int(entry.get("id", 0))
+                target_id = int(entry.get("target_id", -1))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= target_id < len(self.world.realm_names)):
+                continue
+            goal_pid = entry.get("goal_pid")
+            if isinstance(goal_pid, (int, float, str)) and str(goal_pid).lstrip("-").isdigit():
+                goal_pid = int(goal_pid)
+            else:
+                goal_pid = None
+            sieged = set()
+            for pid in entry.get("sieged", []):
+                try:
+                    pid = int(pid)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= pid < len(self.world.provinces):
+                    sieged.add(pid)
+            war = {
+                "id": war_id,
+                "target_id": target_id,
+                "war_type": str(entry.get("war_type", "Conquest")),
+                "goal_pid": goal_pid,
+                "progress": float(clamp(float(entry.get("progress", 0.0)), 0.0, 100.0)),
+                "days": max(0, int(entry.get("days", 0))),
+                "ready_prompted": bool(entry.get("ready_prompted", False)),
+                "sieged": sieged,
+                "total_provs": max(0, int(entry.get("total_provs", 0))),
+                "attacker": str(entry.get("attacker", "player")),
+            }
+            self.wars.append(war)
+        self._war_next_id = max(
+            int(state.get("war_next_id", 1)),
+            max((int(w.get("id", 0)) for w in self.wars), default=0) + 1,
+        )
+        focus_id = state.get("war_focus_id")
+        if isinstance(focus_id, (int, float, str)) and str(focus_id).lstrip("-").isdigit():
+            focus_id = int(focus_id)
+        else:
+            focus_id = None
+        self._war_focus_id = focus_id if any(w.get("id") == focus_id for w in self.wars) else (self.wars[0]["id"] if self.wars else None)
+
+        army_data = state.get("army", {})
+        if not isinstance(army_data, dict):
+            army_data = {}
+        self.army["raised"] = max(0, int(army_data.get("raised", 0)))
+        self.army["morale"] = clamp(float(army_data.get("morale", 60.0)), 0.0, 100.0)
+        self.army_raising = bool(army_data.get("raising", False))
+        self.army_selected = bool(army_data.get("selected", False))
+        self.army_prov_id = None
+        try:
+            pid = int(army_data.get("prov_id"))
+            if 0 <= pid < len(self.world.provinces):
+                self.army_prov_id = pid
+        except (TypeError, ValueError):
+            pass
+        self.army_route = []
+        for pid in army_data.get("route", []):
+            try:
+                pid = int(pid)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= pid < len(self.world.provinces):
+                self.army_route.append(pid)
+        self.army_step_from = None
+        self.army_step_to = None
+        self.army_step_progress = 0.0
+        if self.army_prov_id is not None:
+            self.army_pos = self.world.provinces[self.army_prov_id].center.copy()
+        else:
+            self.army_pos = None
+
+        self.enemy_armies = []
+        for entry in state.get("enemy_armies", []):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                rid_enemy = int(entry.get("realm_id", -1))
+                pid_enemy = int(entry.get("prov_id", -1))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= rid_enemy < len(self.world.realm_names)):
+                continue
+            if not (0 <= pid_enemy < len(self.world.provinces)):
+                continue
+            army_entry = entry.get("army", {})
+            if not isinstance(army_entry, dict):
+                army_entry = {}
+            enemy = {
+                "realm_id": rid_enemy,
+                "prov_id": pid_enemy,
+                "pos": self.world.provinces[pid_enemy].center.copy(),
+                "army": {
+                    "raised": max(0, int(army_entry.get("raised", 0))),
+                    "max": max(1, int(army_entry.get("max", 1))),
+                    "morale": clamp(float(army_entry.get("morale", 55)), 0.0, 100.0),
+                },
+                "raising": bool(entry.get("raising", False)),
+                "route": [int(v) for v in entry.get("route", []) if isinstance(v, int) and 0 <= v < len(self.world.provinces)],
+                "target_pid": entry.get("target_pid") if isinstance(entry.get("target_pid"), int) else None,
+                "ai_state": str(entry.get("ai_state", "idle")),
+            }
+            self.enemy_armies.append(enemy)
+        if not self.enemy_armies:
+            self._init_enemy_armies()
+
+        self.campaign_result = state.get("campaign_result")
+        self._campaign_start_provinces = max(1, int(state.get("campaign_start_provinces", self._campaign_start_provinces)))
+        self._campaign_target_provinces = max(
+            self._campaign_start_provinces + 1,
+            int(state.get("campaign_target_provinces", self._campaign_target_provinces)),
+        )
+        self._insolvency_days = max(0, int(state.get("insolvency_days", 0)))
+        self._famine_days = max(0, int(state.get("famine_days", 0)))
+        self._crisis_days = max(0, int(state.get("crisis_days", 0)))
+        self._campaign_over_day = state.get("campaign_over_day")
+        self.last_played_realm_id = int(state.get("last_played_realm_id", self.player_realm_id))
+
+        sel_pid = state.get("selected_province_id")
+        if isinstance(sel_pid, int) and 0 <= sel_pid < len(self.world.provinces):
+            self.selected_province = self.world.provinces[sel_pid]
+        else:
+            cap_pid = self._get_player_capital_pid()
+            self.selected_province = self.world.provinces[cap_pid] if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces) else None
+
+        log_data = state.get("log", [])
+        if isinstance(log_data, list):
+            self.log = [str(line) for line in log_data[-30:]]
+
+        self.character = self.world.realm_rulers[self.player_realm_id]
+        if "base_stats" not in self.character:
+            self.character["base_stats"] = _stats_list_to_dict(self.character.get("stats", []))
+        self.character["traits"] = normalize_traits(self.character.get("traits", []))
+        apply_trait_effects(self.character)
+
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self._baseline_population = max(1, int(state.get("baseline_population", self.population)))
+        self.food = self._compute_food_values()
+        self.threat = self._compute_threat()
+        self._update_army_max()
+        self._recompute_resource_rates()
+
+        self._war_goal_selecting = False
+        self._pending_war = None
+        self._siege_state = None
+        self._war_border_overlay = None
+        self._war_border_overlay_key = None
+        self._update_fog_from_army()
+
+        if hasattr(self.world, "_realm_border_cache"):
+            self.world._realm_border_cache = {}
+        self.world._realm_border_points = None
+        if hasattr(self.world, "_compute_fog_of_war"):
+            self.world._compute_fog_of_war()
+        if hasattr(self.world, "_render_borders_and_coast"):
+            self.world._render_borders_and_coast()
+        self._refresh_fog_visuals()
+        return True, "Loaded"
+
+    def _load_game_from_file(self, path, show_feedback=True):
+        if not path or not os.path.exists(path):
+            self.modal.show(
+                "Load Failed",
+                ["Save file was not found."],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            self.modal.show(
+                "Load Failed",
+                [f"Could not read save file: {exc}"],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return False
+
+        ok, msg = self._apply_loaded_state(payload)
+        if not ok:
+            self.modal.show(
+                "Load Failed",
+                [msg],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return False
+
+        sid = payload.get("storyteller_id")
+        if sid:
+            st = next((s for s in self.storytellers if s.get("id") == sid), None)
+            if st:
+                self._apply_storyteller(st)
+
+        self.mode = "game"
+        self.camera.set_viewport(self._get_map_rect().size)
+        self.left_panel_open = False
+        self._left_panel_anim = 0.0
+        self.right_panel_open = True
+        self._right_panel_anim = 1.0
+        self.speed_level = 0
+        if show_feedback:
+            self.modal.show(
+                "Game Loaded",
+                [f"Loaded {os.path.basename(path)}."],
+                [("Continue", "accept", lambda: self.modal.close())],
+            )
+        return True
+
+    def _open_load_game_modal(self):
+        saves = []
+        if os.path.exists(self.latest_save_path):
+            saves.append(("Latest", self.latest_save_path))
+        if os.path.exists(self.autosave_path):
+            saves.append(("Autosave", self.autosave_path))
+
+        if not saves:
+            self.modal.show(
+                "No Save Found",
+                ["No save files are available yet."],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
+            return
+
+        lines = ["Select a save file to load:"]
+        for label, path in saves:
+            lines.append(f"{label}: {os.path.basename(path)}")
+        actions = []
+        for idx, (label, path) in enumerate(saves):
+            style = "accept" if idx == 0 else "secondary"
+            actions.append((f"Load {label}", style, (lambda p=path: self._load_game_from_file(p, show_feedback=True))))
+        actions.append(("Cancel", "secondary", lambda: self.modal.close()))
+        self.modal.show("Load Game", lines, actions)
 
     def _resume_last_realm_from_menu(self):
         rid = self.last_played_realm_id
@@ -2956,6 +3741,7 @@ class GameApp:
         self.dread = 0.0
         self.decision_cooldowns = {}
         self._raid_cooldown_days = 45
+        self._ai_war_cooldown_days = 120
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]
@@ -3210,6 +3996,7 @@ class GameApp:
             "ready_prompted": False,
             "sieged": set(),
             "total_provs": total_provs,
+            "attacker": "player",
         }
         self._war_next_id += 1
         self._pay_war_cost(target_rid, war_type)
@@ -3305,6 +4092,13 @@ class GameApp:
                 new_cap = next((p.id for p in self.world.provinces if p.realm_id == old_rid), None)
                 self.world.realm_capitals[old_rid] = new_cap if new_cap is not None else -1
 
+        for p in self.world.provinces:
+            p.is_capital = False
+        if hasattr(self.world, "realm_capitals"):
+            for cap_pid in self.world.realm_capitals:
+                if isinstance(cap_pid, int) and 0 <= cap_pid < len(self.world.provinces):
+                    self.world.provinces[cap_pid].is_capital = True
+
         if hasattr(self.world, "_realm_border_cache"):
             self.world._realm_border_cache.pop(old_rid, None)
             self.world._realm_border_cache.pop(new_rid, None)
@@ -3394,8 +4188,9 @@ class GameApp:
             name = self._get_war_target_name(war)
             self._update_war_progress(war)
             progress = self._format_war_progress(war.get("progress", 0))
+            war_tag = " (Defensive)" if war.get("attacker") == "ai" else ""
             prefix = ">" if war["id"] == self._war_focus_id else " "
-            lines.append(f"{prefix} {name} - {progress}%")
+            lines.append(f"{prefix} {name}{war_tag} - {progress}%")
         actions = [
             ("Details", "primary", lambda: self._open_war_details(self._war_focus_id)),
         ]
@@ -3423,6 +4218,7 @@ class GameApp:
         sieged = self._get_war_sieged_set(war)
         total = war.get("total_provs") or 0
         war_type = war.get("war_type", "Conquest")
+        attacker = war.get("attacker", "player")
         goal_pid = war.get("goal_pid")
         goal_name = None
         if goal_pid is not None and 0 <= goal_pid < len(self.world.provinces):
@@ -3436,9 +4232,11 @@ class GameApp:
             [
                 f"War against {target_name}.",
                 f"War type: {war_type}.",
+                f"Initiator: {'Enemy Realm' if attacker == 'ai' else 'Your Realm'}.",
                 f"War goal: {goal_name if goal_name else 'None'}.",
                 f"War progress: {progress}%.",
                 f"Sieged provinces: {len(sieged)}/{total}.",
+                "Surrender cedes territory in defensive wars." if attacker == "ai" else "Surrender ends this war immediately.",
                 "Press demands is available at 100%.",
             ],
             [
@@ -3454,7 +4252,86 @@ class GameApp:
             self.modal.close()
             return
         target_name = self._get_war_target_name(war)
+        if war.get("attacker") == "ai":
+            ceded = self._apply_enemy_demands(war)
+            if ceded:
+                self._end_war(war_id, f"Surrendered to {target_name}; ceded {ceded}.")
+            else:
+                self._end_war(war_id, f"Surrendered to {target_name}.")
+            return
         self._end_war(war_id, f"Surrendered to {target_name}.")
+
+    def _apply_enemy_demands(self, war):
+        if not war:
+            return None
+        target_rid = war.get("target_id")
+        if target_rid is None or not (0 <= target_rid < len(self.world.realm_names)):
+            return None
+
+        goal_pid = war.get("goal_pid")
+        if not isinstance(goal_pid, int) or not (0 <= goal_pid < len(self.world.provinces)):
+            goal_pid = self._pick_enemy_war_goal_against_player(target_rid)
+        if goal_pid is None or not (0 <= goal_pid < len(self.world.provinces)):
+            return None
+
+        prov = self.world.provinces[goal_pid]
+        old_rid = prov.realm_id
+        if old_rid != self.player_realm_id:
+            fallback = self._pick_enemy_war_goal_against_player(target_rid)
+            if fallback is None:
+                return None
+            goal_pid = fallback
+            prov = self.world.provinces[goal_pid]
+            old_rid = prov.realm_id
+            if old_rid != self.player_realm_id:
+                return None
+
+        new_rid = target_rid
+        prov.realm_id = new_rid
+
+        if hasattr(self.world, "realm_sizes"):
+            if 0 <= old_rid < len(self.world.realm_sizes):
+                self.world.realm_sizes[old_rid] = max(0, self.world.realm_sizes[old_rid] - 1)
+            if 0 <= new_rid < len(self.world.realm_sizes):
+                self.world.realm_sizes[new_rid] += 1
+
+        if hasattr(self.world, "realm_capitals") and 0 <= old_rid < len(self.world.realm_capitals):
+            if self.world.realm_capitals[old_rid] == goal_pid:
+                new_cap = next((p.id for p in self.world.provinces if p.realm_id == old_rid), None)
+                self.world.realm_capitals[old_rid] = new_cap if new_cap is not None else -1
+                if old_rid == self.player_realm_id:
+                    self.world.player_capital_pid = self.world.realm_capitals[old_rid]
+
+        if hasattr(self.world, "_realm_border_cache"):
+            self.world._realm_border_cache.pop(old_rid, None)
+            self.world._realm_border_cache.pop(new_rid, None)
+        if isinstance(getattr(self.world, "_realm_border_points", None), dict):
+            self.world._realm_border_points.pop(old_rid, None)
+            self.world._realm_border_points.pop(new_rid, None)
+
+        for p in self.world.provinces:
+            p.is_capital = False
+        if hasattr(self.world, "realm_capitals"):
+            for cap_pid in self.world.realm_capitals:
+                if isinstance(cap_pid, int) and 0 <= cap_pid < len(self.world.provinces):
+                    self.world.provinces[cap_pid].is_capital = True
+
+        if hasattr(self.world, "_compute_fog_of_war"):
+            self.world._compute_fog_of_war()
+        if hasattr(self.world, "_render_borders_and_coast"):
+            self.world._render_borders_and_coast()
+        self._refresh_fog_visuals()
+        self._war_border_overlay = None
+        self._war_border_overlay_key = None
+
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        self.food = self._compute_food_values()
+        self._update_army_max()
+        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
+        self.resources["renown"] = max(0, int(self.resources.get("renown", 0)) - 20)
+        self._adjust_stress(+10.0)
+        self._recompute_resource_rates()
+        return prov.name
 
     def _press_war_demands(self, war_id):
         war = self._get_war_by_id(war_id)
@@ -3566,7 +4443,8 @@ class GameApp:
             ],
             [
                 ("Resume", "accept", lambda: self.modal.close()),
-                ("Realm", "primary", lambda: self._open_realm_overview()),
+                ("Save", "primary", lambda: self._save_game_to_file(self.latest_save_path, autosave=False)),
+                ("Load", "secondary", lambda: self._open_load_game_modal()),
                 ("Exit", "deny", lambda: self._exit_game()),
             ],
         )
@@ -4345,30 +5223,7 @@ class GameApp:
             self.modal.close()
             return
         if action == "menu_load":
-            rid = self.last_played_realm_id
-            if rid is None or not (0 <= rid < len(self.world.realm_names)):
-                self.modal.show(
-                    "No Campaign Available",
-                    [
-                        "No previous realm is available in this session.",
-                    ],
-                    [
-                        ("OK", "accept", lambda: self.modal.close()),
-                    ],
-                )
-                return
-            realm_name = self.world.realm_names[rid]
-            self.modal.show(
-                "Quick Resume",
-                [
-                    f"Resume as {realm_name}.",
-                    "This continues the last realm played in this session.",
-                ],
-                [
-                    ("Resume", "accept", lambda: self._resume_last_realm_from_menu()),
-                    ("Cancel", "secondary", lambda: self.modal.close()),
-                ],
-            )
+            self._open_load_game_modal()
             return
         if action == "menu_settings":
             self._open_settings_modal()
@@ -4520,6 +5375,10 @@ class GameApp:
             self.set_speed(3)
         elif action == "open_menu":
             self.open_menu()
+        elif action == "save_game":
+            self._save_game_to_file(self.latest_save_path, autosave=False)
+        elif action == "load_game":
+            self._open_load_game_modal()
         elif action in ("realm", "view_realm"):
             self._open_realm_overview()
         elif action == "ledger":
@@ -4593,6 +5452,8 @@ class GameApp:
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
+                    if self._autosave_interval_months > 0 and ((self.date.month - 1) % self._autosave_interval_months == 0):
+                        self._save_game_to_file(self.autosave_path, autosave=True)
                     if self.date.month == 1:
                         self._annual_dynasty_tick()
 
