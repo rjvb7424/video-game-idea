@@ -4105,7 +4105,7 @@ class GameApp:
                     ("OK", "accept", lambda: self.modal.close()),
                 ],
             )
-            return
+            return False
         if self._get_war_by_target(target_rid):
             target_name = self._get_war_target_name(target_rid)
             self.modal.show(
@@ -4117,7 +4117,30 @@ class GameApp:
                     ("OK", "accept", lambda: self.modal.close()),
                 ],
             )
-            return
+            return False
+        if not isinstance(goal_pid, int) or not (0 <= goal_pid < len(self.world.provinces)):
+            self.modal.show(
+                "No Province Selected",
+                [
+                    "Select a target province before declaring war.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return False
+        if self.world.provinces[goal_pid].realm_id != target_rid:
+            target_name = self._get_war_target_name(target_rid)
+            self.modal.show(
+                "Invalid War Goal",
+                [
+                    f"The selected province must belong to {target_name}.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return False
         if hasattr(self.world, "realm_sizes") and 0 <= target_rid < len(self.world.realm_sizes):
             total_provs = int(self.world.realm_sizes[target_rid])
         else:
@@ -4145,31 +4168,52 @@ class GameApp:
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
         self._open_war_details(war["id"])
+        return True
 
     def _open_war_type_modal(self, target_rid):
+        war_type = "Conquest"
         target_name = self._get_war_target_name(target_rid)
-        claim_ok, claim_msg = self._can_declare_war_type(target_rid, "Conquest")
+        allowed, reason = self._can_declare_war_type(target_rid, war_type)
+        if not self._pending_war or self._pending_war.get("target_id") != target_rid:
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
+
+        goal_pid = self._pending_war.get("goal_pid")
+        goal_name = "None selected"
+        goal_ready = False
+        if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces):
+            goal_prov = self.world.provinces[goal_pid]
+            if goal_prov.realm_id == target_rid:
+                goal_name = goal_prov.name
+                goal_ready = True
+            else:
+                self._pending_war["goal_pid"] = None
+
+        self._war_goal_selecting = False
 
         self.modal.show(
             "Declare War",
             [
-                f"Declare a Conquest war against {target_name}.",
-                "You will then choose one province as your annexation war goal.",
-                claim_msg,
-                "Attacker victory at 100% annexes the chosen province.",
-                "If the attacker is defeated, they must pay reparations.",
+                f"Target realm: {target_name}.",
+                f"Selected province: {goal_name}.",
+                reason,
+                "Use Select Province, then press Declare to start war instantly.",
             ],
             [
-                (
-                    "Conquest",
-                    "accept" if claim_ok else "disabled",
-                    (lambda rid=target_rid: self._begin_war_goal_selection(rid, "Conquest")) if claim_ok else (lambda: None),
-                ),
                 ("Cancel", "deny", lambda: self._cancel_pending_war()),
+                (
+                    "Select Province",
+                    "secondary" if allowed else "disabled",
+                    (lambda rid=target_rid: self._begin_war_goal_selection(rid)) if allowed else (lambda: None),
+                ),
+                (
+                    "Declare",
+                    "accept" if (allowed and goal_ready) else "disabled",
+                    (lambda rid=target_rid: self._declare_pending_war(rid)) if (allowed and goal_ready) else (lambda: None),
+                ),
             ],
         )
 
-    def _begin_war_goal_selection(self, target_rid, war_type):
+    def _begin_war_goal_selection(self, target_rid, war_type="Conquest"):
         war_type = "Conquest"
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not allowed:
@@ -4183,11 +4227,36 @@ class GameApp:
                 ],
             )
             return
+        if not self._pending_war or self._pending_war.get("target_id") != target_rid:
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
+        else:
+            self._pending_war["war_type"] = war_type
         self.modal.close()
-        self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
         self._war_goal_selecting = True
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Select a war goal province in {target_name}.")
+
+    def _declare_pending_war(self, target_rid=None):
+        if not isinstance(self._pending_war, dict):
+            self.modal.close()
+            return
+        rid = self._pending_war.get("target_id") if target_rid is None else target_rid
+        if rid is None:
+            self.modal.close()
+            return
+        if rid != self._pending_war.get("target_id"):
+            self._open_war_type_modal(rid)
+            return
+        goal_pid = self._pending_war.get("goal_pid")
+        if not isinstance(goal_pid, int) or not (0 <= goal_pid < len(self.world.provinces)):
+            self._open_war_type_modal(rid)
+            return
+        if self.world.provinces[goal_pid].realm_id != rid:
+            self._open_war_type_modal(rid)
+            return
+        self._war_goal_selecting = False
+        if self._start_war(rid, war_type=self._pending_war.get("war_type", "Conquest"), goal_pid=goal_pid):
+            self._pending_war = None
 
     def _cancel_pending_war(self):
         self._pending_war = None
@@ -4261,10 +4330,10 @@ class GameApp:
             target_name = self._get_war_target_name(target_rid)
             self.push_log(f"{self.date}: War goal must be in {target_name}.")
             return True
-        war_type = self._pending_war.get("war_type", "Conquest")
+        self._pending_war["goal_pid"] = prov.id
         self._war_goal_selecting = False
-        self._pending_war = None
-        self._start_war(target_rid, war_type=war_type, goal_pid=prov.id)
+        self.push_log(f"{self.date}: Selected {prov.name} as war goal.")
+        self._open_war_type_modal(target_rid)
         return True
 
     def _get_war_target_name(self, war_or_rid):
