@@ -777,7 +777,6 @@ class UIManager:
         y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
         action_rows = [
             ("Start Sway Scheme", "secondary", "npc_promote_relations"),
-            ("Fabricate Claim Scheme", "primary", "npc_fabricate_claim"),
             ("Arrange Marriage", "primary", "npc_arrange_marriage"),
             ("Start Murder Scheme", "deny", "npc_plot_murder"),
             ("Declare War", "deny", "npc_declare_war"),

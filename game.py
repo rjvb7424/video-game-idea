@@ -5817,7 +5817,10 @@ class GameApp:
                                             wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
-                                                self._handle_war_goal_click(prov)
+                                                if self._handle_war_goal_click(prov):
+                                                    self._mouse_down_in_map = False
+                                                    self._drag_started = False
+                                                    continue
                                                 self.army_selected = False
                                                 self.selected_province = prov
                                                 self.right_panel_open = True
