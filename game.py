@@ -1433,15 +1433,7 @@ class GameApp:
             return False, f"Truce active ({self._days_label(truce_days)} left)."
 
         if war_type == "Conquest":
-            if target_rid not in self.realm_claims:
-                claim_scheme = self._active_scheme(scheme_type="claim", target_id=target_rid)
-                if claim_scheme is not None:
-                    prog = int(round(float(claim_scheme.get("progress", 0.0))))
-                    return False, f"Claim scheme in progress ({prog}%)."
-                return False, "Requires a fabricated claim."
-            if self.resources.get("prestige", 0) < 75:
-                return False, "Need 75 prestige."
-            return True, "Use an existing claim (cost: 75 prestige)."
+            return True, "Available. Select a province war goal to begin."
 
         if war_type == "Subjugation":
             if self.resources.get("prestige", 0) < 320:
@@ -1465,9 +1457,7 @@ class GameApp:
         return False, "Unavailable war type."
 
     def _pay_war_cost(self, target_rid, war_type):
-        if war_type == "Conquest":
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 75)
-        elif war_type == "Subjugation":
+        if war_type == "Subjugation":
             self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 320)
             self.subjugation_cooldown_days = max(self.subjugation_cooldown_days, 3650)
         elif war_type == "Holy War":
@@ -3891,6 +3881,18 @@ class GameApp:
         war["progress"] = max(0.0, min(100.0, progress))
         return war["progress"]
 
+    def _resolve_war_if_complete(self, war):
+        if not war:
+            return None
+        self._update_war_progress(war)
+        if float(war.get("progress", 0.0)) < 100.0:
+            return None
+        if war.get("attacker") == "ai":
+            return self._resolve_defender_victory(war, reason="Defender victory secured.")
+        self._apply_war_demands(war)
+        target_name = self._get_war_target_name(war)
+        return f"Won war against {target_name}."
+
     def _attacker_army_state(self, war):
         if not war:
             return 0, False
@@ -3966,7 +3968,6 @@ class GameApp:
     def _update_war_tick(self):
         if not self.wars:
             return
-        war_to_prompt = None
         resolved = []
         for war in list(self.wars):
             war["days"] += 1
@@ -3975,15 +3976,12 @@ class GameApp:
             if defender_msg is not None:
                 resolved.append((war.get("id"), defender_msg))
                 continue
-            if war["progress"] >= 100.0 and not war.get("ready_prompted"):
-                war["ready_prompted"] = True
-                if war_to_prompt is None:
-                    war_to_prompt = war
+            done_msg = self._resolve_war_if_complete(war)
+            if done_msg is not None:
+                resolved.append((war.get("id"), done_msg))
         for wid, msg in resolved:
             if wid is not None and self._get_war_by_id(wid):
                 self._end_war(wid, msg)
-        if war_to_prompt and not self.modal.open:
-            self._open_war_details(war_to_prompt["id"])
 
     def _siege_province(self, pid):
         if pid is None or not (0 <= pid < len(self.world.provinces)):
@@ -4001,10 +3999,11 @@ class GameApp:
         progress = self._update_war_progress(war)
         total = war.get("total_provs") or 0
         self.push_log(f"{self.date}: Sieged {prov.name} ({len(sieged)}/{total}).")
-        if progress >= 100.0 and not war.get("ready_prompted"):
-            war["ready_prompted"] = True
-            if not self.modal.open:
-                self._open_war_details(war["id"])
+        if progress >= 100.0:
+            done_msg = self._resolve_war_if_complete(war)
+            wid = war.get("id")
+            if done_msg is not None and wid is not None and self._get_war_by_id(wid):
+                self._end_war(wid, done_msg)
 
     def _clear_siege_state(self):
         self._siege_state = None
@@ -4156,7 +4155,7 @@ class GameApp:
             [
                 f"Declare a Conquest war against {target_name}.",
                 "You will then choose one province as your annexation war goal.",
-                f"Conquest requirements: {claim_msg}",
+                claim_msg,
                 "Attacker victory at 100% annexes the chosen province.",
                 "If the attacker is defeated, they must pay reparations.",
             ],
@@ -4355,10 +4354,6 @@ class GameApp:
         goal_name = None
         if goal_pid is not None and 0 <= goal_pid < len(self.world.provinces):
             goal_name = self.world.provinces[goal_pid].name
-        if progress >= 100:
-            press_action = ("Press Demands", "accept", lambda: self._press_war_demands(war_id))
-        else:
-            press_action = ("Press Demands", "disabled", lambda: None)
         self.modal.show(
             "War Status",
             [
@@ -4372,11 +4367,11 @@ class GameApp:
                 f"Defender manpower: {defender_manpower:,}.",
                 "Attacker wins at 100% and takes the war-goal province.",
                 f"Defender victory keeps current borders and forces about {reparations}g reparations from attacker.",
+                "War resolves automatically when attacker reaches 100% progress.",
                 "Surrender grants attacker's conquest demand." if attacker == "ai" else "Surrender concedes the war and pays reparations.",
             ],
             [
                 ("Surrender", "deny", lambda: self._surrender_war(war_id)),
-                press_action,
                 ("Back", "secondary", lambda: self._open_war_overview()),
             ],
         )
@@ -4525,6 +4520,8 @@ class GameApp:
         )
 
     def _try_open_tower_event(self, screen_pos):
+        if self._war_goal_selecting:
+            return False
         tower_pid = getattr(self.world, "tower_pid", -1)
         if not (0 <= tower_pid < len(self.world.provinces)):
             return False
@@ -5812,11 +5809,11 @@ class GameApp:
                                 map_rect = self._get_map_rect()
                                 if map_rect.collidepoint(event.pos) and not self._point_in_ui(event.pos):
                                     if self.mode == "game":
+                                        if self._handle_army_click(event.pos, map_rect):
+                                            self._mouse_down_in_map = False
+                                            self._drag_started = False
+                                            continue
                                         if not self._try_open_tower_event(event.pos):
-                                            if self._handle_army_click(event.pos, map_rect):
-                                                self._mouse_down_in_map = False
-                                                self._drag_started = False
-                                                continue
                                             wp = self.camera.screen_to_world(event.pos, map_rect, use_target=False)
                                             prov = self.world.province_at_world(wp)
                                             if prov is not None:
