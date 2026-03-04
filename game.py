@@ -1254,14 +1254,12 @@ class GameApp:
         self._recompute_resource_rates()
 
         attacker_name = self._get_war_target_name(attacker_rid)
-        goal_name = self.world.provinces[goal_pid].name if 0 <= goal_pid < len(self.world.provinces) else "frontier lands"
-        self.push_log(f"{self.date}: {attacker_name} declares a conquest for {goal_name}.")
+        self.push_log(f"{self.date}: {attacker_name} declares a conquest war.")
         if not self.modal.open:
             self.modal.show(
                 "Enemy Declaration",
                 [
                     f"{attacker_name} declared a conquest war on your realm.",
-                    f"They demand {goal_name} if you surrender.",
                     "Raise levies and hold your frontier.",
                 ],
                 [
@@ -1349,79 +1347,24 @@ class GameApp:
         )
 
     def _tick_campaign_day(self):
-        if self.campaign_result is not None:
-            return
+        # Realm goal/campaign win-condition checks are disabled for sandbox play.
+        return
 
-        held = self._player_province_count()
-        if held <= 0:
-            self._finish_campaign(
-                "defeat",
-                [
-                    "Your dynasty has no land remaining.",
-                    "You can continue in sandbox or return to the main menu.",
-                ],
-            )
-            return
-
-        gold = int(self.resources.get("gold", 0))
-        if gold < 0:
-            self._insolvency_days += 1
-        else:
-            self._insolvency_days = max(0, self._insolvency_days - 3)
-
-        production, consumption = self.food
-        severe_famine = consumption > 0 and production < (consumption * 0.80)
-        if severe_famine:
-            self._famine_days += 1
-        else:
-            self._famine_days = max(0, self._famine_days - 2)
-
-        if self.stress >= 285:
-            self._crisis_days += 1
-        else:
-            self._crisis_days = max(0, self._crisis_days - 3)
-
-        if self._insolvency_days >= 540:
-            self._finish_campaign(
-                "defeat",
-                [
-                    "Your realm has been insolvent for too long.",
-                    "Vassals and levies abandon the crown.",
-                ],
-            )
-            return
-
-        if self._famine_days >= 240:
-            self._finish_campaign(
-                "defeat",
-                [
-                    "A prolonged famine shattered your realm.",
-                    "Control collapses as provinces revolt.",
-                ],
-            )
-            return
-
-        if self._crisis_days >= 180:
-            self._finish_campaign(
-                "defeat",
-                [
-                    "You ruled under unbearable stress for too long.",
-                    "Court authority breaks down into chaos.",
-                ],
-            )
-            return
-
-        target = int(self._campaign_target_provinces)
-        renown = int(self.resources.get("renown", 0))
-        prestige = int(self.resources.get("prestige", 0))
-        if held >= target and (renown >= 260 or prestige >= 650):
-            self._finish_campaign(
-                "victory",
-                [
-                    f"You secured {held} provinces (target: {target}).",
-                    f"Dynasty standing reached Renown {renown} and Prestige {prestige}.",
-                ],
-            )
+    def _realms_share_land_border(self, rid_a, rid_b):
+        if rid_a is None or rid_b is None:
+            return False
+        if rid_a == rid_b:
+            return True
+        for prov in self.world.provinces:
+            if prov.realm_id != rid_a:
+                continue
+            pid = prov.id
+            if not (0 <= pid < len(self._prov_adj)):
+                continue
+            for nb in self._prov_adj[pid]:
+                if 0 <= nb < len(self.world.provinces) and self.world.provinces[nb].realm_id == rid_b:
+                    return True
+        return False
 
     def _can_declare_war_type(self, target_rid, war_type):
         if target_rid is None or target_rid == self.player_realm_id:
@@ -1433,7 +1376,9 @@ class GameApp:
             return False, f"Truce active ({self._days_label(truce_days)} left)."
 
         if war_type == "Conquest":
-            return True, "Available. Select a province war goal to begin."
+            if not self._realms_share_land_border(self.player_realm_id, target_rid):
+                return False, "Cannot declare war: realms are not connected by land."
+            return True, "Available. Choose a province from the dropdown, then declare."
 
         if war_type == "Subjugation":
             if self.resources.get("prestige", 0) < 320:
@@ -2069,13 +2014,10 @@ class GameApp:
 
     def _open_realm_overview(self):
         held = self._player_province_count()
-        target = int(self._campaign_target_provinces)
-        progress = self._campaign_progress_percent()
         claims = len(self.realm_claims)
         alliances = len(self.alliances)
         lines = [
             f"Realm size: {held}/{len(self.world.provinces)} provinces",
-            f"Campaign progress: {progress}% ({held}/{target} provinces toward victory)",
             f"Dynasty: Prestige {int(self.resources.get('prestige', 0))}, Renown {int(self.resources.get('renown', 0))}",
             f"Diplomacy: {claims} claims, {alliances} alliances, {len(self.wars)} active wars",
             f"Stress and dread: {int(round(self.stress))}/300, {int(round(self.dread))}/100",
@@ -2086,18 +2028,6 @@ class GameApp:
             lines.append(f"Major decision cooldown: {self._days_label(min(remaining))}")
         else:
             lines.append("Major decision cooldown: Ready")
-        if self.campaign_result is None:
-            lines.append("Victory condition: hold target provinces and reach high renown or prestige.")
-            if self._insolvency_days > 0:
-                lines.append(f"Insolvency pressure: {self._insolvency_days}/540 days")
-            if self._famine_days > 0:
-                lines.append(f"Famine pressure: {self._famine_days}/240 days")
-            if self._crisis_days > 0:
-                lines.append(f"Stress crisis pressure: {self._crisis_days}/180 days")
-        elif self.campaign_result == "victory":
-            lines.append("Campaign status: Victory achieved.")
-        else:
-            lines.append("Campaign status: Defeat condition reached.")
         self.modal.show(
             "Realm Overview",
             lines,
@@ -2248,18 +2178,14 @@ class GameApp:
         self._open_military_overview()
 
     def _open_campaign_briefing(self):
-        held = self._player_province_count()
-        target = int(self._campaign_target_provinces)
         self.modal.show(
-            "Campaign Briefing",
+            "Realm Briefing",
             [
-                f"You begin with {held} provinces.",
-                f"Primary goal: secure at least {target} provinces and build dynasty renown.",
-                "Use schemes, alliances, and wars to expand while managing stress, food, and treasury.",
+                "Sandbox mode enabled.",
+                "Expand, fight wars, and manage your realm freely.",
             ],
             [
                 ("Begin", "accept", lambda: self.modal.close()),
-                ("Realm Goals", "secondary", lambda: self._handle_action("view_realm")),
             ],
         )
 
@@ -2988,7 +2914,6 @@ class GameApp:
         self._left_panel_anim = 0.0
         self.right_panel_open = True
         self._right_panel_anim = 1.0
-        self._open_campaign_briefing()
 
     def _return_to_main_menu(self):
         self.modal.close()
@@ -3936,19 +3861,15 @@ class GameApp:
         if not war:
             return "War ended."
         target_name = self._get_war_target_name(war)
-        goal_pid = war.get("goal_pid")
-        goal_name = "the disputed province"
-        if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces):
-            goal_name = self.world.provinces[goal_pid].name
         rep = self._apply_defender_reparations(war)
         if war.get("attacker") == "player":
-            detail = f"{target_name} held {goal_name}. You paid {rep['paid']} gold in reparations."
+            detail = f"{target_name} held their lines. You paid {rep['paid']} gold in reparations."
             if rep.get("debt", 0) > 0:
                 detail += " Unable to pay in full; prestige and renown were lost."
             if reason:
                 return f"{reason} {detail}"
             return detail
-        detail = f"You repelled {target_name}'s conquest of {goal_name} and received {rep['paid']} gold in reparations."
+        detail = f"You repelled {target_name}'s invasion and received {rep['paid']} gold in reparations."
         if reason:
             return f"{reason} {detail}"
         return detail
@@ -4175,29 +4096,33 @@ class GameApp:
         target_name = self._get_war_target_name(target_rid)
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
 
         goal_pid = self._pending_war.get("goal_pid")
         goal_name = "None selected"
+        goal_realm_name = "—"
         goal_ready = False
         if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces):
             goal_prov = self.world.provinces[goal_pid]
+            goal_name = goal_prov.name
+            if 0 <= goal_prov.realm_id < len(self.world.realm_names):
+                goal_realm_name = self.world.realm_names[goal_prov.realm_id]
             if goal_prov.realm_id == target_rid:
-                goal_name = goal_prov.name
                 goal_ready = True
-            else:
-                self._pending_war["goal_pid"] = None
 
         self._war_goal_selecting = False
-
+        lines = [
+            f"Target realm: {target_name}.",
+            f"Selected province: {goal_name}.",
+            f"Province realm: {goal_realm_name}.",
+            reason,
+            "Use Select Province dropdown, then press Declare.",
+        ]
+        if goal_pid is not None and not goal_ready:
+            lines.append(f"Declare is disabled: province must belong to {target_name}.")
         self.modal.show(
             "Declare War",
-            [
-                f"Target realm: {target_name}.",
-                f"Selected province: {goal_name}.",
-                reason,
-                "Use Select Province, then press Declare to start war instantly.",
-            ],
+            lines,
             [
                 ("Cancel", "deny", lambda: self._cancel_pending_war()),
                 (
@@ -4228,13 +4153,81 @@ class GameApp:
             )
             return
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None}
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
         else:
             self._pending_war["war_type"] = war_type
-        self.modal.close()
-        self._war_goal_selecting = True
-        target_name = self._get_war_target_name(target_rid)
-        self.push_log(f"{self.date}: Select a war goal province in {target_name}.")
+        page = int(self._pending_war.get("dropdown_page", 0))
+        self._open_war_province_dropdown(target_rid, page)
+
+    def _open_war_province_dropdown(self, target_rid, page=0):
+        war_type = "Conquest"
+        allowed, reason = self._can_declare_war_type(target_rid, war_type)
+        if not allowed:
+            self.modal.show(
+                "War Not Available",
+                [
+                    reason,
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+            return
+        if not self._pending_war or self._pending_war.get("target_id") != target_rid:
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
+
+        province_ids = [prov.id for prov in self.world.provinces if 0 <= prov.id < len(self.world.provinces)]
+        province_ids.sort(key=lambda pid: self.world.provinces[pid].name.lower())
+        if not province_ids:
+            self.modal.show(
+                "Province List",
+                ["No provinces available."],
+                [("Back", "secondary", lambda rid=target_rid: self._open_war_type_modal(rid))],
+            )
+            return
+
+        page_size = 8
+        total_pages = max(1, (len(province_ids) + page_size - 1) // page_size)
+        page = max(0, min(int(page), total_pages - 1))
+        self._pending_war["dropdown_page"] = page
+
+        start = page * page_size
+        end = min(len(province_ids), start + page_size)
+        selected_pid = self._pending_war.get("goal_pid")
+        selected_name = "None"
+        if isinstance(selected_pid, int) and 0 <= selected_pid < len(self.world.provinces):
+            selected_name = self.world.provinces[selected_pid].name
+
+        actions = []
+        for pid in province_ids[start:end]:
+            prov = self.world.provinces[pid]
+            label = prov.name if len(prov.name) <= 20 else (prov.name[:19] + "...")
+            style = "accept" if pid == selected_pid else "primary"
+            actions.append((label, style, lambda rid=target_rid, p=pid, pg=page: self._select_war_goal_from_dropdown(rid, p, pg)))
+
+        if page > 0:
+            actions.append(("Prev", "secondary", lambda rid=target_rid, pg=page - 1: self._open_war_province_dropdown(rid, pg)))
+        if page < total_pages - 1:
+            actions.append(("Next", "secondary", lambda rid=target_rid, pg=page + 1: self._open_war_province_dropdown(rid, pg)))
+        actions.append(("Back", "deny", lambda rid=target_rid: self._open_war_type_modal(rid)))
+
+        self.modal.show(
+            "Select Province",
+            [
+                f"Dropdown list of provinces ({start + 1}-{end} of {len(province_ids)}).",
+                f"Target realm: {self._get_war_target_name(target_rid)}.",
+                f"Current selection: {selected_name}.",
+            ],
+            actions,
+        )
+
+    def _select_war_goal_from_dropdown(self, target_rid, goal_pid, page=0):
+        if not self._pending_war or self._pending_war.get("target_id") != target_rid:
+            self._pending_war = {"target_id": target_rid, "war_type": "Conquest", "goal_pid": None, "dropdown_page": 0}
+        self._pending_war["goal_pid"] = goal_pid
+        self._pending_war["dropdown_page"] = max(0, int(page))
+        self.push_log(f"{self.date}: Selected {self.world.provinces[goal_pid].name} from dropdown.")
+        self._open_war_type_modal(target_rid)
 
     def _declare_pending_war(self, target_rid=None):
         if not isinstance(self._pending_war, dict):
@@ -4321,20 +4314,7 @@ class GameApp:
         self.push_log(f"{self.date}: Annexed {prov.name}.")
 
     def _handle_war_goal_click(self, prov):
-        if not self._war_goal_selecting or not self._pending_war or prov is None:
-            return False
-        target_rid = self._pending_war.get("target_id")
-        if target_rid is None:
-            return False
-        if prov.realm_id != target_rid:
-            target_name = self._get_war_target_name(target_rid)
-            self.push_log(f"{self.date}: War goal must be in {target_name}.")
-            return True
-        self._pending_war["goal_pid"] = prov.id
-        self._war_goal_selecting = False
-        self.push_log(f"{self.date}: Selected {prov.name} as war goal.")
-        self._open_war_type_modal(target_rid)
-        return True
+        return False
 
     def _get_war_target_name(self, war_or_rid):
         if isinstance(war_or_rid, dict):
@@ -4419,25 +4399,20 @@ class GameApp:
         attacker_manpower = self._realm_total_manpower(attacker_rid)
         defender_manpower = self._realm_total_manpower(defender_rid)
         reparations = self._war_reparation_amount(war)
-        goal_pid = war.get("goal_pid")
-        goal_name = None
-        if goal_pid is not None and 0 <= goal_pid < len(self.world.provinces):
-            goal_name = self.world.provinces[goal_pid].name
         self.modal.show(
             "War Status",
             [
                 f"War against {target_name}.",
                 f"War type: {war_type}.",
                 f"Initiator: {'Enemy Realm' if attacker == 'ai' else 'Your Realm'}.",
-                f"War goal: {goal_name if goal_name else 'None'}.",
                 f"War progress: {progress}%.",
                 f"Sieged provinces: {len(sieged)}/{total}.",
                 f"Attacker manpower: {attacker_manpower:,}.",
                 f"Defender manpower: {defender_manpower:,}.",
-                "Attacker wins at 100% and takes the war-goal province.",
+                "Attacker wins at 100% and gains territory.",
                 f"Defender victory keeps current borders and forces about {reparations}g reparations from attacker.",
                 "War resolves automatically when attacker reaches 100% progress.",
-                "Surrender grants attacker's conquest demand." if attacker == "ai" else "Surrender concedes the war and pays reparations.",
+                "Surrender concedes territory and pays reparations." if attacker == "ai" else "Surrender concedes the war and pays reparations.",
             ],
             [
                 ("Surrender", "deny", lambda: self._surrender_war(war_id)),
@@ -4638,13 +4613,9 @@ class GameApp:
             self.push_log(f"Time speed set to {level}.")
 
     def open_menu(self):
-        held = self._player_province_count()
-        target = int(self._campaign_target_provinces)
-        progress = self._campaign_progress_percent()
         self.modal.show(
             "Game Menu",
             [
-                f"Campaign progress: {progress}% ({held}/{target} provinces).",
                 "Pause, review your realm, or return to desktop.",
             ],
             [
@@ -5468,7 +5439,6 @@ class GameApp:
             self._left_panel_anim = 0.0
             self.right_panel_open = True
             self._right_panel_anim = 1.0
-            self._open_campaign_briefing()
             return
         if action == "right_panel_close":
             self.right_panel_open = False
