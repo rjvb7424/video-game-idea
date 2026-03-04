@@ -4096,19 +4096,26 @@ class GameApp:
         target_name = self._get_war_target_name(target_rid)
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_index": 0}
+
+        valid_pids = self._valid_war_goal_provinces(target_rid)
 
         goal_pid = self._pending_war.get("goal_pid")
         goal_name = "None selected"
         goal_realm_name = "—"
         goal_ready = False
-        if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces):
+        if isinstance(goal_pid, int) and 0 <= goal_pid < len(self.world.provinces) and goal_pid in valid_pids:
             goal_prov = self.world.provinces[goal_pid]
             goal_name = goal_prov.name
             if 0 <= goal_prov.realm_id < len(self.world.realm_names):
                 goal_realm_name = self.world.realm_names[goal_prov.realm_id]
             if goal_prov.realm_id == target_rid:
                 goal_ready = True
+        else:
+            self._pending_war["goal_pid"] = None
+            if valid_pids:
+                idx = max(0, min(int(self._pending_war.get("dropdown_index", 0)), len(valid_pids) - 1))
+                self._pending_war["dropdown_index"] = idx
 
         self._war_goal_selecting = False
         lines = [
@@ -4118,7 +4125,9 @@ class GameApp:
             reason,
             "Use Select Province dropdown, then press Declare.",
         ]
-        if goal_pid is not None and not goal_ready:
+        if not valid_pids:
+            lines.append("No valid provinces.")
+        elif goal_pid is not None and not goal_ready:
             lines.append(f"Declare is disabled: province must belong to {target_name}.")
         self.modal.show(
             "Declare War",
@@ -4127,12 +4136,12 @@ class GameApp:
                 ("Cancel", "deny", lambda: self._cancel_pending_war()),
                 (
                     "Select Province",
-                    "secondary" if allowed else "disabled",
+                    "secondary" if (allowed and bool(valid_pids)) else "disabled",
                     (lambda rid=target_rid: self._begin_war_goal_selection(rid)) if allowed else (lambda: None),
                 ),
                 (
                     "Declare",
-                    "accept" if (allowed and goal_ready) else "disabled",
+                    "accept" if (allowed and goal_ready and bool(valid_pids)) else "disabled",
                     (lambda rid=target_rid: self._declare_pending_war(rid)) if (allowed and goal_ready) else (lambda: None),
                 ),
             ],
@@ -4153,13 +4162,24 @@ class GameApp:
             )
             return
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_index": 0}
         else:
             self._pending_war["war_type"] = war_type
-        page = int(self._pending_war.get("dropdown_page", 0))
-        self._open_war_province_dropdown(target_rid, page)
+        idx = int(self._pending_war.get("dropdown_index", 0))
+        self._open_war_province_dropdown(target_rid, idx)
 
-    def _open_war_province_dropdown(self, target_rid, page=0):
+    def _valid_war_goal_provinces(self, target_rid):
+        if target_rid is None:
+            return []
+        pids = [
+            prov.id
+            for prov in self.world.provinces
+            if 0 <= prov.id < len(self.world.provinces) and prov.realm_id == target_rid
+        ]
+        pids.sort(key=lambda pid: self.world.provinces[pid].name.lower())
+        return pids
+
+    def _open_war_province_dropdown(self, target_rid, index=0):
         war_type = "Conquest"
         allowed, reason = self._can_declare_war_type(target_rid, war_type)
         if not allowed:
@@ -4174,58 +4194,48 @@ class GameApp:
             )
             return
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_page": 0}
+            self._pending_war = {"target_id": target_rid, "war_type": war_type, "goal_pid": None, "dropdown_index": 0}
 
-        province_ids = [prov.id for prov in self.world.provinces if 0 <= prov.id < len(self.world.provinces)]
-        province_ids.sort(key=lambda pid: self.world.provinces[pid].name.lower())
-        if not province_ids:
+        valid_pids = self._valid_war_goal_provinces(target_rid)
+        if not valid_pids:
             self.modal.show(
                 "Province List",
-                ["No provinces available."],
+                ["No valid provinces."],
                 [("Back", "secondary", lambda rid=target_rid: self._open_war_type_modal(rid))],
             )
             return
+        index = max(0, min(int(index), len(valid_pids) - 1))
+        self._pending_war["dropdown_index"] = index
+        current_pid = valid_pids[index]
+        current_name = self.world.provinces[current_pid].name
 
-        page_size = 8
-        total_pages = max(1, (len(province_ids) + page_size - 1) // page_size)
-        page = max(0, min(int(page), total_pages - 1))
-        self._pending_war["dropdown_page"] = page
-
-        start = page * page_size
-        end = min(len(province_ids), start + page_size)
-        selected_pid = self._pending_war.get("goal_pid")
-        selected_name = "None"
-        if isinstance(selected_pid, int) and 0 <= selected_pid < len(self.world.provinces):
-            selected_name = self.world.provinces[selected_pid].name
-
-        actions = []
-        for pid in province_ids[start:end]:
-            prov = self.world.provinces[pid]
-            label = prov.name if len(prov.name) <= 20 else (prov.name[:19] + "...")
-            style = "accept" if pid == selected_pid else "primary"
-            actions.append((label, style, lambda rid=target_rid, p=pid, pg=page: self._select_war_goal_from_dropdown(rid, p, pg)))
-
-        if page > 0:
-            actions.append(("Prev", "secondary", lambda rid=target_rid, pg=page - 1: self._open_war_province_dropdown(rid, pg)))
-        if page < total_pages - 1:
-            actions.append(("Next", "secondary", lambda rid=target_rid, pg=page + 1: self._open_war_province_dropdown(rid, pg)))
-        actions.append(("Back", "deny", lambda rid=target_rid: self._open_war_type_modal(rid)))
+        actions = [
+            ("Prev", "secondary", lambda rid=target_rid, idx=index - 1: self._open_war_province_dropdown(rid, idx)),
+            ("Next", "secondary", lambda rid=target_rid, idx=index + 1: self._open_war_province_dropdown(rid, idx)),
+            ("Select", "accept", lambda rid=target_rid, pid=current_pid, idx=index: self._select_war_goal_from_dropdown(rid, pid, idx)),
+            ("Back", "deny", lambda rid=target_rid: self._open_war_type_modal(rid)),
+        ]
 
         self.modal.show(
             "Select Province",
             [
-                f"Dropdown list of provinces ({start + 1}-{end} of {len(province_ids)}).",
+                f"Dropdown list ({index + 1}/{len(valid_pids)}).",
                 f"Target realm: {self._get_war_target_name(target_rid)}.",
-                f"Current selection: {selected_name}.",
+                f"Current province: {current_name}.",
+                "Only valid provinces are shown.",
             ],
             actions,
         )
 
-    def _select_war_goal_from_dropdown(self, target_rid, goal_pid, page=0):
+    def _select_war_goal_from_dropdown(self, target_rid, goal_pid, index=0):
+        valid_pids = self._valid_war_goal_provinces(target_rid)
+        if goal_pid not in valid_pids:
+            self._open_war_province_dropdown(target_rid, index)
+            return
         if not self._pending_war or self._pending_war.get("target_id") != target_rid:
-            self._pending_war = {"target_id": target_rid, "war_type": "Conquest", "goal_pid": None, "dropdown_page": 0}
+            self._pending_war = {"target_id": target_rid, "war_type": "Conquest", "goal_pid": None, "dropdown_index": 0}
         self._pending_war["goal_pid"] = goal_pid
-        self._pending_war["dropdown_page"] = max(0, int(page))
+        self._pending_war["dropdown_index"] = max(0, int(index))
         self.push_log(f"{self.date}: Selected {self.world.provinces[goal_pid].name} from dropdown.")
         self._open_war_type_modal(target_rid)
 
