@@ -1369,16 +1369,11 @@ class GameApp:
     def _can_declare_war_type(self, target_rid, war_type):
         if target_rid is None or target_rid == self.player_realm_id:
             return False, "Invalid target."
-        if target_rid in self.alliances:
-            return False, "Cannot declare on an ally."
-        truce_days = int(self.realm_truces.get(target_rid, 0))
-        if truce_days > 0:
-            return False, f"Truce active ({self._days_label(truce_days)} left)."
 
         if war_type == "Conquest":
-            if not self._realms_share_land_border(self.player_realm_id, target_rid):
-                return False, "Cannot declare war: realms are not connected by land."
-            return True, "Available. Choose a province from the dropdown, then declare."
+            if not self._valid_war_goal_provinces(target_rid):
+                return False, "No bordering provinces available to conquer."
+            return True, "Available. Choose a bordering province from the dropdown, then declare."
 
         if war_type == "Subjugation":
             if self.resources.get("prestige", 0) < 320:
@@ -4050,12 +4045,13 @@ class GameApp:
                 ],
             )
             return False
-        if self.world.provinces[goal_pid].realm_id != target_rid:
+        valid_pids = self._valid_war_goal_provinces(target_rid)
+        if goal_pid not in valid_pids:
             target_name = self._get_war_target_name(target_rid)
             self.modal.show(
                 "Invalid War Goal",
                 [
-                    f"The selected province must belong to {target_name}.",
+                    f"The selected province must border your realm and belong to {target_name}.",
                 ],
                 [
                     ("OK", "accept", lambda: self.modal.close()),
@@ -4128,7 +4124,7 @@ class GameApp:
         if not valid_pids:
             lines.append("No valid provinces.")
         elif goal_pid is not None and not goal_ready:
-            lines.append(f"Declare is disabled: province must belong to {target_name}.")
+            lines.append(f"Declare is disabled: province must border your realm and belong to {target_name}.")
         self.modal.show(
             "Declare War",
             lines,
@@ -4171,12 +4167,17 @@ class GameApp:
     def _valid_war_goal_provinces(self, target_rid):
         if target_rid is None:
             return []
-        pids = [
-            prov.id
-            for prov in self.world.provinces
-            if 0 <= prov.id < len(self.world.provinces) and prov.realm_id == target_rid
-        ]
-        pids.sort(key=lambda pid: self.world.provinces[pid].name.lower())
+        border_pids = set()
+        for prov in self.world.provinces:
+            if prov.realm_id != self.player_realm_id:
+                continue
+            pid = prov.id
+            if not (0 <= pid < len(self._prov_adj)):
+                continue
+            for nb in self._prov_adj[pid]:
+                if 0 <= nb < len(self.world.provinces) and self.world.provinces[nb].realm_id == target_rid:
+                    border_pids.add(nb)
+        pids = sorted(border_pids, key=lambda pid: self.world.provinces[pid].name.lower())
         return pids
 
     def _open_war_province_dropdown(self, target_rid, index=0):
