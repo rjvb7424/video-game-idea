@@ -371,6 +371,7 @@ class MenuMixin:
                     "character": ruler,
                     "npc_target": self._get_npc_target(self.realm_candidate_id),
                     "npc_actions_enabled": False,
+                    "show_actions": False,
                     "character_realm_manpower": self._realm_total_manpower(self.realm_candidate_id),
                 },
             ),

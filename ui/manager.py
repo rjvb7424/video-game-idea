@@ -747,6 +747,7 @@ class UIManager:
 
         npc_target = state.get("npc_target")
         actions_enabled = bool(state.get("npc_actions_enabled"))
+        show_actions = bool(state.get("show_actions", True))
         panel_title = title_name
 
         content = draw_framed_panel(
@@ -774,31 +775,32 @@ class UIManager:
 
         btn_h = 28
         btn_gap = 6
-        y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
-        action_rows = [
-            ("Start Sway Scheme", "secondary", "npc_promote_relations"),
-            ("Arrange Marriage", "primary", "npc_arrange_marriage"),
-            ("Start Murder Scheme", "deny", "npc_plot_murder"),
-            ("Declare War", "deny", "npc_declare_war"),
-        ]
-        action_rects = []
-        for label, style, action_name in action_rows:
-            if style == "primary":
-                rect_btn = draw_primary_button(surface, label, content.left, y, content.w, btn_h)
-            elif style == "secondary":
-                rect_btn = draw_secondary_button(surface, label, content.left, y, content.w, btn_h)
+        if show_actions:
+            y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
+            action_rows = [
+                ("Start Sway Scheme", "secondary", "npc_promote_relations"),
+                ("Arrange Marriage", "primary", "npc_arrange_marriage"),
+                ("Start Murder Scheme", "deny", "npc_plot_murder"),
+                ("Declare War", "deny", "npc_declare_war"),
+            ]
+            action_rects = []
+            for label, style, action_name in action_rows:
+                if style == "primary":
+                    rect_btn = draw_primary_button(surface, label, content.left, y, content.w, btn_h)
+                elif style == "secondary":
+                    rect_btn = draw_secondary_button(surface, label, content.left, y, content.w, btn_h)
+                else:
+                    rect_btn = draw_deny_button(surface, label, content.left, y, content.w, btn_h)
+                action_rects.append((rect_btn, action_name))
+                y = rect_btn.bottom + btn_gap
+            if npc_target and actions_enabled:
+                btns.extend(action_rects)
             else:
-                rect_btn = draw_deny_button(surface, label, content.left, y, content.w, btn_h)
-            action_rects.append((rect_btn, action_name))
-            y = rect_btn.bottom + btn_gap
-        if npc_target and actions_enabled:
-            btns.extend(action_rects)
-        else:
-            for rect_btn, _ in action_rects:
-                veil = pygame.Surface(rect_btn.size, pygame.SRCALPHA)
-                veil.fill((20, 20, 20, 110))
-                surface.blit(veil, rect_btn.topleft)
-        y += 2
+                for rect_btn, _ in action_rects:
+                    veil = pygame.Surface(rect_btn.size, pygame.SRCALPHA)
+                    veil.fill((20, 20, 20, 110))
+                    surface.blit(veil, rect_btn.topleft)
+            y += 2
 
         target_info = npc_target
         if target_info is None:
