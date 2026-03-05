@@ -118,18 +118,6 @@ class GameLoopMixin:
         if action == "left_panel_open":
             self.left_panel_open = True
             return
-        if action == "npc_promote_relations":
-            self._action_promote_relations()
-            return
-        if action == "npc_fabricate_claim":
-            self._action_fabricate_claim()
-            return
-        if action == "npc_arrange_marriage":
-            self._action_arrange_marriage()
-            return
-        if action == "npc_plot_murder":
-            self._action_plot_murder()
-            return
         if action == "npc_declare_war":
             target_rid = None
             if self.selected_province is not None and self.selected_province.realm_id != self.player_realm_id:
@@ -232,8 +220,8 @@ class GameLoopMixin:
         elif action == "load_game":
             self._open_load_game_modal()
             return
-        elif action in ("realm", "view_realm"):
-            self._open_realm_overview()
+        elif action in ("realm", "view_realm", "decisions", "council", "court"):
+            self.push_log("This feature has been removed.")
             return
         elif action == "ledger":
             self._open_ledger_overview()
@@ -258,15 +246,6 @@ class GameLoopMixin:
             return
         elif action == "rally":
             self._rally_army_to_capital()
-            return
-        elif action == "decisions":
-            self._open_decisions_modal()
-            return
-        elif action == "council":
-            self._open_scheme_overview()
-            return
-        elif action == "court":
-            self._open_scheme_overview()
             return
         elif action == "build_farm":
             self._build_selected_building("farm")
@@ -540,11 +519,6 @@ class GameLoopMixin:
                     "threat": self.threat,
                     "building_menu_slot": self._building_menu_slot,
                     "wars": self.wars,
-                    "stress": int(round(self.stress)),
-                    "dread": int(round(self.dread)),
-                    "lifestyle_focus": self.lifestyle_focus,
-                    "lifestyle_perks": dict(self.lifestyle_perks),
-                    "active_schemes": list(self.active_schemes),
                     "selected_realm_manpower": (
                         self._realm_total_manpower(self.selected_province.realm_id)
                         if self.selected_province is not None
@@ -573,7 +547,6 @@ class GameLoopMixin:
                 npc_target = self._get_npc_target()
                 left_state["npc_target"] = npc_target
                 left_state["npc_actions_enabled"] = True
-                left_state["diplomacy"] = self._diplomacy_snapshot(npc_target.get("id")) if npc_target else None
                 left_state["character_realm_manpower"] = self._realm_total_manpower(left_realm_id)
 
                 clickables.extend(self._draw_left_panel_animated(self.screen, left_state))

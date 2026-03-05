@@ -167,16 +167,13 @@ class PoliticsOverviewMixin:
             f"+{int(round(float(effects.get('levy_mult_bonus', 0.0)) * 100))}% levies",
         ]
         if self.wars:
-            lines.append("War pressure: active wars increase upkeep risk and political stress.")
-        if self.stress >= 220:
-            lines.append("High stress is currently reducing your effective income.")
+            lines.append("War pressure: active wars increase upkeep risk.")
 
         self.modal.show(
             "Realm Ledger",
             lines,
             [
                 ("Build Farm", "secondary", lambda: self._handle_action("build_farm")),
-                ("Realm", "primary", lambda: self._handle_action("view_realm")),
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )

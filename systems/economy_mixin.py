@@ -1,4 +1,3 @@
-from core.math_utils import clamp
 from systems.buildings import (
     BUILDINGS,
     make_building,
@@ -10,7 +9,6 @@ from systems.buildings import (
     building_piety_rate_bonus,
     building_prestige_rate_bonus,
     building_levy_mult_bonus,
-    building_stress_monthly_relief,
     building_max_level,
 )
 from systems.traits import compute_piety_rate
@@ -61,7 +59,6 @@ class EconomyMixin:
             "piety_rate_bonus": 0.0,
             "prestige_rate_bonus": 0.0,
             "levy_mult_bonus": 0.0,
-            "stress_monthly_relief": 0.0,
         }
         for prov in self.world.provinces:
             if prov.realm_id != rid:
@@ -74,7 +71,6 @@ class EconomyMixin:
                 effects["piety_rate_bonus"] += building_piety_rate_bonus(b)
                 effects["prestige_rate_bonus"] += building_prestige_rate_bonus(b)
                 effects["levy_mult_bonus"] += building_levy_mult_bonus(b)
-                effects["stress_monthly_relief"] += building_stress_monthly_relief(b)
         return effects
 
     def _compute_food_values(self):
@@ -229,18 +225,11 @@ class EconomyMixin:
 
     def _recompute_resource_rates(self):
         effects = self._realm_building_effects(self.player_realm_id)
-        stewardship_bonus = self._perk_level("stewardship") // 2
-        if self.lifestyle_focus == "stewardship":
-            stewardship_bonus += 1
-        stress_penalty = 2 if self.stress >= 220 else (1 if self.stress >= 120 else 0)
         building_gold = int(round(float(effects.get("gold_rate_bonus", 0.0))))
         upkeep_penalty = int(round(float(effects.get("gold_upkeep", 0.0)) * 0.45))
-        self.resources["gold_rate"] = 1 + stewardship_bonus + building_gold - stress_penalty - upkeep_penalty
+        self.resources["gold_rate"] = 1 + building_gold - upkeep_penalty
 
         piety_rate = compute_piety_rate(self.character)[0]
-        piety_rate += self._perk_level("learning") // 2
-        if self.lifestyle_focus == "learning":
-            piety_rate += 1
         piety_rate += int(round(float(effects.get("piety_rate_bonus", 0.0))))
         self.resources["piety_rate"] = int(piety_rate)
 
@@ -249,7 +238,6 @@ class EconomyMixin:
         self.resources["prestige_rate"] = int(prestige_rate)
         renown_rate = 1 + (self._realm_size(self.player_realm_id) // 3)
         renown_rate += len(self.alliances) // 2
-        renown_rate += self._perk_level("diplomacy") // 4
         if self.wars:
             renown_rate += 1
         self.resources["renown_rate"] = int(max(0, renown_rate))
@@ -262,20 +250,6 @@ class EconomyMixin:
             if rate == 0:
                 continue
             self.resources[res] += rate
-
-        for rid, opinion in list(self.realm_relations.items()):
-            if opinion > 0:
-                self.realm_relations[rid] = opinion - 1
-            elif opinion < 0:
-                self.realm_relations[rid] = opinion + 1
-
-        self.dread = clamp(float(self.dread) - 3.5, 0.0, 100.0)
-        monthly_stress_relief = -2.0 - (0.5 * self._perk_level("learning"))
-        if self.lifestyle_focus == "learning":
-            monthly_stress_relief -= 1.0
-        effects = self._realm_building_effects(self.player_realm_id)
-        monthly_stress_relief -= float(effects.get("stress_monthly_relief", 0.0))
-        self._adjust_stress(monthly_stress_relief)
 
         production, consumption = self._compute_food_values()
         self.food = (production, consumption)

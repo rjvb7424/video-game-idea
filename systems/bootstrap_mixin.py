@@ -173,7 +173,6 @@ class BootstrapMixin:
         self.claim_fabrication_cooldowns = {}
         self.alliances = set()
         self.subjugation_cooldown_days = 0
-        self._init_diplomacy_state()
 
     def _init_lifestyle_systems(self):
         self.active_schemes = []
@@ -184,12 +183,12 @@ class BootstrapMixin:
         self.lifestyle_xp = {k: 0.0 for k in self.lifestyle_focuses}
         self.lifestyle_perks = {k: 0 for k in self.lifestyle_focuses}
         self._lifestyle_picker_index = self.lifestyle_focuses.index(self.lifestyle_focus)
-        self.stress = 12.0
+        self.stress = 0.0
         self._stress_break_level = 0
         self.dread = 0.0
         self.decision_cooldowns = {}
-        self._raid_cooldown_days = 45
-        self._ai_war_cooldown_days = 120
+        self._raid_cooldown_days = 0
+        self._ai_war_cooldown_days = 0
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
         self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 

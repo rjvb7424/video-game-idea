@@ -502,7 +502,12 @@ class MenuMixin:
         self.army_pos = None
         self.army_prov_id = None
         self._init_enemy_armies()
-        self._init_diplomacy_state()
+        self.realm_relations = {}
+        self.realm_claims = set()
+        self.realm_truces = {}
+        self.claim_fabrication_cooldowns = {}
+        self.alliances = set()
+        self.subjugation_cooldown_days = 0
         self.active_schemes = []
         self._next_scheme_id = 1
         self.hooks = {}
@@ -510,12 +515,12 @@ class MenuMixin:
         self.lifestyle_xp = {k: 0.0 for k in self.lifestyle_focuses}
         self.lifestyle_perks = {k: 0 for k in self.lifestyle_focuses}
         self._lifestyle_picker_index = self.lifestyle_focuses.index(self.lifestyle_focus)
-        self.stress = 12.0
+        self.stress = 0.0
         self._stress_break_level = 0
         self.dread = 0.0
         self.decision_cooldowns = {}
-        self._raid_cooldown_days = 45
-        self._ai_war_cooldown_days = 120
+        self._raid_cooldown_days = 0
+        self._ai_war_cooldown_days = 0
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]

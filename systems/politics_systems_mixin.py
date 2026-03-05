@@ -234,13 +234,8 @@ class PoliticsSystemsMixin:
             self._recompute_resource_rates()
             return
     def _adjust_stress(self, delta, reason=None):
-        old = float(self.stress)
-        self.stress = clamp(old + float(delta), 0.0, 300.0)
-        if self.stress < (self._stress_break_level * 100) - 10:
-            self._stress_break_level = int(self.stress // 100)
-        if reason and int(old // 25) != int(self.stress // 25):
-            self.push_log(f"{self.date}: Stress {reason.lower()} ({int(round(self.stress))}/300).")
-        self._check_stress_break()
+        self.stress = 0.0
+        self._stress_break_level = 0
     def _daily_stress_delta(self):
         traits = self._traits_of(self.character)
         delta = 0.05
@@ -487,13 +482,11 @@ class PoliticsSystemsMixin:
     def _tick_politics_day(self):
         self._decrement_days_map(self.realm_truces)
         self._decrement_days_map(self.claim_fabrication_cooldowns)
-        self._decrement_days_map(self.decision_cooldowns)
-        self._tick_hooks_day()
-        self._tick_schemes_day()
-        self._tick_lifestyle_day()
-        self._tick_border_pressure_day()
-        self._tick_ai_war_day()
-        self._adjust_stress(self._daily_stress_delta())
+        self.active_schemes = []
+        self.hooks = {}
+        self.decision_cooldowns = {}
+        self.dread = 0.0
+        self.stress = 0.0
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
         self._tick_campaign_day()

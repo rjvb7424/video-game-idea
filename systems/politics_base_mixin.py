@@ -44,9 +44,7 @@ class PoliticsBaseMixin:
                 break
         return int(default)
     def _perk_level(self, focus):
-        if not isinstance(getattr(self, "lifestyle_perks", None), dict):
-            return 0
-        return int(self.lifestyle_perks.get(focus, 0))
+        return 0
     @staticmethod
     def _lifestyle_label(focus):
         labels = {
@@ -97,16 +95,6 @@ class PoliticsBaseMixin:
         if "diligent" in traits:
             rate += 1
         if "lazy" in traits:
-            rate -= 1
-        focus = getattr(self, "lifestyle_focus", None)
-        if focus in ("diplomacy", "martial"):
-            rate += 1
-        rate += max(0, self._perk_level("diplomacy") // 2)
-        rate += max(0, self._perk_level("martial") // 3)
-        stress_now = float(getattr(self, "stress", 0.0))
-        if stress_now >= 200:
-            rate -= 3
-        elif stress_now >= 100:
             rate -= 1
         return int(clamp(rate, -5, 8))
     def _realm_size(self, rid):

@@ -564,6 +564,24 @@ class PersistenceMixin:
         self.food = self._compute_food_values()
         self.threat = self._compute_threat()
         self._update_army_max()
+        # Stripped character/diplomacy layer: enforce neutral state on load.
+        self.realm_relations = {}
+        self.realm_claims = set()
+        self.realm_truces = {}
+        self.claim_fabrication_cooldowns = {}
+        self.alliances = set()
+        self.active_schemes = []
+        self.hooks = {}
+        self.lifestyle_focus = "stewardship"
+        self.lifestyle_xp = {k: 0.0 for k in self.lifestyle_focuses}
+        self.lifestyle_perks = {k: 0 for k in self.lifestyle_focuses}
+        self._lifestyle_picker_index = self.lifestyle_focuses.index(self.lifestyle_focus)
+        self.stress = 0.0
+        self._stress_break_level = 0
+        self.dread = 0.0
+        self.decision_cooldowns = {}
+        self._raid_cooldown_days = 0
+        self._ai_war_cooldown_days = 0
         self._recompute_resource_rates()
 
         self._war_goal_selecting = False
