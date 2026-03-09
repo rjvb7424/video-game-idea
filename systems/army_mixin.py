@@ -218,6 +218,100 @@ class ArmyMixin:
         enemy["pos"] = self.world.provinces[next_pid].center.copy()
         enemy["route"] = route
 
+    def _clear_battle_state(self):
+        self._battle_state = None
+
+    def _start_battle(self, enemy, battle_pid, attacker_is_player=True):
+        if enemy is None:
+            return False
+        if battle_pid is None or not (0 <= battle_pid < len(self.world.provinces)):
+            return False
+
+        enemy_rid = enemy.get("realm_id")
+        if enemy_rid is None:
+            return False
+
+        if self._battle_state:
+            if (
+                self._battle_state.get("pid") == battle_pid
+                and self._battle_state.get("enemy_realm_id") == enemy_rid
+            ):
+                return True
+            return False
+
+        if int(self.army.get("raised", 0)) <= 0 or int(enemy.get("army", {}).get("raised", 0)) <= 0:
+            return False
+        if self.army_prov_id != battle_pid or enemy.get("prov_id") != battle_pid:
+            return False
+
+        # Armies are locked in place while the battle resolves over several days.
+        self.army_route = []
+        self.army_step_from = None
+        self.army_step_to = None
+        self.army_step_progress = 0.0
+        enemy["route"] = []
+        enemy["target_pid"] = battle_pid
+        enemy["ai_state"] = "engage"
+
+        if self._siege_state and self._siege_state.get("pid") == battle_pid:
+            self._clear_siege_state()
+
+        self._battle_state = {
+            "pid": battle_pid,
+            "enemy_realm_id": enemy_rid,
+            "attacker_is_player": bool(attacker_is_player),
+            "stage": "prep",
+            "days": 0,
+            "prep_days": max(1, int(self.battle_prep_days)),
+            "assault_days": max(1, int(self.battle_assault_days)),
+        }
+        prov_name = self.world.provinces[battle_pid].name
+        self.push_log(f"{self.date}: Clash forming in {prov_name}.")
+        return True
+
+    def _update_battle_tick(self):
+        if self._battle_state is None:
+            return
+
+        pid = self._battle_state.get("pid")
+        rid = self._battle_state.get("enemy_realm_id")
+        if pid is None or rid is None:
+            self._clear_battle_state()
+            return
+        if not (0 <= pid < len(self.world.provinces)):
+            self._clear_battle_state()
+            return
+
+        enemy = self._get_enemy_army_for_realm(rid)
+        if enemy is None:
+            self._clear_battle_state()
+            return
+        if self.army_prov_id != pid or enemy.get("prov_id") != pid:
+            self._clear_battle_state()
+            return
+        if int(self.army.get("raised", 0)) <= 0 or int(enemy.get("army", {}).get("raised", 0)) <= 0:
+            self._clear_battle_state()
+            return
+
+        stage = self._battle_state.get("stage", "prep")
+        self._battle_state["days"] = int(self._battle_state.get("days", 0)) + 1
+        days = self._battle_state["days"]
+
+        if stage == "prep":
+            if days >= self._battle_state.get("prep_days", 1):
+                self._battle_state["stage"] = "assault"
+                self._battle_state["days"] = 0
+                prov_name = self.world.provinces[pid].name
+                self.push_log(f"{self.date}: Battle begins at {prov_name}.")
+            return
+
+        if days >= self._battle_state.get("assault_days", 1):
+            attacker_is_player = bool(self._battle_state.get("attacker_is_player", True))
+            self._clear_battle_state()
+            player_wins = self._resolve_battle(enemy, pid, attacker_is_player=attacker_is_player)
+            if player_wins and self.army_prov_id == pid and self._enemy_army_at(pid) is None:
+                self._start_siege(pid)
+
     def _update_enemy_ai_tick(self):
         if not self.enemy_armies or not self.wars:
             return
@@ -236,6 +330,11 @@ class ArmyMixin:
             self._update_enemy_raising(enemy)
             enemy_army = enemy.get("army", {})
             if int(enemy_army.get("raised", 0)) <= 0:
+                continue
+            if (
+                self._battle_state is not None
+                and self._battle_state.get("enemy_realm_id") == rid
+            ):
                 continue
 
             player_pid = self.army_prov_id if self.army.get("raised", 0) > 0 else None
@@ -257,7 +356,7 @@ class ArmyMixin:
                     self._move_enemy_one_step(enemy)
 
             if enemy.get("prov_id") == player_pid and self.army.get("raised", 0) > 0:
-                self._resolve_battle(enemy, player_pid, attacker_is_player=False)
+                self._start_battle(enemy, player_pid, attacker_is_player=False)
 
     def _update_army_morale_tick(self):
         if self.army.get("raised", 0) > 0:
@@ -480,6 +579,8 @@ class ArmyMixin:
         return path
 
     def _update_army_movement(self):
+        if self._battle_state is not None:
+            return
         if not self.army_route or self.army_prov_id is None:
             return
         if self.army.get("raised", 0) <= 0:
@@ -513,9 +614,7 @@ class ArmyMixin:
             self._update_fog_from_army()
             enemy = self._enemy_army_at(self.army_prov_id)
             if enemy is not None:
-                player_wins = self._resolve_battle(enemy, self.army_prov_id, attacker_is_player=True)
-                if player_wins:
-                    self._start_siege(self.army_prov_id)
+                self._start_battle(enemy, self.army_prov_id, attacker_is_player=True)
             else:
                 if not self.army_route and self.army_step_to is None:
                     self._start_siege(self.army_prov_id)
@@ -556,4 +655,3 @@ class ArmyMixin:
         if hasattr(self.world, "_compute_fog_of_war"):
             self.world._compute_fog_of_war()
             self._refresh_fog_visuals()
-

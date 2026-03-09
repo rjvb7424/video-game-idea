@@ -128,6 +128,7 @@ class MenuMixin:
         self._right_panel_anim = 0.0
         self._war_goal_selecting = False
         self._pending_war = None
+        self._battle_state = None
         self._mark_progress_saved()
     def _return_to_main_menu(self):
         self._confirm_unsaved_progress("Leave Without Saving", "deny", self._perform_return_to_main_menu)
@@ -546,6 +547,7 @@ class MenuMixin:
 
         # Reset siege state on new game start.
         self._siege_state = None
+        self._battle_state = None
         self._siege_overlay = None
         self._siege_overlay_key = None
         self._siege_stripe_base = None

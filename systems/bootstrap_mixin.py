@@ -144,7 +144,10 @@ class BootstrapMixin:
 
         self.siege_prep_days = 7
         self.siege_assault_days = 21
+        self.battle_prep_days = 3
+        self.battle_assault_days = 6
         self._siege_state = None
+        self._battle_state = None
         self._siege_overlay = None
         self._siege_overlay_key = None
         self._siege_stripe_base = None

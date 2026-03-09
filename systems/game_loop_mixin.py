@@ -302,6 +302,7 @@ class GameLoopMixin:
                 self._update_war_tick()
                 self._update_army_raising()
                 self._update_army_morale_tick()
+                self._update_battle_tick()
                 self._update_siege_tick()
                 self._update_army_movement()
                 self._update_enemy_ai_tick()
@@ -509,6 +510,7 @@ class GameLoopMixin:
                 self._draw_enemy_armies(self.screen, map_rect)
                 self._draw_army_route_arrow(self.screen, map_rect)
                 self._draw_siege_status(self.screen, map_rect)
+                self._draw_battle_status(self.screen, map_rect)
 
                 state = {
                     "date": self.date,

@@ -627,6 +627,7 @@ class PersistenceMixin:
         self._war_goal_selecting = False
         self._pending_war = None
         self._siege_state = None
+        self._battle_state = None
         self._war_border_overlay = None
         self._war_border_overlay_key = None
         self._update_fog_from_army()

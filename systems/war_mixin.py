@@ -439,6 +439,8 @@ class WarMixin:
     def _maybe_start_siege(self):
         if self._siege_state:
             return False
+        if self._battle_state:
+            return False
         if self.army_prov_id is None:
             return False
         if self.army_step_to is not None or self.army_route:
@@ -450,6 +452,10 @@ class WarMixin:
         return self._start_siege(self.army_prov_id)
 
     def _update_siege_tick(self):
+        if self._battle_state is not None:
+            if self._siege_state is not None:
+                self._clear_siege_state()
+            return
         if self._siege_state is None:
             self._maybe_start_siege()
             return
@@ -1044,6 +1050,8 @@ class WarMixin:
             self._war_focus_id = self.wars[0]["id"] if self.wars else None
         if self._siege_state and target_id is not None and self._siege_state.get("target_id") == target_id:
             self._clear_siege_state()
+        if self._battle_state and target_id is not None and self._battle_state.get("enemy_realm_id") == target_id:
+            self._battle_state = None
         if target_id is not None:
             enemy = self._get_enemy_army_for_realm(target_id)
             if enemy is not None:
