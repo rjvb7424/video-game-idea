@@ -49,8 +49,11 @@ class EconomyMixin:
             ],
         )
 
-    def _exit_game(self):
+    def _force_exit_game(self):
         self.running = False
+
+    def _exit_game(self):
+        self._confirm_unsaved_progress("Exit Without Saving", "deny", self._force_exit_game)
 
     def _realm_building_effects(self, rid):
         effects = {
@@ -152,6 +155,7 @@ class EconomyMixin:
         self._recompute_resource_rates()
         self._update_army_max()
         self._building_menu_slot = None
+        self._mark_progress_unsaved()
 
     def _upgrade_selected_building(self, slot_idx):
         prov = self.selected_province
@@ -198,6 +202,7 @@ class EconomyMixin:
         self._recompute_resource_rates()
         self._update_army_max()
         self._building_menu_slot = None
+        self._mark_progress_unsaved()
 
     def _demolish_selected_building(self, slot_idx):
         prov = self.selected_province
@@ -218,6 +223,7 @@ class EconomyMixin:
         bname = bdef.name if bdef else get_building_id(entry)
         prov.buildings[slot_idx] = None
         self.push_log(f"{self.date}: Demolished {bname} in {prov.name} (slot {slot_idx + 1}).")
+        self._mark_progress_unsaved()
         self.food = self._compute_food_values()
         self._recompute_resource_rates()
         self._update_army_max()

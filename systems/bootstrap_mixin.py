@@ -47,6 +47,7 @@ class BootstrapMixin:
         self.latest_save_path = os.path.join(self.save_dir, "campaign_latest.json")
         self.autosave_path = os.path.join(self.save_dir, "campaign_autosave.json")
         self._autosave_interval_months = 3
+        self._has_unsaved_progress = False
 
     def _init_storytellers(self):
         self.storyteller = None

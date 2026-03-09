@@ -117,7 +117,7 @@ class MenuMixin:
                 ("Close", "secondary", lambda: self.modal.close()),
             ],
         )
-    def _return_to_main_menu(self):
+    def _perform_return_to_main_menu(self):
         self.modal.close()
         self.mode = "menu"
         self.speed_level = 0
@@ -128,6 +128,9 @@ class MenuMixin:
         self._right_panel_anim = 0.0
         self._war_goal_selecting = False
         self._pending_war = None
+        self._mark_progress_saved()
+    def _return_to_main_menu(self):
+        self._confirm_unsaved_progress("Leave Without Saving", "deny", self._perform_return_to_main_menu)
     def _get_desktop_size(self):
         if hasattr(pygame.display, "get_desktop_sizes"):
             sizes = pygame.display.get_desktop_sizes()
@@ -556,6 +559,7 @@ class MenuMixin:
         self.campaign_result = None
         self._campaign_over_day = None
         self._recompute_resource_rates()
+        self._mark_progress_unsaved()
     def _try_open_tower_event(self, screen_pos):
         if self._war_goal_selecting:
             return False

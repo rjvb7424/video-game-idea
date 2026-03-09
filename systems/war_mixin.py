@@ -77,6 +77,7 @@ class WarMixin:
                     ("View War", "accept", lambda wid=war["id"]: self._open_war_details(wid)),
                 ],
             )
+        self._mark_progress_unsaved()
         return True
 
     def _tick_ai_war_day(self):
@@ -568,6 +569,7 @@ class WarMixin:
         self._war_focus_id = war["id"]
         self._update_war_progress(war)
         self._recompute_resource_rates()
+        self._mark_progress_unsaved()
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
         self._open_war_details(war["id"])
@@ -809,6 +811,7 @@ class WarMixin:
             self.realm_claims.discard(old_rid)
 
         self.push_log(f"{self.date}: Annexed {prov.name}.")
+        self._mark_progress_unsaved()
 
     def _handle_war_goal_click(self, prov):
         return False
@@ -1003,6 +1006,7 @@ class WarMixin:
         self.resources["renown"] = max(0, int(self.resources.get("renown", 0)) - 20)
         self._adjust_stress(+10.0)
         self._recompute_resource_rates()
+        self._mark_progress_unsaved()
         return prov.name
 
     def _press_war_demands(self, war_id):
@@ -1050,6 +1054,7 @@ class WarMixin:
             self.realm_truces[target_id] = max(int(self.realm_truces.get(target_id, 0)), 365 * 5)
         self._recompute_resource_rates()
         self.push_log(f"{self.date}: {log_message}")
+        self._mark_progress_unsaved()
         self.modal.show(
             "War Resolved",
             [

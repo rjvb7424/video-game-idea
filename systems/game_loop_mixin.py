@@ -16,6 +16,7 @@ class GameLoopMixin:
             self._set_army_prov(pid)
         if announce:
             self.push_log(f"{self.date}: Rally point moved to {prov.name}.")
+        self._mark_progress_unsaved()
         return True
 
     def _rally_army_to_capital(self):
@@ -45,6 +46,7 @@ class GameLoopMixin:
         self.army_step_progress = 0.0
         self.army_selected = True
         self.push_log(f"{self.date}: Army rally ordered.")
+        self._mark_progress_unsaved()
         self._open_military_overview()
 
     def _open_campaign_briefing(self):
@@ -157,6 +159,7 @@ class GameLoopMixin:
                     self.army_step_progress = 0.0
                     self._update_fog_from_army()
                 self.push_log("You halt the muster.")
+                self._mark_progress_unsaved()
             else:
                 if self.army.get("max", 0) <= 0:
                     self.push_log("No population available to raise an army.")
@@ -167,6 +170,7 @@ class GameLoopMixin:
                     self.army_raising = True
                     self._update_fog_from_army()
                     self.push_log("Your levies begin to muster.")
+                    self._mark_progress_unsaved()
             return
         if action == "disband":
             action = "disband_army"
@@ -198,6 +202,7 @@ class GameLoopMixin:
             self.army_prov_id = None
             self._update_fog_from_army()
             self.push_log("You disband the army.")
+            self._mark_progress_unsaved()
             return
         if action == "toggle_pause":
             self.toggle_pause()
@@ -218,7 +223,10 @@ class GameLoopMixin:
             self._save_game_to_file(self.latest_save_path, autosave=False)
             return
         elif action == "load_game":
-            self._open_load_game_modal()
+            if self.mode == "game":
+                self._confirm_unsaved_progress("Load Without Saving", "deny", self._open_load_game_modal)
+            else:
+                self._open_load_game_modal()
             return
         elif action in ("realm", "view_realm", "decisions", "council", "court"):
             self.push_log("This feature has been removed.")
@@ -287,6 +295,7 @@ class GameLoopMixin:
         if whole > 0:
             for _ in range(whole):
                 self.date.advance_days(1)
+                self._mark_progress_unsaved()
 
                 self._update_storyteller_event_chance()
                 self.events.on_day()
@@ -355,7 +364,7 @@ class GameLoopMixin:
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    self.running = False
+                    self._exit_game()
 
                 elif event.type == pygame.VIDEORESIZE:
                     self._apply_window_size((event.w, event.h), remember=True)

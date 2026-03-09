@@ -11,6 +11,43 @@ class PersistenceMixin:
     def _ensure_save_dir(self):
         os.makedirs(self.save_dir, exist_ok=True)
 
+    def _has_unsaved_progress_to_warn(self):
+        return self.mode == "game" and bool(getattr(self, "_has_unsaved_progress", False))
+
+    def _mark_progress_unsaved(self):
+        if self.mode == "game":
+            self._has_unsaved_progress = True
+
+    def _mark_progress_saved(self):
+        self._has_unsaved_progress = False
+
+    def _confirm_unsaved_progress(self, continue_label, continue_kind, on_continue):
+        if not self._has_unsaved_progress_to_warn():
+            on_continue()
+            return
+
+        def continue_without_save():
+            self.modal.close()
+            on_continue()
+
+        def save_then_continue():
+            if self._save_game_to_file(self.latest_save_path, autosave=False, show_feedback=False):
+                self.modal.close()
+                on_continue()
+
+        self.modal.show(
+            "Unsaved Progress",
+            [
+                "You have unsaved progress.",
+                "If you leave without saving, all progress since your last save will be lost.",
+            ],
+            [
+                ("Save & Continue", "primary", save_then_continue),
+                (continue_label, continue_kind, continue_without_save),
+                ("Cancel", "secondary", lambda: self.modal.close()),
+            ],
+        )
+
     @staticmethod
     def _decode_int_map(raw, *, min_value=None, max_value=None):
         out = {}
@@ -144,7 +181,7 @@ class PersistenceMixin:
             "world": self._serialize_world_state(),
         }
 
-    def _save_game_to_file(self, path=None, autosave=False):
+    def _save_game_to_file(self, path=None, autosave=False, show_feedback=True):
         if self.mode != "game":
             if not autosave:
                 self.modal.show(
@@ -169,16 +206,19 @@ class PersistenceMixin:
                 )
             return False
 
+        self._mark_progress_saved()
+
         if autosave:
             self.push_log(f"{self.date}: Autosaved campaign.")
             return True
 
         self.push_log(f"{self.date}: Saved campaign.")
-        self.modal.show(
-            "Game Saved",
-            [f"Saved to {os.path.basename(path)}."],
-            [("OK", "accept", lambda: self.modal.close())],
-        )
+        if show_feedback:
+            self.modal.show(
+                "Game Saved",
+                [f"Saved to {os.path.basename(path)}."],
+                [("OK", "accept", lambda: self.modal.close())],
+            )
         return True
 
     def _rebuild_realm_metadata(self, preferred_capitals=None):
@@ -642,6 +682,7 @@ class PersistenceMixin:
         self.right_panel_open = True
         self._right_panel_anim = 1.0
         self.speed_level = 0
+        self._mark_progress_saved()
         if show_feedback:
             self.modal.show(
                 "Game Loaded",

@@ -309,6 +309,7 @@ class MapUIMixin:
             self.army_step_from = None
             self.army_step_to = None
             self.army_step_progress = 0.0
+            self._mark_progress_unsaved()
             return True
         route = self._find_province_path(start_pid, prov.id)
         if not route:
@@ -319,6 +320,7 @@ class MapUIMixin:
         self.army_step_to = route[0]
         self.army_step_progress = 0.0
         self.push_log(f"{self.date}: Army marching to {prov.name}.")
+        self._mark_progress_unsaved()
         return True
 
     def _draw_right_panel_animated(self, surface, state):
