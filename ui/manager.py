@@ -12,7 +12,6 @@ from systems.buildings import (
     building_gold_upkeep,
     building_gold_rate_bonus,
     building_piety_rate_bonus,
-    building_prestige_rate_bonus,
     building_levy_mult_bonus,
     building_max_level,
 )
@@ -358,7 +357,6 @@ class UIManager:
         gold = building_gold_upkeep(entry)
         gold_rate = building_gold_rate_bonus(entry)
         piety_rate = building_piety_rate_bonus(entry)
-        prestige_rate = building_prestige_rate_bonus(entry)
         levy_bonus = building_levy_mult_bonus(entry)
         lines = [
             f"Food: +{food:,.0f} / mo",
@@ -368,8 +366,6 @@ class UIManager:
             lines.append(f"Gold rate: +{gold_rate:,.1f}")
         if piety_rate:
             lines.append(f"Piety rate: +{piety_rate:,.1f}")
-        if prestige_rate:
-            lines.append(f"Prestige rate: +{prestige_rate:,.1f}")
         if levy_bonus:
             lines.append(f"Levies: +{levy_bonus * 100.0:,.1f}%")
         for line in lines:
@@ -459,30 +455,12 @@ class UIManager:
         def pill_rect(x, w):
             return pygame.Rect(x, y, w, bh)
 
-        if avail >= (4 * min_pill + 3 * gap):
-            per_w = min(max_pill, (avail - (3 * gap)) // 4)
-            r1 = pill_rect(x_left, per_w)
-            r2 = pill_rect(r1.right + gap, per_w)
-            r3 = pill_rect(r2.right + gap, per_w)
-            r4 = pill_rect(r3.right + gap, per_w)
-            self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
-            self._draw_resource(surface, r3, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
-            self._draw_resource(surface, r4, "Renown", res.get("renown", 0), res.get("renown_rate", 0), icon_color=(120, 140, 170))
-        elif avail >= (3 * min_pill + 2 * gap):
-            per_w = min(max_pill, (avail - (2 * gap)) // 3)
-            r1 = pill_rect(x_left, per_w)
-            r2 = pill_rect(r1.right + gap, per_w)
-            r3 = pill_rect(r2.right + gap, per_w)
-            self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
-            self._draw_resource(surface, r3, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
-        elif avail >= (2 * min_pill + gap):
+        if avail >= (2 * min_pill + gap):
             per_w = min(max_pill, (avail - gap) // 2)
             r1 = pill_rect(x_left, per_w)
             r2 = pill_rect(r1.right + gap, per_w)
             self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))
-            self._draw_resource(surface, r2, "Prestige", res.get("prestige", 0), res.get("prestige_rate", 0), icon_color=(160, 140, 90))
+            self._draw_resource(surface, r2, "Piety", res["piety"], res.get("piety_rate", 0), icon_color=(165, 150, 110))
         elif avail >= 120:
             r1 = pill_rect(x_left, min(avail, max_pill))
             self._draw_resource(surface, r1, "Gold", res["gold"], res.get("gold_rate", 0), icon_color=(190, 165, 90))

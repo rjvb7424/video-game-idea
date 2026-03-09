@@ -215,12 +215,12 @@ class PoliticsActionsMixin:
             )
             return
 
-        prestige_cost = 70
-        if self.resources.get("prestige", 0) < prestige_cost:
+        gold_cost = 70
+        if self.resources.get("gold", 0) < gold_cost:
             self.modal.show(
-                "Insufficient Prestige",
+                "Insufficient Gold",
                 [
-                    f"Marriage diplomacy costs {prestige_cost} prestige.",
+                    f"Marriage diplomacy costs {gold_cost} gold.",
                 ],
                 [
                     ("OK", "accept", lambda: self.modal.close()),
@@ -249,7 +249,7 @@ class PoliticsActionsMixin:
                 chance += 0.20
         chance = float(clamp(chance, 0.10, 0.92))
 
-        self.resources["prestige"] -= prestige_cost
+        self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - gold_cost)
         success = self.world.rnd.random() < chance
         target_name = self._get_war_target_name(target_rid)
         used_hook = False
@@ -264,7 +264,6 @@ class PoliticsActionsMixin:
             self.alliances.add(target_rid)
             self.realm_truces[target_rid] = max(int(self.realm_truces.get(target_rid, 0)), 365)
             new_opinion = self._change_realm_opinion(target_rid, +24)
-            self.resources["renown"] = int(self.resources.get("renown", 0)) + 25
             self._recompute_resource_rates()
             self.push_log(f"{self.date}: Marriage alliance signed with {target_name}.")
             self.modal.show(
@@ -320,12 +319,11 @@ class PoliticsActionsMixin:
             return
 
         gold_cost = 60
-        prestige_cost = 30
-        if self.resources.get("gold", 0) < gold_cost or self.resources.get("prestige", 0) < prestige_cost:
+        if self.resources.get("gold", 0) < gold_cost:
             self.modal.show(
-                "Insufficient Resources",
+                "Insufficient Gold",
                 [
-                    f"Assassination plots cost {gold_cost} gold and {prestige_cost} prestige.",
+                    f"Assassination plots cost {gold_cost} gold.",
                 ],
                 [
                     ("OK", "accept", lambda: self.modal.close()),
@@ -361,7 +359,6 @@ class PoliticsActionsMixin:
             return
 
         self.resources["gold"] -= gold_cost
-        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_cost)
         target_name = self._get_war_target_name(target_rid)
         murder_stress = 5.0
         traits = self._traits_of(self.character)
@@ -381,7 +378,7 @@ class PoliticsActionsMixin:
                 ("OK", "accept", lambda: self.modal.close()),
             ],
         )
-    def _decision_available(self, key, *, gold=0, piety=0, prestige=0, requires_peace=False):
+    def _decision_available(self, key, *, gold=0, piety=0, requires_peace=False):
         cd = int(self.decision_cooldowns.get(key, 0))
         if cd > 0:
             return False, f"Cooldown: {self._days_label(cd)}"
@@ -391,13 +388,11 @@ class PoliticsActionsMixin:
             return False, f"Need {gold} gold."
         if self.resources.get("piety", 0) < piety:
             return False, f"Need {piety} piety."
-        if self.resources.get("prestige", 0) < prestige:
-            return False, f"Need {prestige} prestige."
         return True, "Ready"
     def _open_decisions_modal(self):
         feast_ok, feast_msg = self._decision_available("feast", gold=55, requires_peace=True)
         pilgrim_ok, pilgrim_msg = self._decision_available("pilgrimage", gold=85, requires_peace=False)
-        epic_ok, epic_msg = self._decision_available("epic", gold=75, prestige=25, requires_peace=False)
+        epic_ok, epic_msg = self._decision_available("epic", gold=75, requires_peace=False)
 
         lines = [
             "Major Decisions",
@@ -406,8 +401,7 @@ class PoliticsActionsMixin:
             f"Commission Epic: {epic_msg}",
             "",
             f"Resources: Gold {int(self.resources.get('gold', 0))}, "
-            f"Piety {int(self.resources.get('piety', 0))}, "
-            f"Prestige {int(self.resources.get('prestige', 0))}",
+            f"Piety {int(self.resources.get('piety', 0))}",
         ]
         self.modal.show(
             "Decisions",
@@ -438,7 +432,6 @@ class PoliticsActionsMixin:
             return
 
         self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 55)
-        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 22
         self.decision_cooldowns["feast"] = 720
 
         relief = -26.0
@@ -460,7 +453,7 @@ class PoliticsActionsMixin:
             "Feast Held",
             [
                 "The court celebrates and rivalries cool for a while.",
-                "Stress reduced, prestige gained, and foreign opinion improved.",
+                "Stress reduced and foreign opinion improved.",
             ],
             [
                 ("OK", "accept", lambda: self._open_decisions_modal()),
@@ -474,7 +467,6 @@ class PoliticsActionsMixin:
 
         self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 85)
         self.resources["piety"] = int(self.resources.get("piety", 0)) + 140
-        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 12
         self.decision_cooldowns["pilgrimage"] = 960
 
         relief = -19.0
@@ -491,22 +483,20 @@ class PoliticsActionsMixin:
             "Pilgrimage Complete",
             [
                 "Your ruler returns with renewed spiritual authority.",
-                "Piety and prestige increased; stress reduced.",
+                "Piety increased; stress reduced.",
             ],
             [
                 ("OK", "accept", lambda: self._open_decisions_modal()),
             ],
         )
     def _decision_commission_epic(self):
-        ok, msg = self._decision_available("epic", gold=75, prestige=25)
+        ok, msg = self._decision_available("epic", gold=75)
         if not ok:
             self.modal.show("Decision Unavailable", [msg], [("OK", "accept", lambda: self._open_decisions_modal())])
             return
 
         self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - 75)
-        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 25)
-        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 68
-        self.resources["renown"] = int(self.resources.get("renown", 0)) + 34
+        self.resources["piety"] = int(self.resources.get("piety", 0)) + 35
         self.decision_cooldowns["epic"] = 1080
 
         stress_change = 3.0
@@ -523,7 +513,7 @@ class PoliticsActionsMixin:
             "Epic Commissioned",
             [
                 "Your legend grows in neighboring courts.",
-                "Renown and prestige rise, but the campaign is expensive.",
+                "Piety rises, but the campaign is expensive.",
             ],
             [
                 ("OK", "accept", lambda: self._open_decisions_modal()),

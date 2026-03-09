@@ -82,21 +82,6 @@ class PoliticsBaseMixin:
         if not isinstance(character, dict):
             return set()
         return set(character.get("traits", []))
-    def _compute_prestige_rate(self, character):
-        dip = self._stat_value(character, "Diplomacy", default=8)
-        martial = self._stat_value(character, "Martial", default=8)
-        prowess = self._stat_value(character, "Prowess", default=8)
-        rate = int(round((dip + martial + prowess) / 9.0)) - 2
-        traits = self._traits_of(character)
-        if "proud" in traits:
-            rate += 1
-        if "humble" in traits:
-            rate -= 1
-        if "diligent" in traits:
-            rate += 1
-        if "lazy" in traits:
-            rate -= 1
-        return int(clamp(rate, -5, 8))
     def _realm_size(self, rid):
         if hasattr(self.world, "realm_sizes") and 0 <= rid < len(self.world.realm_sizes):
             return max(1, int(self.world.realm_sizes[rid]))

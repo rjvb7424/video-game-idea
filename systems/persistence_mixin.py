@@ -97,7 +97,7 @@ class PersistenceMixin:
 
     def _serialize_game_state(self):
         return {
-            "save_version": 2,
+            "save_version": 3,
             "storyteller_id": self.storyteller.get("id") if isinstance(self.storyteller, dict) else None,
             "state": {
                 "date": {"year": int(self.date.year), "month": int(self.date.month), "day": int(self.date.day)},
@@ -105,8 +105,6 @@ class PersistenceMixin:
                 "resources": {
                     "gold": int(self.resources.get("gold", 0)),
                     "piety": int(self.resources.get("piety", 0)),
-                    "prestige": int(self.resources.get("prestige", 0)),
-                    "renown": int(self.resources.get("renown", 0)),
                 },
                 "realm_relations": {str(k): int(v) for k, v in self.realm_relations.items()},
                 "realm_claims": sorted(int(v) for v in self.realm_claims),
@@ -358,7 +356,7 @@ class PersistenceMixin:
 
         resources = state.get("resources", {})
         if isinstance(resources, dict):
-            for key in ("gold", "piety", "prestige", "renown"):
+            for key in ("gold", "piety"):
                 try:
                     self.resources[key] = int(resources.get(key, self.resources.get(key, 0)))
                 except (TypeError, ValueError):

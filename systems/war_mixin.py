@@ -164,11 +164,9 @@ class WarMixin:
             return True, "Available. Choose a bordering province from the dropdown, then declare."
 
         if war_type == "Subjugation":
-            if self.resources.get("prestige", 0) < 320:
-                return False, "Need 320 prestige."
             if self.subjugation_cooldown_days > 0:
                 return False, f"On cooldown ({self._days_label(self.subjugation_cooldown_days)})."
-            return True, "Major war (cost: 320 prestige)."
+            return True, "Major war."
 
         if war_type == "Holy War":
             target_faith = None
@@ -178,19 +176,15 @@ class WarMixin:
                 return False, "Target follows your faith."
             if self.resources.get("piety", 0) < 250:
                 return False, "Need 250 piety."
-            if self.resources.get("prestige", 0) < 60:
-                return False, "Need 60 prestige."
-            return True, "Religious war (cost: 250 piety, 60 prestige)."
+            return True, "Religious war (cost: 250 piety)."
 
         return False, "Unavailable war type."
 
     def _pay_war_cost(self, target_rid, war_type):
         if war_type == "Subjugation":
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 320)
             self.subjugation_cooldown_days = max(self.subjugation_cooldown_days, 3650)
         elif war_type == "Holy War":
             self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 250)
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 60)
         self.dread = clamp(float(self.dread) + 4.0, 0.0, 100.0)
         self._change_realm_opinion(target_rid, -18)
 
@@ -324,17 +318,11 @@ class WarMixin:
             paid = min(due, treasury)
             debt = due - paid
             self.resources["gold"] = max(0, treasury - paid)
-            prestige_loss = 24 + (debt // 3)
-            renown_loss = 10 + (debt // 6)
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - prestige_loss)
-            self.resources["renown"] = max(0, int(self.resources.get("renown", 0)) - renown_loss)
             self._adjust_stress(+8.0)
             self._recompute_resource_rates()
             return {"due": due, "paid": paid, "debt": debt}
 
         self.resources["gold"] = int(self.resources.get("gold", 0)) + due
-        self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 18
-        self.resources["renown"] = int(self.resources.get("renown", 0)) + 10
         self._adjust_stress(-4.0)
         self._recompute_resource_rates()
         return {"due": due, "paid": due, "debt": 0}
@@ -347,7 +335,7 @@ class WarMixin:
         if war.get("attacker") == "player":
             detail = f"{target_name} held their lines. You paid {rep['paid']} gold in reparations."
             if rep.get("debt", 0) > 0:
-                detail += " Unable to pay in full; prestige and renown were lost."
+                detail += " Unable to pay in full."
             if reason:
                 return f"{reason} {detail}"
             return detail
@@ -811,7 +799,6 @@ class WarMixin:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self._update_army_max()
-        self.resources["renown"] = int(self.resources.get("renown", 0)) + 12
         self._recompute_resource_rates()
         if war.get("war_type") == "Conquest":
             self.realm_claims.discard(old_rid)
@@ -1008,8 +995,6 @@ class WarMixin:
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self.food = self._compute_food_values()
         self._update_army_max()
-        self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
-        self.resources["renown"] = max(0, int(self.resources.get("renown", 0)) - 20)
         self._adjust_stress(+10.0)
         self._recompute_resource_rates()
         self._mark_progress_unsaved()

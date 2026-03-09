@@ -483,7 +483,6 @@ class ArmyMixin:
             enemy["pos"] = self.world.provinces[retreat_pid].center.copy()
             retreat_name = self.world.provinces[retreat_pid].name
             outcome = "Victory"
-            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 6
             self.dread = clamp(float(self.dread) + 1.5, 0.0, 100.0)
             self._adjust_stress(-1.8)
         else:

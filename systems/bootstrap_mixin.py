@@ -127,11 +127,9 @@ class BootstrapMixin:
     def _init_resources_and_character(self):
         self.resources = {
             "gold": 200,
-            "gold_rate": +1,
+            "gold_rate": 0,
             "piety": 1000,
-            "prestige": 350,
-            "renown": 120,
-            "renown_rate": 1,
+            "piety_rate": 0,
         }
 
         self.wars = []
@@ -168,7 +166,6 @@ class BootstrapMixin:
         apply_trait_effects(self.character)
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
-        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
     def _init_politics(self):
         self.realm_relations = {}
@@ -194,7 +191,6 @@ class BootstrapMixin:
         self._raid_cooldown_days = 0
         self._ai_war_cooldown_days = 0
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
-        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
     def _init_armies_and_food(self):
         self.army_pop_ratio = 0.12

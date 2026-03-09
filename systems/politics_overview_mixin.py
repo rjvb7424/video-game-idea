@@ -38,7 +38,6 @@ class PoliticsOverviewMixin:
             f"Stress: {int(round(self.stress))}/300",
             f"Dread: {int(round(self.dread))}/100",
             f"Focus: {self._lifestyle_label(self.lifestyle_focus)}",
-            f"Renown: {int(self.resources.get('renown', 0))}",
             "",
             "Active schemes:",
         ]
@@ -66,7 +65,7 @@ class PoliticsOverviewMixin:
         alliances = len(self.alliances)
         lines = [
             f"Realm size: {held}/{len(self.world.provinces)} provinces",
-            f"Dynasty: Prestige {int(self.resources.get('prestige', 0))}, Renown {int(self.resources.get('renown', 0))}",
+            f"Treasury: Gold {int(self.resources.get('gold', 0))}, Piety {int(self.resources.get('piety', 0))}",
             f"Diplomacy: {claims} claims, {alliances} alliances, {len(self.wars)} active wars",
             f"Stress and dread: {int(round(self.stress))}/300, {int(round(self.dread))}/100",
             f"Border pressure: next raid check in {self._days_label(self._raid_cooldown_days)}",
@@ -141,12 +140,10 @@ class PoliticsOverviewMixin:
     def _open_ledger_overview(self):
         gold = int(self.resources.get("gold", 0))
         piety = int(self.resources.get("piety", 0))
-        prestige = int(self.resources.get("prestige", 0))
-        renown = int(self.resources.get("renown", 0))
         gold_rate = int(self.resources.get("gold_rate", 0))
         piety_rate = int(self.resources.get("piety_rate", 0))
-        prestige_rate = int(self.resources.get("prestige_rate", 0))
-        renown_rate = int(self.resources.get("renown_rate", 0))
+        tax_income = int(self._monthly_population_tax_income())
+        stewardship = int(self._stat_value(self.character, "Stewardship", default=8))
         farms = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="farm"))
         tradeports = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="tradeport"))
         temples = int(self.world.count_buildings(realm_id=self.player_realm_id, building_id="temple"))
@@ -157,13 +154,11 @@ class PoliticsOverviewMixin:
         lines = [
             f"Gold: {gold} ({gold_rate:+d}/month)",
             f"Piety: {piety} ({piety_rate:+d}/month)",
-            f"Prestige: {prestige} ({prestige_rate:+d}/month)",
-            f"Renown: {renown} ({renown_rate:+d}/month)",
+            f"Tax income: {tax_income:+d}/month at Stewardship {stewardship}",
             f"Food: {int(production):,} produced vs {int(consumption):,} consumed ({net_food:+,})",
             f"Holdings: Farms {farms}, Tradeports {tradeports}, Temples {temples}, Barracks {barracks}",
             f"Building effects: +{int(round(effects.get('gold_rate_bonus', 0.0)))} gold rate, "
             f"+{int(round(effects.get('piety_rate_bonus', 0.0)))} piety rate, "
-            f"+{int(round(effects.get('prestige_rate_bonus', 0.0)))} prestige rate, "
             f"+{int(round(float(effects.get('levy_mult_bonus', 0.0)) * 100))}% levies",
         ]
         if self.wars:

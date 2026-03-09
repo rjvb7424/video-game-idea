@@ -44,8 +44,6 @@ class PoliticsSystemsMixin:
         while self.lifestyle_xp[focus] >= threshold:
             self.lifestyle_xp[focus] -= threshold
             self.lifestyle_perks[focus] = self._perk_level(focus) + 1
-            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 20
-            self.resources["renown"] = int(self.resources.get("renown", 0)) + 10
             unlocked = True
             self.push_log(
                 f"{self.date}: {self._lifestyle_label(focus)} perk unlocked "
@@ -193,13 +191,10 @@ class PoliticsSystemsMixin:
             )
             if success:
                 self.realm_claims.add(target_rid)
-                self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 40
-                self.resources["renown"] = int(self.resources.get("renown", 0)) + 15
                 self._change_realm_opinion(target_rid, -10 if exposed else -4)
                 self._adjust_stress(+2.0)
                 self.push_log(f"{self.date}: Fabricated claim on {target_name}.")
             else:
-                self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 25)
                 self._change_realm_opinion(target_rid, -20 if exposed else -8)
                 self._adjust_stress(+6.0)
                 self.push_log(f"{self.date}: Claim fabrication failed against {target_name}.")
@@ -227,8 +222,6 @@ class PoliticsSystemsMixin:
                     )
             else:
                 self._change_realm_opinion(target_rid, -42 if exposed else -12)
-                if exposed:
-                    self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 35)
                 self._adjust_stress(+14.0 if exposed else +7.0)
                 self.push_log(f"{self.date}: Murder scheme failed in {target_name}.")
             self._recompute_resource_rates()
@@ -270,14 +263,12 @@ class PoliticsSystemsMixin:
         event = self.world.rnd.choice(("drink", "charity", "isolate"))
         if event == "drink":
             self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - (18 + 9 * level))
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - (8 + 6 * level))
             line = "You seek relief in excess."
         elif event == "charity":
             self.resources["gold"] = max(0, int(self.resources.get("gold", 0)) - (22 + 8 * level))
             self.resources["piety"] = int(self.resources.get("piety", 0)) + (15 + 8 * level)
             line = "You donate heavily to quiet your conscience."
         else:
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - (15 + 10 * level))
             self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - (6 + 5 * level))
             line = "You withdraw from court and governance."
 
@@ -447,10 +438,8 @@ class PoliticsSystemsMixin:
 
         if rid == self.player_realm_id:
             self.character = successor
-            self.resources["prestige"] = max(0, int(self.resources.get("prestige", 0)) - 75)
             self.resources["piety"] = max(0, int(self.resources.get("piety", 0)) - 30)
             self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
-            self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
             self.stress = clamp(float(self.stress) * 0.45, 0.0, 300.0)
             self._stress_break_level = int(self.stress // 100)
             self.dread = clamp(float(self.dread) * 0.40, 0.0, 100.0)
@@ -532,8 +521,6 @@ class PoliticsSystemsMixin:
         defended = raised >= max(180, int(max_army * 0.35)) and morale >= 45.0
 
         if defended:
-            self.resources["prestige"] = int(self.resources.get("prestige", 0)) + 18
-            self.resources["renown"] = int(self.resources.get("renown", 0)) + 6
             self._adjust_stress(-2.0)
             self._change_realm_opinion(attacker_rid, -8)
             self.push_log(f"{self.date}: {attacker_name} raids your border, but your levies repel them.")

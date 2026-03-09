@@ -7,7 +7,6 @@ from systems.buildings import (
     building_gold_upkeep,
     building_gold_rate_bonus,
     building_piety_rate_bonus,
-    building_prestige_rate_bonus,
     building_levy_mult_bonus,
     building_max_level,
 )
@@ -60,7 +59,6 @@ class EconomyMixin:
             "gold_upkeep": 0.0,
             "gold_rate_bonus": 0.0,
             "piety_rate_bonus": 0.0,
-            "prestige_rate_bonus": 0.0,
             "levy_mult_bonus": 0.0,
         }
         for prov in self.world.provinces:
@@ -72,9 +70,21 @@ class EconomyMixin:
                 effects["gold_upkeep"] += building_gold_upkeep(b)
                 effects["gold_rate_bonus"] += building_gold_rate_bonus(b)
                 effects["piety_rate_bonus"] += building_piety_rate_bonus(b)
-                effects["prestige_rate_bonus"] += building_prestige_rate_bonus(b)
                 effects["levy_mult_bonus"] += building_levy_mult_bonus(b)
         return effects
+
+    def _monthly_population_tax_income(self):
+        population = max(0, int(self.population))
+        try:
+            stewardship = int(self._stat_value(self.character, "Stewardship", default=8))
+        except Exception:
+            stewardship = 8
+        stewardship = max(0, min(40, stewardship))
+
+        # Gold is driven by population tax yield and scaled by ruler stewardship.
+        base_tax_per_pop = 0.0014
+        stewardship_multiplier = 0.75 + (0.06 * stewardship)
+        return max(0, int(round(population * base_tax_per_pop * stewardship_multiplier)))
 
     def _compute_food_values(self):
         production = 0.0
@@ -231,27 +241,19 @@ class EconomyMixin:
 
     def _recompute_resource_rates(self):
         effects = self._realm_building_effects(self.player_realm_id)
+        tax_income = self._monthly_population_tax_income()
         building_gold = int(round(float(effects.get("gold_rate_bonus", 0.0))))
         upkeep_penalty = int(round(float(effects.get("gold_upkeep", 0.0)) * 0.45))
-        self.resources["gold_rate"] = 1 + building_gold - upkeep_penalty
+        self.resources["gold_rate"] = int(tax_income + building_gold - upkeep_penalty)
 
         piety_rate = compute_piety_rate(self.character)[0]
         piety_rate += int(round(float(effects.get("piety_rate_bonus", 0.0))))
         self.resources["piety_rate"] = int(piety_rate)
 
-        prestige_rate = self._compute_prestige_rate(self.character)
-        prestige_rate += int(round(float(effects.get("prestige_rate_bonus", 0.0))))
-        self.resources["prestige_rate"] = int(prestige_rate)
-        renown_rate = 1 + (self._realm_size(self.player_realm_id) // 3)
-        renown_rate += len(self.alliances) // 2
-        if self.wars:
-            renown_rate += 1
-        self.resources["renown_rate"] = int(max(0, renown_rate))
-
     def _apply_monthly_resource_rates(self):
         self._recompute_resource_rates()
 
-        for res in ("gold", "piety", "prestige", "renown"):
+        for res in ("gold", "piety"):
             rate = self.resources.get(f"{res}_rate", 0)
             if rate == 0:
                 continue

@@ -465,11 +465,9 @@ class MenuMixin:
         self.player_realm_id = rid
         self.world.player_realm_id = rid
         self.resources["gold"] = 200
-        self.resources["gold_rate"] = 1
+        self.resources["gold_rate"] = 0
         self.resources["piety"] = 1000
-        self.resources["prestige"] = 350
-        self.resources["renown"] = 120
-        self.resources["renown_rate"] = 1
+        self.resources["piety_rate"] = 0
 
         cap_pid = None
         if 0 <= rid < len(self.world.realm_capitals):
@@ -488,7 +486,6 @@ class MenuMixin:
         apply_trait_effects(self.character)
         self.character["traits"] = normalize_traits(self.character.get("traits", []))
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
-        self.resources["prestige_rate"] = self._compute_prestige_rate(self.character)
 
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self._baseline_population = max(1, self.population)
