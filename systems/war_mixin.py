@@ -891,6 +891,8 @@ class WarMixin:
         defender_rid = war.get("target_id") if attacker == "player" else self.player_realm_id
         attacker_manpower = self._realm_total_manpower(attacker_rid)
         defender_manpower = self._realm_total_manpower(defender_rid)
+        attacker_marshal = self._realm_marshal_value(attacker_rid, default=8)
+        defender_marshal = self._realm_marshal_value(defender_rid, default=8)
         reparations = self._war_reparation_amount(war)
         self.modal.show(
             "War Status",
@@ -902,6 +904,9 @@ class WarMixin:
                 f"Sieged provinces: {len(sieged)}/{total}.",
                 f"Attacker manpower: {attacker_manpower:,}.",
                 f"Defender manpower: {defender_manpower:,}.",
+                f"Attacker marshal: {attacker_marshal}.",
+                f"Defender marshal: {defender_marshal}.",
+                "Battle outcomes use troop size, morale, and marshal skill.",
                 "Attacker wins at 100% and gains territory.",
                 f"Defender victory keeps current borders and forces about {reparations}g reparations from attacker.",
                 "War resolves automatically when attacker reaches 100% progress.",

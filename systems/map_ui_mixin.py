@@ -107,7 +107,7 @@ class MapUIMixin:
         self._siege_overlay_key = key
         return overlay, key
 
-    def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False):
+    def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False, marshal=None):
         if max_army <= 0:
             return
         ratio = 0.0 if max_army <= 0 else max(0.0, min(1.0, raised / max_army))
@@ -116,7 +116,7 @@ class MapUIMixin:
         if not map_rect.collidepoint(x, y):
             return
 
-        body_w, body_h = 64, 22
+        body_w, body_h = 80, 24
         bar_w = 7
         body_rect = pygame.Rect(x - body_w // 2, y - 30, body_w, body_h)
         body_bg = (30, 75, 35) if friendly else (90, 35, 35)
@@ -131,9 +131,16 @@ class MapUIMixin:
             pygame.draw.rect(surface, (65, 150, 70), fill_rect, border_radius=2)
         pygame.draw.rect(surface, (0, 0, 0), bar_rect, 1, border_radius=2)
 
+        label_x = body_rect.centerx - bar_w // 2
+        if marshal is not None:
+            marshal_label = FOOTER_FONT.render(f"M{max(0, int(marshal))}", True, (242, 225, 180))
+            marshal_rect = marshal_label.get_rect(midleft=(body_rect.left + 6, body_rect.centery))
+            surface.blit(marshal_label, marshal_rect)
+            label_x = body_rect.centerx + 8
+
         raised_text = f"{int(raised):,}"
         label = FOOTER_FONT.render(raised_text, True, (235, 228, 210))
-        label_rect = label.get_rect(center=(body_rect.centerx - bar_w // 2, body_rect.centery))
+        label_rect = label.get_rect(center=(label_x, body_rect.centery))
         surface.blit(label, label_rect)
 
         if selected:
@@ -146,6 +153,7 @@ class MapUIMixin:
             return
         max_army = int(self.army.get("max", 0))
         raised = int(self.army.get("raised", 0))
+        marshal = self._realm_marshal_value(self.player_realm_id, default=8)
         self._draw_army_stack(
             surface,
             map_rect,
@@ -154,6 +162,7 @@ class MapUIMixin:
             max_army,
             friendly=True,
             selected=self.army_selected,
+            marshal=marshal,
         )
 
     def _draw_enemy_armies(self, surface, map_rect):
@@ -173,7 +182,17 @@ class MapUIMixin:
             pos = enemy.get("pos")
             if pos is None:
                 pos = self.world.provinces[pid].center
-            self._draw_army_stack(surface, map_rect, pos, raised, max_army, friendly=False, selected=False)
+            marshal = self._realm_marshal_value(enemy.get("realm_id"), default=8)
+            self._draw_army_stack(
+                surface,
+                map_rect,
+                pos,
+                raised,
+                max_army,
+                friendly=False,
+                selected=False,
+                marshal=marshal,
+            )
 
     def _draw_army_route_arrow(self, surface, map_rect):
         def draw_arrow_head(p0, p1, color, width=3):
@@ -321,7 +340,7 @@ class MapUIMixin:
             return None
         sp = self.camera.world_to_screen(self.army_pos, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
-        return pygame.Rect(x - 32, y - 30, 64, 22)
+        return pygame.Rect(x - 40, y - 30, 80, 24)
 
     def _handle_army_click(self, screen_pos, map_rect):
         icon = self._army_icon_rect(map_rect)

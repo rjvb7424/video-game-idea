@@ -126,13 +126,41 @@ class ArmyMixin:
         per_day = max(1, int(round(max_army * self.enemy_raise_rate)))
         army["raised"] = min(max_army, raised + per_day)
 
-    def _effective_strength(self, army):
+    def _realm_marshal_value(self, rid, default=8):
+        try:
+            rid = int(rid)
+        except (TypeError, ValueError):
+            return max(0, min(40, int(default)))
+        if not (0 <= rid < len(self.world.realm_rulers)):
+            return max(0, min(40, int(default)))
+        ruler = self.world.realm_rulers[rid]
+        if not isinstance(ruler, dict):
+            return max(0, min(40, int(default)))
+        value = int(default)
+        for key, stat_value in ruler.get("stats", []):
+            if key != "Martial":
+                continue
+            try:
+                value = int(stat_value)
+            except (TypeError, ValueError):
+                value = int(default)
+            break
+        return max(0, min(40, value))
+
+    @staticmethod
+    def _marshal_multiplier(marshal):
+        value = max(0, min(40, int(marshal)))
+        return 0.70 + 0.05 * value
+
+    def _effective_strength(self, army, marshal=8, luck=1.0):
         if not army:
             return 0.0
         raised = float(army.get("raised", 0))
         morale = float(army.get("morale", 50))
         morale_mult = 0.4 + 0.6 * clamp(morale / 100.0, 0.0, 1.0)
-        return raised * morale_mult
+        marshal_mult = self._marshal_multiplier(marshal)
+        luck_mult = clamp(float(luck), 0.75, 1.25)
+        return raised * morale_mult * marshal_mult * luck_mult
 
     def _path_length(self, start_pid, target_pid):
         if start_pid is None or target_pid is None:
@@ -147,8 +175,11 @@ class ArmyMixin:
     def _ai_should_engage(self, enemy, player_pid):
         if enemy is None or player_pid is None:
             return False
-        enemy_strength = self._effective_strength(enemy.get("army", {}))
-        player_strength = self._effective_strength(self.army)
+        enemy_rid = enemy.get("realm_id")
+        enemy_marshal = self._realm_marshal_value(enemy_rid, default=8)
+        player_marshal = self._realm_marshal_value(self.player_realm_id, default=8)
+        enemy_strength = self._effective_strength(enemy.get("army", {}), enemy_marshal)
+        player_strength = self._effective_strength(self.army, player_marshal)
         if player_strength <= 0:
             return True
         ratio = enemy_strength / max(1.0, player_strength)
@@ -157,7 +188,6 @@ class ArmyMixin:
         if ratio <= self.ai_avoid_ratio:
             return False
 
-        enemy_rid = enemy.get("realm_id")
         if enemy_rid is None:
             return False
         if 0 <= enemy_rid < len(self.world.realm_capitals):
@@ -381,21 +411,17 @@ class ArmyMixin:
                 return prov.id
         return from_pid
 
-    def _compute_battle_losses(self, player_size, enemy_size):
+    def _compute_battle_losses(self, player_size, enemy_size, player_wins, player_power, enemy_power):
         if player_size <= 0 or enemy_size <= 0:
             return 0, 0
-        if player_size >= enemy_size:
-            winner_size = player_size
-            loser_size = enemy_size
-            player_is_winner = True
-        else:
-            winner_size = enemy_size
-            loser_size = player_size
-            player_is_winner = False
+        winner_size = player_size if player_wins else enemy_size
+        loser_size = enemy_size if player_wins else player_size
+        winner_power = float(player_power) if player_wins else float(enemy_power)
+        loser_power = float(enemy_power) if player_wins else float(player_power)
 
-        ratio = winner_size / max(1, loser_size)
-        win_loss_rate = 0.12 + 0.18 * (loser_size / winner_size)
-        lose_loss_rate = 0.45 + 0.35 * (ratio / (ratio + 1.0))
+        ratio = max(1.0, winner_power / max(1.0, loser_power))
+        win_loss_rate = clamp(0.10 + (0.20 / ratio), 0.08, 0.30)
+        lose_loss_rate = clamp(0.34 + 0.36 * (ratio / (ratio + 1.0)), 0.38, 0.78)
 
         win_loss = int(round(winner_size * win_loss_rate))
         lose_loss = int(round(loser_size * lose_loss_rate))
@@ -409,7 +435,7 @@ class ArmyMixin:
         else:
             lose_loss = 0
 
-        if player_is_winner:
+        if player_wins:
             return win_loss, lose_loss
         return lose_loss, win_loss
 
@@ -433,11 +459,23 @@ class ArmyMixin:
         if player_size <= 0 or enemy_size <= 0:
             return False
 
-        player_wins = player_size >= enemy_size
-        player_loss, enemy_loss = self._compute_battle_losses(player_size, enemy_size)
-
         player_morale = float(self.army.get("morale", 60))
         enemy_morale = float(enemy.get("army", {}).get("morale", 60))
+        player_marshal = self._realm_marshal_value(self.player_realm_id, default=8)
+        enemy_marshal = self._realm_marshal_value(enemy.get("realm_id"), default=8)
+        player_power = self._effective_strength(self.army, player_marshal, luck=self.world.rnd.uniform(0.90, 1.10))
+        enemy_power = self._effective_strength(enemy.get("army", {}), enemy_marshal, luck=self.world.rnd.uniform(0.90, 1.10))
+        if abs(player_power - enemy_power) < 0.001:
+            player_power += player_size * 0.01
+        player_wins = player_power >= enemy_power
+        player_loss, enemy_loss = self._compute_battle_losses(
+            player_size,
+            enemy_size,
+            player_wins,
+            player_power,
+            enemy_power,
+        )
+
         attacker_morale = player_morale if attacker_is_player else enemy_morale
         defender_morale = enemy_morale if attacker_is_player else player_morale
         attacker_wins = player_wins if attacker_is_player else not player_wins
@@ -498,6 +536,7 @@ class ArmyMixin:
         lines = [
             f"Battle of {prov_name}",
             f"Outcome: {outcome}",
+            f"Marshal skill: You {player_marshal} vs Enemy {enemy_marshal}",
             f"Your army: {player_size:,} -> {new_player:,} (lost {player_loss:,})",
             f"Enemy army: {enemy_size:,} -> {new_enemy:,} (lost {enemy_loss:,})",
         ]
