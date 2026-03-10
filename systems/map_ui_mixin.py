@@ -385,6 +385,7 @@ class MapUIMixin:
         self.army_step_to = route[0]
         self.army_step_progress = 0.0
         self.push_log(f"{self.date}: Army marching to {prov.name}.")
+        self._register_threat_activity(0.8)
         self._mark_progress_unsaved()
         return True
 

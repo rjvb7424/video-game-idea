@@ -214,7 +214,9 @@ class BootstrapMixin:
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
-        self.threat = self._compute_threat()
+        self.threat_decay_grace_days = 5
+        self.threat_decay_per_day = 0.35
+        self._init_threat_state()
         self._update_army_max()
         self._init_enemy_armies()
 

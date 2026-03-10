@@ -63,6 +63,7 @@ class WarMixin:
         self._change_realm_opinion(attacker_rid, -20)
         self._adjust_stress(+3.0)
         self._recompute_resource_rates()
+        self._register_threat_activity(4.0)
 
         attacker_name = self._get_war_target_name(attacker_rid)
         self.push_log(f"{self.date}: {attacker_name} declares a conquest war.")
@@ -390,6 +391,7 @@ class WarMixin:
         progress = self._update_war_progress(war)
         total = war.get("total_provs") or 0
         self.push_log(f"{self.date}: Sieged {prov.name} ({len(sieged)}/{total}).")
+        self._register_threat_activity(2.4)
         if progress >= 100.0:
             done_msg = self._resolve_war_if_complete(war)
             wid = war.get("id")
@@ -422,6 +424,7 @@ class WarMixin:
             "assault_days": max(1, int(self.siege_assault_days)),
         }
         self.push_log(f"{self.date}: Begin siege preparations in {prov.name}.")
+        self._register_threat_activity(1.8)
         return True
 
     def _maybe_start_siege(self):
@@ -563,6 +566,7 @@ class WarMixin:
         self._war_focus_id = war["id"]
         self._update_war_progress(war)
         self._recompute_resource_rates()
+        self._register_threat_activity(8.0)
         self._mark_progress_unsaved()
         target_name = self._get_war_target_name(target_rid)
         self.push_log(f"{self.date}: Declared war on {target_name}.")
@@ -799,6 +803,8 @@ class WarMixin:
         self._baseline_population = max(1, self.population)
         self.food = self._compute_food_values()
         self._update_army_max()
+        self._sync_baseline_threat()
+        self._register_threat_activity(3.2)
         self._recompute_resource_rates()
         if war.get("war_type") == "Conquest":
             self.realm_claims.discard(old_rid)
@@ -1000,6 +1006,8 @@ class WarMixin:
         self.population = self.world.total_population_for_realm(self.player_realm_id)
         self.food = self._compute_food_values()
         self._update_army_max()
+        self._sync_baseline_threat()
+        self._register_threat_activity(2.6)
         self._adjust_stress(+10.0)
         self._recompute_resource_rates()
         self._mark_progress_unsaved()

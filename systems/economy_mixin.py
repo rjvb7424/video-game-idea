@@ -164,6 +164,8 @@ class EconomyMixin:
         self.food = self._compute_food_values()
         self._recompute_resource_rates()
         self._update_army_max()
+        build_pressure = 1.4 + min(3.0, build_cost / 120.0)
+        self._register_threat_activity(build_pressure)
         self._building_menu_slot = None
         self._mark_progress_unsaved()
 
@@ -211,6 +213,8 @@ class EconomyMixin:
         self.food = self._compute_food_values()
         self._recompute_resource_rates()
         self._update_army_max()
+        upgrade_pressure = 1.0 + min(2.4, upgrade_cost / 150.0)
+        self._register_threat_activity(upgrade_pressure)
         self._building_menu_slot = None
         self._mark_progress_unsaved()
 
@@ -237,6 +241,7 @@ class EconomyMixin:
         self.food = self._compute_food_values()
         self._recompute_resource_rates()
         self._update_army_max()
+        self._register_threat_activity(0.6)
         self._building_menu_slot = None
 
     def _recompute_resource_rates(self):
@@ -277,5 +282,5 @@ class EconomyMixin:
             self.world.adjust_population_for_realm(self.player_realm_id, pop_rate)
 
         self.population = self.world.total_population_for_realm(self.player_realm_id)
-        self.threat = self._compute_threat()
+        self._sync_baseline_threat()
         self._update_army_max()

@@ -170,6 +170,7 @@ class GameLoopMixin:
                     self.army_raising = True
                     self._update_fog_from_army()
                     self.push_log("Your levies begin to muster.")
+                    self._register_threat_activity(2.0)
                     self._mark_progress_unsaved()
             return
         if action == "disband":
@@ -307,6 +308,7 @@ class GameLoopMixin:
                 self._update_army_movement()
                 self._update_enemy_ai_tick()
                 self._tick_politics_day()
+                self._update_threat_day()
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()

@@ -3,13 +3,65 @@ from core.math_utils import clamp
 
 class ArmyMixin:
     def _compute_threat(self):
-        # Base threat comes from population size; growth adds a slow pressure on top.
+        # Baseline threat comes from population size; growth adds a slow pressure on top.
         growth_ratio = (self.population - self._baseline_population) / self._baseline_population
         growth_ratio = max(0.0, growth_ratio)
         base_threat = clamp(self.population / 3000.0, 3.0, 15.0)
         growth_threat = growth_ratio * 30.0  # scaled so growth adds slowly
         threat = base_threat + growth_threat
         return int(clamp(round(threat), 0, 100))
+
+    def _init_threat_state(self):
+        baseline = self._compute_threat()
+        self.baseline_threat = int(baseline)
+        self._threat_level = float(baseline)
+        self._threat_inactive_days = 0
+        self._threat_activity_today = False
+        self.threat = int(baseline)
+
+    def _sync_baseline_threat(self):
+        baseline = int(self._compute_threat())
+        self.baseline_threat = baseline
+        if not hasattr(self, "_threat_level"):
+            self._threat_level = float(baseline)
+        if self._threat_level < baseline:
+            self._threat_level = float(baseline)
+        self.threat = int(clamp(round(self._threat_level), 0, 100))
+
+    def _register_threat_activity(self, amount):
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            return
+        if amount <= 0.0:
+            return
+        if not hasattr(self, "_threat_level"):
+            self._init_threat_state()
+        self._sync_baseline_threat()
+        self._threat_activity_today = True
+        self._threat_inactive_days = 0
+        self._threat_level = clamp(self._threat_level + amount, 0.0, 100.0)
+        self.threat = int(clamp(round(self._threat_level), 0, 100))
+
+    def _update_threat_day(self):
+        if not hasattr(self, "_threat_level"):
+            self._init_threat_state()
+            return
+        self._sync_baseline_threat()
+        if self._threat_activity_today:
+            self._threat_activity_today = False
+            return
+        self._threat_inactive_days = max(0, int(getattr(self, "_threat_inactive_days", 0))) + 1
+        if self._threat_level <= float(self.baseline_threat):
+            self._threat_level = float(self.baseline_threat)
+            self.threat = int(self.baseline_threat)
+            return
+        grace_days = max(0, int(getattr(self, "threat_decay_grace_days", 5)))
+        if self._threat_inactive_days <= grace_days:
+            return
+        decay = max(0.0, float(getattr(self, "threat_decay_per_day", 0.35)))
+        self._threat_level = max(float(self.baseline_threat), self._threat_level - decay)
+        self.threat = int(clamp(round(self._threat_level), 0, 100))
 
     def _update_army_max(self):
         base_max = int(round(self.population * self.army_pop_ratio))
@@ -297,6 +349,7 @@ class ArmyMixin:
         }
         prov_name = self.world.provinces[battle_pid].name
         self.push_log(f"{self.date}: Clash forming in {prov_name}.")
+        self._register_threat_activity(5.0)
         return True
 
     def _update_battle_tick(self):
@@ -558,6 +611,8 @@ class ArmyMixin:
             ],
         )
         self.push_log(f"{self.date}: Battle at {prov_name}. {outcome}.")
+        intensity = (player_loss + enemy_loss) / max(1, player_size + enemy_size)
+        self._register_threat_activity(4.0 + intensity * 8.0)
         return player_wins
 
     def _get_player_capital_pid(self):
@@ -671,7 +726,12 @@ class ArmyMixin:
             self.army_raising = False
             return
         per_day = max(1, int(round(max_army * self.army_raise_rate)))
-        self.army["raised"] = min(max_army, self.army["raised"] + per_day)
+        before = int(self.army["raised"])
+        self.army["raised"] = min(max_army, before + per_day)
+        gained = max(0, int(self.army["raised"]) - before)
+        if gained > 0:
+            raise_ratio = gained / max(1.0, float(max_army))
+            self._register_threat_activity(0.15 + (raise_ratio * 4.0))
 
     def _update_army_flash(self, dt):
         if self.army_step_flash > 0.0:
