@@ -78,12 +78,23 @@ class BootstrapMixin:
 
         self._menu_bg = self._load_menu_background()
         self._menu_bg_cache = {}
-        font_path = pygame.font.match_font("arial")
+        font_path = pygame.font.match_font("garamond,georgia,timesnewroman,palatino,arial")
+        display_font_path = pygame.font.match_font("cinzel,trajanpro,garamond,georgia,timesnewroman,palatino")
+        if not font_path:
+            font_path = pygame.font.match_font("arial")
+        if not display_font_path:
+            display_font_path = font_path
+
         self.menu_title_font = pygame.font.Font(font_path, 72)
         self.menu_header_font = pygame.font.Font(font_path, 40)
         self.menu_subtitle_font = pygame.font.Font(font_path, 24)
         self.menu_button_font = pygame.font.Font(font_path, 22)
         self.menu_caption_font = pygame.font.Font(font_path, 18)
+
+        # Dedicated display fonts for the main menu hero section.
+        self.menu_main_title_font = pygame.font.Font(display_font_path, 90)
+        self.menu_main_subtitle_font = pygame.font.Font(display_font_path, 36)
+        self.menu_main_lore_font = pygame.font.Font(display_font_path, 22)
 
     def _init_ui_and_world(self):
         self.ui = UIManager(seed=11)

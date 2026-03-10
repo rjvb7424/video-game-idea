@@ -13,9 +13,10 @@ from ui.utils import clip_draw
 class MenuMixin:
     def _load_menu_background(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
-        path = os.path.join(base_dir, "boreal_forest.png")
-        if os.path.exists(path):
-            return pygame.image.load(path).convert()
+        for filename in ("main_menu.png", "boreal_forest.png"):
+            path = os.path.join(base_dir, filename)
+            if os.path.exists(path):
+                return pygame.image.load(path).convert()
         return None
     def _load_storyteller_portraits(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "storytellers"))
@@ -207,24 +208,37 @@ class MenuMixin:
         surface.blit(overlay, (0, 0))
 
         w, h = surface.get_size()
-        title = "Ascention"
-        subtitle = "northen lords"
+        title = "Tower of Heaven"
+        subtitle = "Rise of the Holy Dynasty"
+        lore = "Complete the Ark. Become the Holy Dynasty. Ascend into the sky."
 
-        title_surf = self.menu_title_font.render(title, True, (235, 228, 210))
-        subtitle_surf = self.menu_subtitle_font.render(subtitle, True, (210, 202, 185))
+        title_font = getattr(self, "menu_main_title_font", self.menu_title_font)
+        subtitle_font = getattr(self, "menu_main_subtitle_font", self.menu_subtitle_font)
+        lore_font = getattr(self, "menu_main_lore_font", self.menu_caption_font)
 
-        title_rect = title_surf.get_rect(center=(w // 2, int(h * 0.18)))
+        title_surf = title_font.render(title, True, (235, 228, 210))
+        subtitle_surf = subtitle_font.render(subtitle, True, (218, 206, 182))
+
+        title_rect = title_surf.get_rect(center=(w // 2, int(h * 0.16)))
         subtitle_rect = subtitle_surf.get_rect(center=(w // 2, title_rect.bottom + 18))
 
-        shadow = self.menu_title_font.render(title, True, (0, 0, 0))
+        shadow = title_font.render(title, True, (0, 0, 0))
         surface.blit(shadow, (title_rect.x + 3, title_rect.y + 3))
         surface.blit(title_surf, title_rect)
         surface.blit(subtitle_surf, subtitle_rect)
 
+        lore_lines = wrap_text(lore, lore_font, min(int(w * 0.78), 900))
+        lore_y = subtitle_rect.bottom + 18
+        line_h = lore_font.get_height() + 3
+        for idx, line in enumerate(lore_lines[:3]):
+            lore_surf = lore_font.render(line, True, (210, 202, 188))
+            lore_rect = lore_surf.get_rect(center=(w // 2, lore_y + idx * line_h))
+            surface.blit(lore_surf, lore_rect)
+
         btn_w = min(420, int(w * 0.55))
         btn_h = 46
         gap = 12
-        start_y = int(h * 0.45)
+        start_y = max(int(h * 0.45), lore_y + line_h * min(3, len(lore_lines)) + 20)
         left = (w - btn_w) // 2
 
         labels = [
