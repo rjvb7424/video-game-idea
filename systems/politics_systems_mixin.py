@@ -468,6 +468,130 @@ class PoliticsSystemsMixin:
                 deaths.append(rid)
         for rid in deaths:
             self._handle_ruler_death(rid, "passed away")
+
+    def _non_human_attack_daily_chance(self):
+        threat_value = int(clamp(getattr(self, "threat", 0), 0, 100))
+        threat_ratio = threat_value / 100.0
+        chance = 0.00045 + (threat_ratio ** 1.35) * 0.018
+        if self.wars:
+            chance *= 1.18
+        return float(clamp(chance, 0.00035, 0.035))
+
+    def _non_human_attack_scenario(self, severity):
+        if severity >= 0.85:
+            pool = [
+                (
+                    "Night Infiltration",
+                    "Non-human infiltrators slipped into the realm at night, looted estates, and murdered sleeping households.",
+                ),
+                (
+                    "Shadow Stalkers",
+                    "Predatory stalkers shadowed travelers for days before killing isolated victims across the countryside.",
+                ),
+                (
+                    "Frontier Gate Breach",
+                    "A coordinated beast-pack overwhelmed a frontier gate and tore through nearby settlements.",
+                ),
+            ]
+        elif severity >= 0.50:
+            pool = [
+                (
+                    "Midnight Raids",
+                    "Non-human raiders hit villages under darkness, killing defenders and carrying off valuables.",
+                ),
+                (
+                    "Roadside Hunts",
+                    "Roaming killers stalked caravans and struck when escorts were separated.",
+                ),
+                (
+                    "Granary Massacre",
+                    "A raiding pack slaughtered granary guards and stripped local stores.",
+                ),
+            ]
+        else:
+            pool = [
+                (
+                    "Outskirts Assault",
+                    "A small non-human warband attacked outlying farms and murdered isolated families.",
+                ),
+                (
+                    "Dusk Predation",
+                    "Predators stalked workers at dusk, killing stragglers and seizing supplies.",
+                ),
+                (
+                    "Hamlet Break-In",
+                    "Night prowlers slipped into a hamlet, killed watchmen, and looted homes.",
+                ),
+            ]
+        return self.world.rnd.choice(pool)
+
+    def _resolve_non_human_attack(self):
+        threat_value = int(clamp(getattr(self, "threat", 0), 0, 100))
+        threat_ratio = threat_value / 100.0
+        severity = float(clamp(0.18 + (threat_ratio * 0.95) + self.world.rnd.uniform(-0.10, 0.22), 0.08, 1.25))
+        title, flavor = self._non_human_attack_scenario(severity)
+
+        pop_before = int(self.population)
+        pop_loss_rate = 0.00025 + (0.0045 * severity)
+        if self.wars:
+            pop_loss_rate += 0.0006
+        self.world.adjust_population_for_realm(self.player_realm_id, -pop_loss_rate)
+        self.population = self.world.total_population_for_realm(self.player_realm_id)
+        pop_killed = max(0, pop_before - int(self.population))
+        if pop_killed <= 0:
+            victims = [p for p in self.world.provinces if p.realm_id == self.player_realm_id and p.population > 1]
+            if victims:
+                target = self.world.rnd.choice(victims)
+                target.population = max(1, int(target.population) - 1)
+                self.population = self.world.total_population_for_realm(self.player_realm_id)
+                pop_killed = 1
+
+        treasury = int(self.resources.get("gold", 0))
+        loot_base = 12 + int(round(pop_before * 0.0007))
+        loot_target = int(round(loot_base * (0.7 + 2.2 * severity)))
+        gold_taken = min(treasury, max(5, loot_target))
+        self.resources["gold"] = max(0, treasury - gold_taken)
+
+        self.food = self._compute_food_values()
+        self._update_army_max()
+        self._sync_baseline_threat()
+        self._recompute_resource_rates()
+        self._adjust_stress(2.0 + severity * 7.0)
+
+        severity_tag = "Severe" if severity >= 0.85 else ("Major" if severity >= 0.50 else "Minor")
+        self.push_log(
+            f"{self.date}: {title} ({severity_tag}). Lost {gold_taken} gold and {pop_killed:,} population."
+        )
+        if not self.modal.open:
+            self.modal.show(
+                "Non-Human Attack",
+                [
+                    flavor,
+                    f"Loot taken: {gold_taken} gold.",
+                    f"Deaths: {pop_killed:,} people.",
+                    f"Threat at attack time: {threat_value}%.",
+                    "Higher threat increases attack chance and severity.",
+                ],
+                [
+                    ("OK", "accept", lambda: self.modal.close()),
+                ],
+            )
+
+        next_cd = int(round(24 - (threat_ratio * 16.0) + self.world.rnd.randint(-3, 4)))
+        self._non_human_attack_cooldown_days = max(4, min(32, next_cd))
+
+    def _tick_non_human_attack_day(self):
+        if self.campaign_result is not None:
+            return
+        cd = max(0, int(getattr(self, "_non_human_attack_cooldown_days", 0)))
+        if cd > 0:
+            self._non_human_attack_cooldown_days = cd - 1
+            return
+        chance = self._non_human_attack_daily_chance()
+        if self.world.rnd.random() >= chance:
+            return
+        self._resolve_non_human_attack()
+
     def _tick_politics_day(self):
         self._decrement_days_map(self.realm_truces)
         self._decrement_days_map(self.claim_fabrication_cooldowns)
@@ -478,6 +602,7 @@ class PoliticsSystemsMixin:
         self.stress = 0.0
         if self.subjugation_cooldown_days > 0:
             self.subjugation_cooldown_days -= 1
+        self._tick_non_human_attack_day()
         self._tick_campaign_day()
     def _tick_border_pressure_day(self):
         if self.campaign_result is not None:

@@ -522,6 +522,7 @@ class MenuMixin:
         self.decision_cooldowns = {}
         self._raid_cooldown_days = 0
         self._ai_war_cooldown_days = 0
+        self._non_human_attack_cooldown_days = 0
 
         if cap_pid is not None and 0 <= cap_pid < len(self.world.provinces):
             self.selected_province = self.world.provinces[cap_pid]

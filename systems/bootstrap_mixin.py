@@ -190,6 +190,7 @@ class BootstrapMixin:
         self.decision_cooldowns = {}
         self._raid_cooldown_days = 0
         self._ai_war_cooldown_days = 0
+        self._non_human_attack_cooldown_days = 0
         self.resources["piety_rate"] = compute_piety_rate(self.character)[0]
 
     def _init_armies_and_food(self):

@@ -97,7 +97,7 @@ class PersistenceMixin:
 
     def _serialize_game_state(self):
         return {
-            "save_version": 4,
+            "save_version": 5,
             "storyteller_id": self.storyteller.get("id") if isinstance(self.storyteller, dict) else None,
             "state": {
                 "date": {"year": int(self.date.year), "month": int(self.date.month), "day": int(self.date.day)},
@@ -122,6 +122,7 @@ class PersistenceMixin:
                 "decision_cooldowns": {str(k): int(v) for k, v in self.decision_cooldowns.items()},
                 "raid_cooldown_days": int(self._raid_cooldown_days),
                 "ai_war_cooldown_days": int(self._ai_war_cooldown_days),
+                "non_human_attack_cooldown_days": int(getattr(self, "_non_human_attack_cooldown_days", 0)),
                 "wars": [
                     {
                         "id": int(war.get("id", 0)),
@@ -452,6 +453,7 @@ class PersistenceMixin:
         self.decision_cooldowns = self._decode_int_map(state.get("decision_cooldowns", {}), min_value=0)
         self._raid_cooldown_days = max(0, int(state.get("raid_cooldown_days", 45)))
         self._ai_war_cooldown_days = max(0, int(state.get("ai_war_cooldown_days", 120)))
+        self._non_human_attack_cooldown_days = max(0, int(state.get("non_human_attack_cooldown_days", 0)))
 
         self.wars = []
         for entry in state.get("wars", []):
