@@ -563,6 +563,16 @@ class PoliticsSystemsMixin:
             f"{self.date}: {title} ({severity_tag}). Lost {gold_taken} gold and {pop_killed:,} population."
         )
         if not self.modal.open:
+            if self.speed_level > 0:
+                self._event_resume_speed = self.speed_level
+                self.set_speed(0)
+
+            def _resume_speed():
+                prev = getattr(self, "_event_resume_speed", None)
+                if prev is not None:
+                    self._event_resume_speed = None
+                    self.set_speed(prev)
+
             self.modal.show(
                 "Non-Human Attack",
                 [
@@ -575,6 +585,7 @@ class PoliticsSystemsMixin:
                 [
                     ("OK", "accept", lambda: self.modal.close()),
                 ],
+                on_close=_resume_speed,
             )
 
         next_cd = int(round(24 - (threat_ratio * 16.0) + self.world.rnd.randint(-3, 4)))

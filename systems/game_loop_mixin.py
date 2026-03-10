@@ -294,7 +294,9 @@ class GameLoopMixin:
         self._time_accum += dt * days_per_sec
         whole = int(self._time_accum)
         if whole > 0:
+            processed = 0
             for _ in range(whole):
+                processed += 1
                 self.date.advance_days(1)
                 self._mark_progress_unsaved()
 
@@ -309,6 +311,10 @@ class GameLoopMixin:
                 self._update_enemy_ai_tick()
                 self._tick_politics_day()
                 self._update_threat_day()
+                if self.modal.open and getattr(self, "_event_resume_speed", None) is not None:
+                    # Stop same-frame catch-up so event pause takes effect immediately.
+                    self._time_accum = 0.0
+                    break
 
                 if self.date.day == 1:
                     self._apply_monthly_resource_rates()
@@ -317,7 +323,8 @@ class GameLoopMixin:
                     if self.date.month == 1:
                         self._annual_dynasty_tick()
 
-            self._time_accum -= whole
+            if self._time_accum > 0.0:
+                self._time_accum -= processed
 
     def _map_controls(self, dt):
         keys = pygame.key.get_pressed()
