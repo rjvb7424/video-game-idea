@@ -10,6 +10,7 @@ from ui.theme import (
     PANEL_OUTER,
 )
 from world.map import SEA_DEEP
+from world.biomes import BIOME_DEFS, get_biome_tile_path, normalize_biome_key
 
 
 class MapRenderer:
@@ -22,6 +23,103 @@ class MapRenderer:
         self._cache_key = None
         self._last_viewport = None
         self._banner_painter = BannerPainter()
+        self._biome_tiles = self._load_biome_tiles()
+
+    def _load_biome_tiles(self):
+        tiles = {}
+        for biome_key in BIOME_DEFS:
+            path = get_biome_tile_path(biome_key)
+            if not path:
+                continue
+            try:
+                tiles[biome_key] = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
+        return tiles
+
+    @staticmethod
+    def _biome_detail_alpha(visibility):
+        if visibility >= 0.999:
+            return 228
+        if visibility >= 0.78:
+            return 156
+        return 72
+
+    @staticmethod
+    def _make_tiled_patch(tile, size, world_offset):
+        patch = pygame.Surface(size, pygame.SRCALPHA).convert_alpha()
+        tw, th = tile.get_size()
+        start_x = -(int(world_offset[0]) % tw)
+        start_y = -(int(world_offset[1]) % th)
+        for y in range(start_y, size[1], th):
+            for x in range(start_x, size[0], tw):
+                patch.blit(tile, (x, y))
+        return patch
+
+    def _build_hd_biome_masks(self, inter):
+        masks = {
+            biome_key: pygame.Surface(inter.size, pygame.SRCALPHA).convert_alpha()
+            for biome_key in self._biome_tiles
+        }
+        if not masks:
+            return masks
+
+        cs = max(1, int(self.world.cell_scale))
+        gx0 = max(0, inter.left // cs)
+        gy0 = max(0, inter.top // cs)
+        gx1 = min(self.world.gw, (inter.right + cs - 1) // cs)
+        gy1 = min(self.world.gh, (inter.bottom + cs - 1) // cs)
+
+        for gy in range(gy0, gy1):
+            wy0 = gy * cs
+            py0 = max(0, wy0 - inter.top)
+            py1 = min(inter.h, (gy + 1) * cs - inter.top)
+            if py1 <= py0:
+                continue
+
+            row = self.world.prov_id[gy]
+            for gx in range(gx0, gx1):
+                pid = row[gx]
+                if pid < 0:
+                    continue
+
+                prov = self.world.provinces[pid]
+                biome_key = normalize_biome_key(prov.biome)
+                mask = masks.get(biome_key)
+                if mask is None:
+                    continue
+
+                wx0 = gx * cs
+                px0 = max(0, wx0 - inter.left)
+                px1 = min(inter.w, (gx + 1) * cs - inter.left)
+                if px1 <= px0:
+                    continue
+
+                vis = self.world.visibility_by_prov.get(pid, 0.45)
+                alpha = self._biome_detail_alpha(vis)
+                mask.fill((255, 255, 255, alpha), pygame.Rect(px0, py0, px1 - px0, py1 - py0))
+
+        return masks
+
+    def _draw_hd_biome_overlay(self, view, inter, scaled_size, dest):
+        if inter.w <= 0 or inter.h <= 0 or not self._biome_tiles:
+            return
+
+        masks = self._build_hd_biome_masks(inter)
+        scaled_w, scaled_h = scaled_size
+        dx, dy = dest
+
+        for biome_key, mask in masks.items():
+            if mask.get_bounding_rect().w <= 0 or mask.get_bounding_rect().h <= 0:
+                continue
+
+            tile = self._biome_tiles[biome_key]
+            patch = self._make_tiled_patch(tile, inter.size, inter.topleft)
+            patch.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+            if patch.get_size() != (scaled_w, scaled_h):
+                patch = pygame.transform.smoothscale(patch, (scaled_w, scaled_h))
+            view.blit(patch, (dx, dy))
 
     def _draw_minimal_province_label(self, surf, center, prov, vis):
         a = 220 if vis > 0.95 else 180 if vis > 0.80 else 150
@@ -281,6 +379,7 @@ class MapRenderer:
             else:
                 scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                 view.blit(scaled, (dx, dy))
+            self._draw_hd_biome_overlay(view, inter, (scaled_w, scaled_h), (dx, dy))
 
         # Subtle map overlay/vignette
         draw_vignette(view, view.get_rect(), strength=85)
