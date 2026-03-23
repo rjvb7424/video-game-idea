@@ -279,10 +279,7 @@ class MapRenderer:
             if direct_blit:
                 view.blit(subs, (0, 0))
             else:
-                if z > 1.25:
-                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
-                else:
-                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                 view.blit(scaled, (dx, dy))
 
         # Subtle map overlay/vignette
@@ -339,10 +336,7 @@ class MapRenderer:
                 if direct_blit:
                     view.blit(subs, (0, 0))
                 else:
-                    if z > 1.25:
-                        scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
-                    else:
-                        scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                     view.blit(scaled, (dx, dy))
 
         # blit the final view

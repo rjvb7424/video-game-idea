@@ -281,9 +281,11 @@ class MapWorld:
             prov.biome = biome
             prov.biome_color = get_biome_color(biome)
 
-    def _load_biome_tile_samples(self, tile_size=24):
+    def _load_biome_tile_samples(self, tile_size=None):
         samples = {}
-        tile_size = max(6, int(tile_size))
+        if tile_size is None:
+            tile_size = max(96, int(self.cell_scale * 32))
+        tile_size = max(24, int(tile_size))
         for biome_key in BIOME_DEFS:
             path = get_biome_tile_path(biome_key)
             if not path:
@@ -314,8 +316,9 @@ class MapWorld:
             return get_biome_color(biome_key)
 
         size = sample["size"]
-        tx = (x + pid * 7) % size
-        ty = (y + pid * 11) % size
+        # Sample in world-space so higher-resolution tile detail survives the low-res bake.
+        tx = (x * self.cell_scale + pid * 17) % size
+        ty = (y * self.cell_scale + pid * 29) % size
         return sample["pixels"][ty][tx]
 
     def _seed_starting_buildings(self):
