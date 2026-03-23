@@ -7,6 +7,7 @@ from core.math_utils import clamp, lerp
 from core.surfaces import make_noise_tile, tile_fill
 from systems.characters import generate_ruler
 from systems.buildings import make_building, get_building_id
+from world.biomes import BIOME_DEFS, DEFAULT_BIOME, get_biome_color, get_biome_tile_path, normalize_biome_key
 
 # Map palette (subdued, CK1-ish)
 SEA_DEEP = (10, 22, 40)
@@ -37,8 +38,8 @@ class Province:
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
-        self.biome = "boreal_forest"
-        self.biome_color = FOREST
+        self.biome = DEFAULT_BIOME
+        self.biome_color = get_biome_color(self.biome)
         self.population = 0
         self.culture = "Nordfolken"
         self.faith = "Nordfolken Mythology"
@@ -193,14 +194,129 @@ class MapWorld:
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
+        self._biome_tile_samples = self._load_biome_tile_samples()
 
         self._generate()
 
     def _assign_biomes_per_province(self):
-        """Assign a single biome per province (currently only boreal_forest)."""
+        """Assign a deterministic biome per province so terrain art varies across the map."""
+        if not self.provinces:
+            return
+
+        prov_n = len(self.provinces)
+        avg_height = [0.0 for _ in range(prov_n)]
+        coastal_cells = [0 for _ in range(prov_n)]
+        climate = _value_noise_2d(self.gw, self.gh, cell_w=18, cell_h=18, seed=self.seed + 401)
+        moisture = _value_noise_2d(self.gw, self.gh, cell_w=14, cell_h=14, seed=self.seed + 707)
+
+        for y in range(self.gh):
+            for x in range(self.gw):
+                pid = self.prov_id[y][x]
+                if pid < 0:
+                    continue
+
+                avg_height[pid] += self.height[y][x]
+
+                touches_water = (
+                    x == 0
+                    or y == 0
+                    or x == self.gw - 1
+                    or y == self.gh - 1
+                    or not self.land[y][x - 1]
+                    or not self.land[y][x + 1]
+                    or not self.land[y - 1][x]
+                    or not self.land[y + 1][x]
+                )
+                if touches_water:
+                    coastal_cells[pid] += 1
+
         for prov in self.provinces:
-            prov.biome = "boreal_forest"
-            prov.biome_color = FOREST
+            mean_height = avg_height[prov.id] / max(1, prov.cell_count)
+            gx = int(clamp(prov.center.x / self.cell_scale, 0, self.gw - 1))
+            gy = int(clamp(prov.center.y / self.cell_scale, 0, self.gh - 1))
+            latitude = abs(((gy + 0.5) / max(1, self.gh)) - 0.5) * 2.0
+            coast_ratio = coastal_cells[prov.id] / max(1, prov.cell_count)
+            population_score = clamp((prov.population - 300) / 600.0, 0.0, 1.0)
+            coldness = clamp(
+                0.14
+                + latitude * 0.88
+                + max(0.0, mean_height - 0.74) * 1.55
+                + (0.5 - climate[gy][gx]) * 0.30,
+                0.0,
+                1.0,
+            )
+            wetness = clamp(
+                moisture[gy][gx] * 0.72
+                + coast_ratio * 1.10
+                + max(0.0, 0.78 - mean_height) * 0.18,
+                0.0,
+                1.0,
+            )
+            roll = random.Random(self.seed * 2003 + prov.id * 97 + 17).random()
+
+            biome = DEFAULT_BIOME
+            if mean_height >= 0.83 or (mean_height >= 0.78 and coldness >= 0.48):
+                biome = "mountain"
+            elif coldness >= 0.56:
+                biome = "cold_bog" if wetness >= 0.52 and roll < 0.55 else "tundra"
+            elif wetness >= 0.52 and coldness >= 0.42:
+                biome = "cold_bog"
+            elif prov.is_capital and mean_height < 0.82 and coldness < 0.72:
+                biome = "village"
+            elif (
+                population_score >= 0.70
+                and mean_height < 0.80
+                and coldness < 0.68
+                and wetness < 0.78
+                and roll < 0.58
+            ):
+                biome = "village"
+            elif wetness <= 0.38 and coldness < 0.70:
+                biome = "plains"
+            elif coast_ratio >= 0.22 and population_score >= 0.48 and coldness < 0.68 and roll < 0.35:
+                biome = "village"
+            elif wetness < 0.50 and coldness < 0.72 and roll > 0.70:
+                biome = "plains"
+
+            prov.biome = biome
+            prov.biome_color = get_biome_color(biome)
+
+    def _load_biome_tile_samples(self, tile_size=24):
+        samples = {}
+        tile_size = max(6, int(tile_size))
+        for biome_key in BIOME_DEFS:
+            path = get_biome_tile_path(biome_key)
+            if not path:
+                continue
+            try:
+                src = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
+
+            tile = pygame.transform.smoothscale(src, (tile_size, tile_size))
+            resolved = pygame.Surface((tile_size, tile_size)).convert()
+            resolved.fill(get_biome_color(biome_key))
+            resolved.blit(tile, (0, 0))
+
+            pixels = []
+            for y in range(tile_size):
+                row = []
+                for x in range(tile_size):
+                    row.append(resolved.get_at((x, y))[:3])
+                pixels.append(tuple(row))
+            samples[biome_key] = {"size": tile_size, "pixels": tuple(pixels)}
+        return samples
+
+    def _sample_biome_tile(self, biome_key, x, y, pid):
+        biome_key = normalize_biome_key(biome_key) or DEFAULT_BIOME
+        sample = self._biome_tile_samples.get(biome_key)
+        if sample is None:
+            return get_biome_color(biome_key)
+
+        size = sample["size"]
+        tx = (x + pid * 7) % size
+        ty = (y + pid * 11) % size
+        return sample["pixels"][ty][tx]
 
     def _seed_starting_buildings(self):
         if not self.provinces:
@@ -725,46 +841,37 @@ class MapWorld:
                 prov = self.provinces[pid]
                 rid = prov.realm_id
                 realm_col = self.realm_colors[rid]
+                biome_key = normalize_biome_key(prov.biome) or DEFAULT_BIOME
 
                 # --- Biome texture (multiplier) ---
                 hval = hash2(x, y, self.seed)
-                biome = prov.biome
 
                 # default subtle grain
-                darken = (hval % 9)  # 0..8
+                darken = 2 + (hval % 4)
 
-                if biome in ("Forest", "boreal_forest"):
-                    # "trees": frequent darker specks + occasional deeper blobs
-                    if (hval % 13) == 0:
-                        darken = 42
-                    elif (hval % 5) == 0:
+                if biome_key == "forest":
+                    if (hval % 9) == 0:
+                        darken = 16
+                    else:
+                        darken = 7 + (hval % 6)
+
+                elif biome_key == "mountain":
+                    if ((x + y + (hval % 5)) % 6) == 0:
                         darken = 18
                     else:
-                        darken = 10
+                        darken = 10 + (hval % 10)
 
-                elif biome == "Mountains":
-                    # ridge lines: diagonal-ish banding + noise
-                    if ((x + y + (hval % 7)) % 6) == 0:
-                        darken = 38
-                    else:
-                        darken = 14 + (hval % 10)
+                elif biome_key == "cold_bog":
+                    darken = 8 + (hval % 7)
 
-                elif biome == "Hills":
-                    # softer banding
-                    if ((x * 2 + y + (hval % 11)) % 8) == 0:
-                        darken = 22
-                    else:
-                        darken = 10 + (hval % 8)
+                elif biome_key == "tundra":
+                    darken = 3 + (hval % 5)
 
-                elif biome == "Drylands":
-                    # stipple and cracks
-                    if (hval % 17) == 0:
-                        darken = 28
-                    else:
-                        darken = 12 + (hval % 10)
+                elif biome_key == "plains":
+                    darken = 3 + (hval % 4)
 
-                elif biome in ("Fertile", "Plains"):
-                    darken = 4 + (hval % 8)
+                elif biome_key == "village":
+                    darken = 2 + (hval % 3)
 
                 # apply fog to texture strength too (so unknown land is less detailed)
                 vis = self.visibility_by_prov.get(pid, 0.45)
@@ -774,11 +881,13 @@ class MapWorld:
                 mul = 255 - clamp(darken, 0, 80)
                 tpx[x, y] = (mul, mul, mul)
 
-                # Base fill: purely realm color
-                col = realm_col
+                # Base fill: biome tile drives the province background with a light realm tint.
+                tile_col = self._sample_biome_tile(biome_key, x, y, pid)
+                col = _mix_color(tile_col, prov.biome_color, 0.14)
+                col = _mix_color(col, realm_col, 0.16)
 
                 # micro shading
-                dv = int((ntex[y][x] - 0.5) * 10)
+                dv = int((ntex[y][x] - 0.5) * 6)
                 col = (clamp(col[0] + dv, 0, 255), clamp(col[1] + dv, 0, 255), clamp(col[2] + dv, 0, 255))
 
                 # fog of war

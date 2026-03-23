@@ -1,25 +1,23 @@
 {
-  "save_version": 2,
+  "save_version": 5,
   "storyteller_id": "cassius_classic",
   "state": {
     "date": {
       "year": 1067,
-      "month": 7,
+      "month": 10,
       "day": 1
     },
-    "player_realm_id": 2,
+    "player_realm_id": 1,
     "resources": {
-      "gold": 200,
-      "piety": 1006,
-      "prestige": 386,
-      "renown": 150
+      "gold": 133,
+      "piety": 1000
     },
     "realm_relations": {
-      "1": -18
+      "7": -18
     },
     "realm_claims": [],
     "realm_truces": {
-      "1": 1794
+      "7": 1770
     },
     "claim_fabrication_cooldowns": {},
     "alliances": [],
@@ -46,15 +44,16 @@
     "decision_cooldowns": {},
     "raid_cooldown_days": 0,
     "ai_war_cooldown_days": 0,
+    "non_human_attack_cooldown_days": 0,
     "wars": [],
     "war_next_id": 2,
     "war_focus_id": null,
     "army": {
-      "raised": 194,
+      "raised": 0,
       "morale": 100.0,
       "raising": false,
-      "selected": true,
-      "prov_id": 14,
+      "selected": false,
+      "prov_id": null,
       "route": []
     },
     "enemy_armies": [
@@ -72,60 +71,62 @@
         "ai_state": "idle"
       },
       {
-        "realm_id": 1,
-        "prov_id": 33,
+        "realm_id": 7,
+        "prov_id": 5,
         "army": {
-          "raised": 5,
-          "max": 238,
-          "morale": 100.0
+          "raised": 2,
+          "max": 239,
+          "morale": 60.14285714285714
         },
         "raising": false,
         "route": [],
         "target_pid": null,
-        "ai_state": "idle"
+        "ai_state": "engage"
       }
     ],
-    "selected_province_id": 25,
-    "campaign_start_provinces": 5,
+    "selected_province_id": null,
+    "campaign_start_provinces": 3,
     "campaign_target_provinces": 14,
     "insolvency_days": 0,
     "famine_days": 0,
     "crisis_days": 0,
     "campaign_result": null,
     "campaign_over_day": null,
-    "last_played_realm_id": 2,
-    "baseline_population": 3568,
+    "last_played_realm_id": 1,
+    "baseline_population": 2682,
+    "threat_level": 58.736131917217286,
+    "threat_inactive_days": 20,
     "log": [
-      "March 27, 1067: Begin siege preparations in Haldoheim.",
-      "April 1, 1067: Autosaved campaign.",
-      "April 3, 1067: Siege of Haldoheim begins.",
-      "April 24, 1067: Sieged Haldoheim (2/3).",
-      "Time paused.",
-      "April 27, 1067: You ignored the stray cat.",
       "Time speed set to 3.",
-      "May 2, 1067: Army marching to Skaleskar.",
-      "May 4, 1067: Battle at Skaleskar. Victory.",
-      "May 4, 1067: Begin siege preparations in Skaleskar.",
-      "May 11, 1067: Siege of Skaleskar begins.",
+      "June 22, 1067: Sieged Skalavik (3/4).",
+      "June 29, 1067: Army marching to Thoroborg.",
+      "July 1, 1067: Autosaved campaign.",
+      "July 3, 1067: Clash forming in Thoroborg.",
+      "July 6, 1067: Battle begins at Thoroborg.",
       "Time paused.",
-      "May 17, 1067: You ignored the stray cat.",
+      "July 7, 1067: You ignored the stray cat.",
       "Time speed set to 3.",
-      "Time paused.",
-      "May 22, 1067: You ignored the stray cat.",
-      "Time speed set to 3.",
-      "Time paused.",
-      "May 30, 1067: You ignored the stray cat.",
-      "Time speed set to 3.",
-      "June 1, 1067: Sieged Skaleskar (3/3).",
-      "June 1, 1067: Annexed Bjornivik.",
-      "June 1, 1067: Won war against King Ketil.",
+      "July 12, 1067: Battle at Thoroborg. Victory.",
+      "July 12, 1067: Begin siege preparations in Thoroborg.",
+      "July 12, 1067: Granary Massacre (Major). Lost 31 gold and 8 population.",
+      "July 18, 1067: Siege of Thoroborg begins.",
+      "August 8, 1067: Sieged Thoroborg (4/4).",
+      "August 8, 1067: Annexed Haldyheim.",
+      "August 8, 1067: Won war against Queen Helga.",
+      "August 29, 1067: Army marching to Haldyheim.",
+      "September 1, 1067: Roadside Hunts (Major). Lost 31 gold and 9 population.",
       "Time paused.",
       "Time speed set to 3.",
+      "September 2, 1067: Clash forming in Haldyheim.",
       "Time paused.",
-      "June 25, 1067: You ignored the stray cat.",
+      "September 5, 1067: Battle begins at Haldyheim.",
+      "September 5, 1067: You ignored the stray cat.",
       "Time speed set to 3.",
+      "September 11, 1067: Battle at Haldyheim. Victory.",
       "Time paused.",
-      "Time speed set to 3."
+      "September 20, 1067: You ignored the stray cat.",
+      "Time speed set to 3.",
+      "You disband the army."
     ]
   },
   "world": {
@@ -235,7 +236,7 @@
       {
         "id": 9,
         "realm_id": 2,
-        "population": 762,
+        "population": 758,
         "buildings": [
           {
             "id": "farm",
@@ -248,7 +249,7 @@
       {
         "id": 10,
         "realm_id": 2,
-        "population": 593,
+        "population": 589,
         "buildings": [
           {
             "id": "farm",
@@ -415,7 +416,7 @@
       {
         "id": 24,
         "realm_id": 2,
-        "population": 610,
+        "population": 606,
         "buildings": [
           null,
           null,
@@ -424,8 +425,8 @@
       },
       {
         "id": 25,
-        "realm_id": 2,
-        "population": 572,
+        "realm_id": 1,
+        "population": 574,
         "buildings": [
           null,
           null,
@@ -514,7 +515,7 @@
       {
         "id": 33,
         "realm_id": 1,
-        "population": 659,
+        "population": 660,
         "buildings": [
           {
             "id": "farm",
@@ -631,8 +632,8 @@
       },
       {
         "id": 43,
-        "realm_id": 7,
-        "population": 688,
+        "realm_id": 1,
+        "population": 687,
         "buildings": [
           {
             "id": "farm",
@@ -769,7 +770,7 @@
       {
         "id": 54,
         "realm_id": 2,
-        "population": 558,
+        "population": 554,
         "buildings": [
           {
             "id": "farm",
@@ -967,6 +968,15 @@
           "Intrigue": 6,
           "Learning": 10,
           "Prowess": 9
+        },
+        "heir": {
+          "name": "Prince Rolf",
+          "title": "Prince of Vikeholm",
+          "house": "House Ragnvaldsson",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 16
         }
       },
       {
@@ -1024,15 +1034,6 @@
           "Intrigue": 14,
           "Learning": 7,
           "Prowess": 9
-        },
-        "heir": {
-          "name": "Prince Rolf",
-          "title": "Prince of Fjallauholt",
-          "house": "House Lodbrok",
-          "culture": "Nordfolken",
-          "faith": "Nordfolken Mythology",
-          "gender": "male",
-          "age": 16
         }
       },
       {
@@ -1749,13 +1750,13 @@
     ],
     "realm_sizes": [
       4,
-      2,
-      6,
-      5,
-      5,
-      5,
-      6,
       4,
+      5,
+      5,
+      5,
+      5,
+      6,
+      3,
       5,
       4,
       6,

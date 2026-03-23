@@ -1,4 +1,3 @@
-import os
 import random
 import pygame
 
@@ -29,6 +28,7 @@ from ui.theme import (
     HEADER_FONT,
     INK,
 )
+from world.biomes import BIOME_DEFS, get_biome_label, get_biome_tile_path, normalize_biome_key
 
 BANNER_PALETTES = [
     # field, primary, secondary, metal
@@ -244,28 +244,22 @@ class UIManager:
         self._banner_painter = BannerPainter()
 
     def _load_biome_images(self):
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
-        path = os.path.join(base_dir, "boreal_forest.png")
-        if os.path.exists(path):
-            self.biome_images["boreal_forest"] = pygame.image.load(path).convert_alpha()
+        for biome_key in BIOME_DEFS:
+            path = get_biome_tile_path(biome_key)
+            if not path:
+                continue
+            try:
+                self.biome_images[biome_key] = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
 
     @staticmethod
     def _biome_key(biome):
-        if not biome:
-            return None
-        key = str(biome).strip().lower().replace(" ", "_")
-        if key == "forest":
-            key = "boreal_forest"
-        return key
+        return normalize_biome_key(biome)
 
     @staticmethod
     def _biome_label(biome):
-        if not biome:
-            return "Unknown"
-        key = str(biome).strip().lower().replace(" ", "_")
-        if key in ("forest", "boreal_forest"):
-            return "Boreal Forest"
-        return str(biome).replace("_", " ").title()
+        return get_biome_label(biome)
 
     def _get_biome_thumb(self, biome_key, max_w, max_h):
         if not biome_key:
