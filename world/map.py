@@ -195,6 +195,7 @@ class MapWorld:
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
         self._biome_tile_samples = self._load_biome_tile_samples()
+        self._biome_render_tiles = self._load_biome_render_tiles()
 
         self._generate()
 
@@ -320,6 +321,71 @@ class MapWorld:
         tx = (x * self.cell_scale + pid * 17) % size
         ty = (y * self.cell_scale + pid * 29) % size
         return sample["pixels"][ty][tx]
+
+    def _load_biome_render_tiles(self, tile_size=None):
+        tiles = {}
+        if tile_size is None:
+            # Slightly smaller on-map tiles show more of each image, which reads as "zoomed out".
+            tile_size = max(220, min(320, int(min(self.world_w, self.world_h) * 0.14)))
+        tile_size = max(96, int(tile_size))
+        for biome_key in BIOME_DEFS:
+            path = get_biome_tile_path(biome_key)
+            if not path:
+                continue
+            try:
+                src = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
+            tiles[biome_key] = pygame.transform.smoothscale(src, (tile_size, tile_size))
+        return tiles
+
+    @staticmethod
+    def _biome_detail_alpha(visibility):
+        if visibility >= 0.999:
+            return 168
+        if visibility >= 0.78:
+            return 112
+        return 48
+
+    def _build_hd_biome_detail_overlay(self):
+        if not self._biome_render_tiles:
+            return None
+
+        low_masks = {
+            biome_key: pygame.Surface((self.gw, self.gh), pygame.SRCALPHA).convert_alpha()
+            for biome_key in self._biome_render_tiles
+        }
+        for mask in low_masks.values():
+            mask.lock()
+
+        for y in range(self.gh):
+            for x in range(self.gw):
+                if not self.land[y][x]:
+                    continue
+                pid = self.prov_id[y][x]
+                if pid < 0:
+                    continue
+                prov = self.provinces[pid]
+                biome_key = normalize_biome_key(prov.biome)
+                mask = low_masks.get(biome_key)
+                if mask is None:
+                    continue
+                alpha = self._biome_detail_alpha(self.visibility_by_prov.get(pid, 0.45))
+                mask.set_at((x, y), (255, 255, 255, alpha))
+
+        for mask in low_masks.values():
+            mask.unlock()
+
+        detail = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA).convert_alpha()
+        for biome_key, low_mask in low_masks.items():
+            if low_mask.get_bounding_rect().w <= 0 or low_mask.get_bounding_rect().h <= 0:
+                continue
+            mask = pygame.transform.smoothscale(low_mask, (self.world_w, self.world_h)).convert_alpha()
+            tiled = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA).convert_alpha()
+            tile_fill(tiled, tiled.get_rect(), self._biome_render_tiles[biome_key])
+            tiled.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            detail.blit(tiled, (0, 0))
+        return detail
 
     def _seed_starting_buildings(self):
         if not self.provinces:
@@ -907,6 +973,10 @@ class MapWorld:
         # scale and apply texture (darkens base color to create biome detail)
         tex_big = pygame.transform.smoothscale(tex, (self.world_w, self.world_h)).convert()
         self.base_surface.blit(tex_big, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+        detail_overlay = self._build_hd_biome_detail_overlay()
+        if detail_overlay is not None:
+            self.base_surface.blit(detail_overlay, (0, 0))
 
         veil = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
         tile_fill(veil, veil.get_rect(), self.paper_tile)
