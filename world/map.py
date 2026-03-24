@@ -360,8 +360,7 @@ class MapWorld:
     def _load_biome_render_tiles(self, tile_size=None):
         tiles = {}
         if tile_size is None:
-            # Slightly smaller on-map tiles show more of each image, which reads as "zoomed out".
-            tile_size = max(220, min(320, int(min(self.world_w, self.world_h) * 0.14)))
+            tile_size = max(128, int(self.cell_scale * 32))
         tile_size = max(96, int(tile_size))
         for biome_key in BIOME_DEFS:
             path = get_terrain_tile_path(biome_key)
@@ -904,8 +903,9 @@ class MapWorld:
 
     def _render_base(self):
         w, h = self.gw, self.gh
-        low = pygame.Surface((w, h)).convert()
-        px = pygame.PixelArray(low)
+        cs = self.cell_scale
+        sea_low = pygame.Surface((w, h)).convert()
+        px = pygame.PixelArray(sea_low)
         ntex = _value_noise_2d(w, h, cell_w=7, cell_h=7, seed=self.seed + 999)
 
         for y in range(h):
@@ -926,13 +926,51 @@ class MapWorld:
                     px[x, y] = SEA_DEEP
                     continue
 
-                prov = self.provinces[pid]
-                biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
-                px[x, y] = self._sample_biome_tile(biome_key, x, y, pid)
+                # Neutral land placeholder below the province terrain pass.
+                px[x, y] = (32, 32, 32)
 
         del px
 
-        self.base_surface = pygame.transform.scale(low, (self.world_w, self.world_h)).convert()
+        self.base_surface = pygame.transform.smoothscale(sea_low, (self.world_w, self.world_h)).convert()
+
+        for prov in self.provinces:
+            biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
+            bounds = prov.bounds_cells
+            if bounds.w <= 0 or bounds.h <= 0:
+                continue
+
+            world_rect = pygame.Rect(bounds.x * cs, bounds.y * cs, bounds.w * cs, bounds.h * cs)
+            if world_rect.w <= 0 or world_rect.h <= 0:
+                continue
+
+            render_tile = self._terrain_source_tiles.get(biome_key)
+            if render_tile is None:
+                render_tile = self._biome_render_tiles.get(biome_key)
+
+            province_tile = pygame.Surface(world_rect.size).convert()
+            province_tile.fill(get_terrain_color(biome_key))
+
+            if render_tile is not None:
+                tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
+                tiled_pattern = pygame.transform.smoothscale(render_tile, (tile_size, tile_size))
+                start_x = -(world_rect.x % tile_size)
+                start_y = -(world_rect.y % tile_size)
+                for tile_y in range(start_y, province_tile.get_height(), tile_size):
+                    for tile_x in range(start_x, province_tile.get_width(), tile_size):
+                        province_tile.blit(tiled_pattern, (tile_x, tile_y))
+
+            for gy in range(bounds.h):
+                py = bounds.y + gy
+                row = self.prov_id[py]
+                for gx in range(bounds.w):
+                    px = bounds.x + gx
+                    if row[px] != prov.id:
+                        continue
+                    wx = px * cs
+                    wy = py * cs
+                    src_x = gx * cs
+                    src_y = gy * cs
+                    self.base_surface.blit(province_tile, (wx, wy), (src_x, src_y, cs, cs))
 
         self.render_version += 1
 
