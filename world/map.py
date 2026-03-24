@@ -7,7 +7,13 @@ from core.math_utils import clamp, lerp
 from core.surfaces import make_noise_tile, tile_fill
 from systems.characters import generate_ruler
 from systems.buildings import make_building, get_building_id
-from world.biomes import BIOME_DEFS, DEFAULT_BIOME, get_biome_color, get_biome_tile_path, normalize_biome_key
+from world.biomes import (
+    BIOME_DEFS,
+    DEFAULT_TERRAIN,
+    get_terrain_color,
+    get_terrain_tile_path,
+    normalize_terrain_key,
+)
 
 # Map palette (subdued, CK1-ish)
 SEA_DEEP = (10, 22, 40)
@@ -38,13 +44,22 @@ class Province:
         self.center = pygame.Vector2(0, 0)
         self.bounds_cells = pygame.Rect(0, 0, 1, 1)
         self.cell_count = 0
-        self.biome = DEFAULT_BIOME
-        self.biome_color = get_biome_color(self.biome)
+        self.terrain = DEFAULT_TERRAIN
+        self.terrain_color = get_terrain_color(self.terrain)
+        self.biome = self.terrain
+        self.biome_color = self.terrain_color
         self.population = 0
         self.culture = "Nordfolken"
         self.faith = "Nordfolken Mythology"
         self.building_slots = 3
         self.buildings = [None for _ in range(self.building_slots)]
+
+    def set_terrain(self, terrain_key):
+        terrain_key = normalize_terrain_key(terrain_key) or DEFAULT_TERRAIN
+        self.terrain = terrain_key
+        self.terrain_color = get_terrain_color(terrain_key)
+        self.biome = terrain_key
+        self.biome_color = self.terrain_color
 
     def add_building(self, building_id):
         for idx, slot in enumerate(self.buildings):
@@ -194,13 +209,14 @@ class MapWorld:
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
+        self._terrain_source_tiles = self._load_terrain_source_tiles()
         self._biome_tile_samples = self._load_biome_tile_samples()
         self._biome_render_tiles = self._load_biome_render_tiles()
 
         self._generate()
 
-    def _assign_biomes_per_province(self):
-        """Assign a deterministic biome per province so terrain art varies across the map."""
+    def _assign_terrain_per_province(self):
+        """Assign deterministic terrain per province so each province gets a matching tile background."""
         if not self.provinces:
             return
 
@@ -255,15 +271,15 @@ class MapWorld:
             )
             roll = random.Random(self.seed * 2003 + prov.id * 97 + 17).random()
 
-            biome = DEFAULT_BIOME
+            terrain = DEFAULT_TERRAIN
             if mean_height >= 0.83 or (mean_height >= 0.78 and coldness >= 0.48):
-                biome = "mountain"
+                terrain = "mountain"
             elif coldness >= 0.56:
-                biome = "cold_bog" if wetness >= 0.52 and roll < 0.55 else "tundra"
+                terrain = "cold_bog" if wetness >= 0.52 and roll < 0.55 else "tundra"
             elif wetness >= 0.52 and coldness >= 0.42:
-                biome = "cold_bog"
+                terrain = "cold_bog"
             elif prov.is_capital and mean_height < 0.82 and coldness < 0.72:
-                biome = "village"
+                terrain = "village"
             elif (
                 population_score >= 0.70
                 and mean_height < 0.80
@@ -271,16 +287,18 @@ class MapWorld:
                 and wetness < 0.78
                 and roll < 0.58
             ):
-                biome = "village"
+                terrain = "village"
             elif wetness <= 0.38 and coldness < 0.70:
-                biome = "plains"
+                terrain = "plains"
             elif coast_ratio >= 0.22 and population_score >= 0.48 and coldness < 0.68 and roll < 0.35:
-                biome = "village"
+                terrain = "village"
             elif wetness < 0.50 and coldness < 0.72 and roll > 0.70:
-                biome = "plains"
+                terrain = "plains"
 
-            prov.biome = biome
-            prov.biome_color = get_biome_color(biome)
+            prov.set_terrain(terrain)
+
+    def _assign_biomes_per_province(self):
+        self._assign_terrain_per_province()
 
     def _load_biome_tile_samples(self, tile_size=None):
         samples = {}
@@ -288,7 +306,7 @@ class MapWorld:
             tile_size = max(96, int(self.cell_scale * 32))
         tile_size = max(24, int(tile_size))
         for biome_key in BIOME_DEFS:
-            path = get_biome_tile_path(biome_key)
+            path = get_terrain_tile_path(biome_key)
             if not path:
                 continue
             try:
@@ -298,7 +316,7 @@ class MapWorld:
 
             tile = pygame.transform.smoothscale(src, (tile_size, tile_size))
             resolved = pygame.Surface((tile_size, tile_size)).convert()
-            resolved.fill(get_biome_color(biome_key))
+            resolved.fill(get_terrain_color(biome_key))
             resolved.blit(tile, (0, 0))
 
             pixels = []
@@ -310,11 +328,28 @@ class MapWorld:
             samples[biome_key] = {"size": tile_size, "pixels": tuple(pixels)}
         return samples
 
+    def _load_terrain_source_tiles(self):
+        tiles = {}
+        for terrain_key in BIOME_DEFS:
+            path = get_terrain_tile_path(terrain_key)
+            if not path:
+                continue
+            try:
+                src = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
+
+            resolved = pygame.Surface(src.get_size()).convert()
+            resolved.fill(get_terrain_color(terrain_key))
+            resolved.blit(src, (0, 0))
+            tiles[terrain_key] = resolved
+        return tiles
+
     def _sample_biome_tile(self, biome_key, x, y, pid):
-        biome_key = normalize_biome_key(biome_key) or DEFAULT_BIOME
+        biome_key = normalize_terrain_key(biome_key) or DEFAULT_TERRAIN
         sample = self._biome_tile_samples.get(biome_key)
         if sample is None:
-            return get_biome_color(biome_key)
+            return get_terrain_color(biome_key)
 
         size = sample["size"]
         # Sample in world-space so higher-resolution tile detail survives the low-res bake.
@@ -329,23 +364,30 @@ class MapWorld:
             tile_size = max(220, min(320, int(min(self.world_w, self.world_h) * 0.14)))
         tile_size = max(96, int(tile_size))
         for biome_key in BIOME_DEFS:
-            path = get_biome_tile_path(biome_key)
+            path = get_terrain_tile_path(biome_key)
             if not path:
                 continue
             try:
                 src = pygame.image.load(path).convert_alpha()
             except pygame.error:
                 continue
-            tiles[biome_key] = pygame.transform.smoothscale(src, (tile_size, tile_size))
+            scaled = pygame.transform.smoothscale(src, (tile_size, tile_size))
+            # Flatten alpha: composite onto opaque biome-color background so transparent
+            # regions in the PNG don't produce invisible holes when tile-filled.
+            # Use convert_alpha() so blitting onto SRCALPHA terrain_layer sets alpha=255.
+            resolved = pygame.Surface((tile_size, tile_size)).convert()
+            resolved.fill(get_terrain_color(biome_key))
+            resolved.blit(scaled, (0, 0))
+            tiles[biome_key] = resolved
         return tiles
 
     @staticmethod
     def _biome_detail_alpha(visibility):
         if visibility >= 0.999:
-            return 168
+            return 204
         if visibility >= 0.78:
-            return 112
-        return 48
+            return 148
+        return 72
 
     def _build_hd_biome_detail_overlay(self):
         if not self._biome_render_tiles:
@@ -366,7 +408,7 @@ class MapWorld:
                 if pid < 0:
                     continue
                 prov = self.provinces[pid]
-                biome_key = normalize_biome_key(prov.biome)
+                biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome))
                 mask = low_masks.get(biome_key)
                 if mask is None:
                     continue
@@ -857,132 +899,84 @@ class MapWorld:
             self.player_capital_pid = near
 
     def _compute_fog_of_war(self):
-        adj = self._build_province_adjacency()
-        player_provs = {p.id for p in self.provinces if p.realm_id == self.player_realm_id}
-        extra = set(getattr(self, "extra_visible_provs", set()))
-        seen = set(player_provs) | extra
-        border = set(seen)
-        for pid in seen:
-            for nb in adj[pid]:
-                border.add(nb)
-
-        # visibility factors
-        self.visibility_by_prov = {}
-        for p in self.provinces:
-            if p.id in seen:
-                self.visibility_by_prov[p.id] = 1.00
-            elif p.id in border:
-                self.visibility_by_prov[p.id] = 0.80
-            else:
-                self.visibility_by_prov[p.id] = 0.45
+        # Terrain visibility is forced fully on so province tiles always render solid and readable.
+        self.visibility_by_prov = {p.id: 1.0 for p in self.provinces}
 
     def _render_base(self):
         w, h = self.gw, self.gh
-
-        # low-res color buffer
         low = pygame.Surface((w, h)).convert()
         px = pygame.PixelArray(low)
-
-        # Terrain texture overlay (grayscale multipliers)
-        tex = pygame.Surface((w, h)).convert()
-        tpx = pygame.PixelArray(tex)
-
-        # extra tiny noise for texture variation
         ntex = _value_noise_2d(w, h, cell_w=7, cell_h=7, seed=self.seed + 999)
 
         for y in range(h):
             for x in range(w):
                 if not self.land[y][x]:
-                    # sea depth based on height below threshold
                     d = clamp(1.0 - self.height[y][x], 0.0, 1.0)
                     sea = _mix_color(SEA_SHALLOWS, SEA_DEEP, d * 0.85)
                     dv = int((ntex[y][x] - 0.5) * 8)
-                    sea = (clamp(sea[0] + dv, 0, 255), clamp(sea[1] + dv, 0, 255), clamp(sea[2] + dv, 0, 255))
-                    px[x, y] = sea
-                    tpx[x, y] = (255, 255, 255)  # neutral multiplier for sea
+                    px[x, y] = (
+                        clamp(sea[0] + dv, 0, 255),
+                        clamp(sea[1] + dv, 0, 255),
+                        clamp(sea[2] + dv, 0, 255),
+                    )
                     continue
+
                 pid = self.prov_id[y][x]
                 if pid < 0:
                     px[x, y] = SEA_DEEP
-                    tpx[x, y] = (255, 255, 255)
                     continue
 
                 prov = self.provinces[pid]
-                rid = prov.realm_id
-                realm_col = self.realm_colors[rid]
-                biome_key = normalize_biome_key(prov.biome) or DEFAULT_BIOME
-
-                # --- Biome texture (multiplier) ---
-                hval = hash2(x, y, self.seed)
-
-                # default subtle grain
-                darken = 2 + (hval % 4)
-
-                if biome_key == "forest":
-                    if (hval % 9) == 0:
-                        darken = 16
-                    else:
-                        darken = 7 + (hval % 6)
-
-                elif biome_key == "mountain":
-                    if ((x + y + (hval % 5)) % 6) == 0:
-                        darken = 18
-                    else:
-                        darken = 10 + (hval % 10)
-
-                elif biome_key == "cold_bog":
-                    darken = 8 + (hval % 7)
-
-                elif biome_key == "tundra":
-                    darken = 3 + (hval % 5)
-
-                elif biome_key == "plains":
-                    darken = 3 + (hval % 4)
-
-                elif biome_key == "village":
-                    darken = 2 + (hval % 3)
-
-                # apply fog to texture strength too (so unknown land is less detailed)
-                vis = self.visibility_by_prov.get(pid, 0.45)
-                fog_scale = 0.55 if vis < 0.78 else 1.0
-                darken = int(darken * fog_scale)
-
-                mul = 255 - clamp(darken, 0, 80)
-                tpx[x, y] = (mul, mul, mul)
-
-                # Base fill: biome tile drives the province background with a light realm tint.
-                tile_col = self._sample_biome_tile(biome_key, x, y, pid)
-                col = _mix_color(tile_col, prov.biome_color, 0.14)
-                col = _mix_color(col, realm_col, 0.16)
-
-                # micro shading
-                dv = int((ntex[y][x] - 0.5) * 6)
-                col = (clamp(col[0] + dv, 0, 255), clamp(col[1] + dv, 0, 255), clamp(col[2] + dv, 0, 255))
-
-                # fog of war
-                vis = self.visibility_by_prov.get(pid, 0.45)
-                col = _apply_fog(col, vis)
-                px[x, y] = col
+                biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
+                px[x, y] = self._sample_biome_tile(biome_key, x, y, pid)
 
         del px
-        del tpx
 
-        # scale base color fill
-        self.base_surface = pygame.transform.smoothscale(low, (self.world_w, self.world_h)).convert()
+        self.base_surface = pygame.transform.scale(low, (self.world_w, self.world_h)).convert()
 
-        # scale and apply texture (darkens base color to create biome detail)
-        tex_big = pygame.transform.smoothscale(tex, (self.world_w, self.world_h)).convert()
-        self.base_surface.blit(tex_big, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
-
-        detail_overlay = self._build_hd_biome_detail_overlay()
-        if detail_overlay is not None:
-            self.base_surface.blit(detail_overlay, (0, 0))
-
-        veil = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
-        tile_fill(veil, veil.get_rect(), self.paper_tile)
-        veil.fill((0, 0, 0, 22), special_flags=pygame.BLEND_RGBA_MULT)
-        self.base_surface.blit(veil, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
         self.render_version += 1
+
+    def _apply_biome_tile_overlay(self):
+        """Blit HD terrain tiles at full world resolution onto base_surface.
+        For each biome, a world-sized tiled surface is created so source and
+        destination coordinates are identical — no wrap-around edge cases."""
+        if not self._biome_render_tiles:
+            return
+
+        w, h = self.gw, self.gh
+        cs = self.cell_scale
+
+        # Group land cells by biome key (single pass over the grid).
+        cells_by_biome = {}
+        for gy in range(h):
+            for gx in range(w):
+                if not self.land[gy][gx]:
+                    continue
+                pid = self.prov_id[gy][gx]
+                if pid < 0:
+                    continue
+                prov = self.provinces[pid]
+                bk = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
+                if bk not in cells_by_biome:
+                    cells_by_biome[bk] = []
+                cells_by_biome[bk].append((gx, gy))
+
+        for bk, cells in cells_by_biome.items():
+            render_tile = self._biome_render_tiles.get(bk)
+            if render_tile is None:
+                continue
+
+            # Build a world-sized opaque surface tiled with this biome's texture.
+            tile_surf = pygame.Surface((self.world_w, self.world_h)).convert()
+            tile_surf.fill(get_terrain_color(bk))
+            tile_fill(tile_surf, tile_surf.get_rect(), render_tile)
+
+            # Copy each cell's cs×cs block from tile_surf into base_surface at the
+            # same world coordinates — source rect == destination position, no wrapping.
+            for gx, gy in cells:
+                wx = gx * cs
+                wy = gy * cs
+                self.base_surface.blit(tile_surf, (wx, wy), (wx, wy, cs, cs))
 
     def _render_borders_and_coast(self):
         w, h = self.gw, self.gh
@@ -1212,7 +1206,7 @@ class MapWorld:
         self._compute_fog_of_war()
         self._generate_realm_rulers()
 
-        self._assign_biomes_per_province()
+        self._assign_terrain_per_province()
         self._seed_starting_buildings()
 
         self._render_base()

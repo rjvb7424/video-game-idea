@@ -344,6 +344,8 @@ class MenuMixin:
         clickables.append((back_rect, "storyteller_back"))
         return clickables
     def _draw_realm_menu(self, surface):
+        if any(vis < 0.999 for vis in self.world.visibility_by_prov.values()):
+            self._set_full_visibility()
         surface.fill(BG_COLOR)
 
         # Decorative background panels behind everything

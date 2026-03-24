@@ -28,7 +28,7 @@ from ui.theme import (
     HEADER_FONT,
     INK,
 )
-from world.biomes import BIOME_DEFS, get_biome_label, get_biome_tile_path, normalize_biome_key
+from world.biomes import BIOME_DEFS, get_terrain_color, get_terrain_label, get_terrain_tile_path, normalize_terrain_key
 
 BANNER_PALETTES = [
     # field, primary, secondary, metal
@@ -239,13 +239,13 @@ class UIManager:
         self.bottom_tile = make_noise_tile((96, 96), (26, 26, 28), variance=10, alpha=255, seed=seed + 2)
         self.left_tile = make_noise_tile((96, 96), (52, 36, 26), variance=12, alpha=255, seed=seed + 3)
         self.biome_images = {}
-        self._biome_image_cache = {}
+        self._terrain_panel_tiles = {}
         self._load_biome_images()
         self._banner_painter = BannerPainter()
 
     def _load_biome_images(self):
         for biome_key in BIOME_DEFS:
-            path = get_biome_tile_path(biome_key)
+            path = get_terrain_tile_path(biome_key)
             if not path:
                 continue
             try:
@@ -254,45 +254,57 @@ class UIManager:
                 continue
 
     @staticmethod
-    def _biome_key(biome):
-        return normalize_biome_key(biome)
+    def _terrain_key(terrain):
+        return normalize_terrain_key(terrain)
 
     @staticmethod
-    def _biome_label(biome):
-        return get_biome_label(biome)
+    def _terrain_label(terrain):
+        return get_terrain_label(terrain)
 
-    def _get_biome_thumb(self, biome_key, max_w, max_h):
-        if not biome_key:
-            return None
-        img = self.biome_images.get(biome_key)
-        if img is None:
-            return None
-        max_w = max(1, int(max_w))
-        max_h = max(1, int(max_h))
-        cache_key = (biome_key, max_w, max_h)
-        cached = self._biome_image_cache.get(cache_key)
-        if cached is not None:
-            return cached
-        w, h = img.get_size()
-        scale = min(max_w / w, max_h / h)
-        new_w = max(1, int(w * scale))
-        new_h = max(1, int(h * scale))
-        thumb = pygame.transform.smoothscale(img, (new_w, new_h))
-        self._biome_image_cache[cache_key] = thumb
-        return thumb
-
-    def _draw_biome_image(self, surface, x, y, max_w, y_limit, biome_key):
-        thumb = self._get_biome_thumb(biome_key, max_w, 96)
-        if thumb is None:
+    def _draw_terrain_preview(self, surface, x, y, max_w, y_limit, terrain_key):
+        if not terrain_key:
             return y
-        img_rect = thumb.get_rect(topleft=(x, y))
-        if img_rect.bottom + 8 > y_limit:
+        tile = self.biome_images.get(terrain_key)
+        if tile is None:
             return y
-        frame = img_rect.inflate(6, 6)
+        preview_h = min(96, max(40, y_limit - y - 8))
+        if preview_h < 40:
+            return y
+        inner = pygame.Rect(x, y, max(1, int(max_w)), preview_h)
+        frame = inner.inflate(6, 6)
         pygame.draw.rect(surface, (18, 18, 18), frame, border_radius=6)
         pygame.draw.rect(surface, (0, 0, 0), frame, 1, border_radius=6)
-        surface.blit(thumb, img_rect.topleft)
-        return img_rect.bottom + 8
+
+        preview = pygame.Surface(inner.size).convert()
+        tile_fill(preview, preview.get_rect(), tile)
+
+        veil = pygame.Surface(inner.size, pygame.SRCALPHA)
+        veil.fill((0, 0, 0, 20))
+        preview.blit(veil, (0, 0))
+        pygame.draw.rect(preview, (210, 204, 188), preview.get_rect(), 1, border_radius=4)
+
+        surface.blit(preview, inner.topleft)
+        return inner.bottom + 8
+
+    def _get_terrain_panel_tile(self, terrain_key, tile_size=128):
+        if not terrain_key:
+            return self.panel_tile
+        cache_key = (terrain_key, int(tile_size))
+        cached = self._terrain_panel_tiles.get(cache_key)
+        if cached is not None:
+            return cached
+
+        src = self.biome_images.get(terrain_key)
+        if src is None:
+            return self.panel_tile
+
+        tile_size = max(48, int(tile_size))
+        scaled = pygame.transform.smoothscale(src, (tile_size, tile_size))
+        resolved = pygame.Surface((tile_size, tile_size)).convert()
+        resolved.fill(get_terrain_color(terrain_key))
+        resolved.blit(scaled, (0, 0))
+        self._terrain_panel_tiles[cache_key] = resolved
+        return resolved
 
     @staticmethod
     def _roman_numeral(value):
@@ -781,7 +793,10 @@ class UIManager:
     def draw_right_panel(self, surface, rect, state):
         sel = state["selected_province"]
         title = sel.name if sel is not None else "Province"
-        content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=self.panel_tile, title_left_pad=28)
+        terrain = getattr(sel, "terrain", getattr(sel, "biome", None)) if sel is not None else None
+        terrain_key = self._terrain_key(terrain) if terrain is not None else None
+        panel_tile = self._get_terrain_panel_tile(terrain_key) if terrain_key else self.panel_tile
+        content = draw_framed_panel(surface, rect, title=title, title_color=INK, tile=panel_tile, title_left_pad=28)
 
         # Use full panel height (no bottom action buttons).
         y_limit = content.bottom - 6
@@ -822,11 +837,10 @@ class UIManager:
             safe_footer("Click a province on the map to inspect it.")
         else:
             # Province info
-            biome_key = self._biome_key(sel.biome)
-            biome_label = self._biome_label(sel.biome)
-            safe_header("Biome", color=(235, 228, 210))
-            y = self._draw_biome_image(surface, content.left, y, content.w - 6, y_limit, biome_key)
-            safe_body(biome_label, color=(220, 214, 198))
+            terrain_label = self._terrain_label(terrain)
+            safe_header("Terrain", color=(235, 228, 210))
+            y = self._draw_terrain_preview(surface, content.left, y, content.w - 6, y_limit, terrain_key)
+            safe_body(terrain_label, color=(220, 214, 198))
             safe_body(f"Culture: {sel.culture}")
             safe_body(f"Faith: {sel.faith}")
 

@@ -51,6 +51,10 @@ BIOME_ALIASES = {
     "fertile": "plains",
 }
 
+DEFAULT_TERRAIN = DEFAULT_BIOME
+TERRAIN_DEFS = BIOME_DEFS
+TERRAIN_ALIASES = BIOME_ALIASES
+
 _ASSETS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
 _TILE_DIR = os.path.join(_ASSETS_DIR, "tiles")
 
@@ -67,6 +71,10 @@ def normalize_biome_key(biome):
     return None
 
 
+def normalize_terrain_key(terrain):
+    return normalize_biome_key(terrain)
+
+
 def get_biome_label(biome):
     key = normalize_biome_key(biome)
     if key is None:
@@ -74,9 +82,17 @@ def get_biome_label(biome):
     return BIOME_DEFS[key]["label"]
 
 
+def get_terrain_label(terrain):
+    return get_biome_label(terrain)
+
+
 def get_biome_color(biome):
     key = normalize_biome_key(biome) or DEFAULT_BIOME
     return BIOME_DEFS[key]["color"]
+
+
+def get_terrain_color(terrain):
+    return get_biome_color(terrain)
 
 
 def get_biome_tile_path(biome):
@@ -90,3 +106,7 @@ def get_biome_tile_path(biome):
         if os.path.exists(legacy_path):
             return legacy_path
     return None
+
+
+def get_terrain_tile_path(terrain):
+    return get_biome_tile_path(terrain)

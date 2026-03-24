@@ -279,11 +279,10 @@ class MapRenderer:
             if direct_blit:
                 view.blit(subs, (0, 0))
             else:
-                scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
                 view.blit(scaled, (dx, dy))
 
-        # Subtle map overlay/vignette
-        draw_vignette(view, view.get_rect(), strength=85)
+        # Keep terrain unobscured.
 
         # Screen-space overlays (crisp at any zoom)
         overlay = self._overlay_surface
@@ -336,7 +335,7 @@ class MapRenderer:
                 if direct_blit:
                     view.blit(subs, (0, 0))
                 else:
-                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
+                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
                     view.blit(scaled, (dx, dy))
 
         # blit the final view

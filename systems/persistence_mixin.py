@@ -5,7 +5,7 @@ from core.date import GameDate
 from core.math_utils import clamp
 from systems.buildings import BUILDINGS, get_building_id, get_building_level, make_building
 from systems.traits import _stats_list_to_dict, apply_trait_effects, normalize_traits
-from world.biomes import get_biome_color, normalize_biome_key
+from world.biomes import normalize_terrain_key
 
 
 class PersistenceMixin:
@@ -86,7 +86,8 @@ class PersistenceMixin:
             provinces.append({
                 "id": int(prov.id),
                 "realm_id": int(prov.realm_id),
-                "biome": normalize_biome_key(getattr(prov, "biome", None)),
+                "terrain": normalize_terrain_key(getattr(prov, "terrain", getattr(prov, "biome", None))),
+                "biome": normalize_terrain_key(getattr(prov, "terrain", getattr(prov, "biome", None))),
                 "population": int(prov.population),
                 "buildings": buildings,
             })
@@ -307,10 +308,11 @@ class PersistenceMixin:
                     realm_id = prov.realm_id
                 if 0 <= realm_id < len(self.world.realm_names):
                     prov.realm_id = realm_id
-                biome = normalize_biome_key(item.get("biome", getattr(prov, "biome", None)))
-                if biome is not None:
-                    prov.biome = biome
-                    prov.biome_color = get_biome_color(biome)
+                terrain = normalize_terrain_key(
+                    item.get("terrain", item.get("biome", getattr(prov, "terrain", getattr(prov, "biome", None))))
+                )
+                if terrain is not None:
+                    prov.set_terrain(terrain)
                 try:
                     population = int(item.get("population", prov.population))
                 except (TypeError, ValueError):
