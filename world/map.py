@@ -1065,8 +1065,8 @@ class MapWorld:
         realm_set = set(realm_border)
         coast_set = set(coast)
 
-        # render border masks at 2x the low-res grid, then smoothscale to world
-        upscale = 4
+        # Supersample border masks more aggressively as render_scale increases.
+        upscale = max(4, self.render_scale * 2)
         w2, h2 = w * upscale, h * upscale
 
         def up_points(points):
@@ -1185,8 +1185,8 @@ class MapWorld:
         if not border_points:
             return None
 
-        # render border mask at 2x the low-res grid, then smoothscale to world
-        upscale = 4
+        # Match the main border supersampling so war outlines stay equally smooth.
+        upscale = max(4, self.render_scale * 2)
         w2, h2 = self.gw * upscale, self.gh * upscale
 
         def up_points(points):

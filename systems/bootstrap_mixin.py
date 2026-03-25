@@ -101,7 +101,7 @@ class BootstrapMixin:
         self.layout = Layout(*self.screen.get_size())
         self._game_bg_cache = {}
 
-        self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=4, render_scale=2)
+        self.world = MapWorld(seed=7, world_size=(3200, 2200), cell_scale=4, render_scale=3)
         self.camera = Camera(viewport_size=(100, 100), world_size=(self.world.world_w, self.world.world_h))
         self.map_renderer = MapRenderer(self.world, self.camera)
         self.camera.set_viewport(self._get_map_rect().size)
