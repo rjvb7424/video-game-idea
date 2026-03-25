@@ -1214,6 +1214,11 @@ class MapWorld:
         return overlay
 
     def _render_labels_and_markers(self):
+        if self.base_surface is None:
+            self._render_base()
+        if self.border_surface is None:
+            self._render_borders_and_coast()
+
         # Store draw items (rendered later in screen-space so no pixelation on zoom)
         self.capital_label_items = []
         self.minimal_label_items = []
