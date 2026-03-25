@@ -154,6 +154,8 @@ class MenuMixin:
         self.windowed_size = (w, h)
         self._center_window()
         self.layout.update(w, h)
+        if hasattr(self, "world") and hasattr(self.world, "rebuild_render_assets"):
+            self.world.rebuild_render_assets()
         self.camera.set_viewport(self._get_map_rect().size)
     def _apply_window_size(self, size, remember=True):
         w = max(1024, int(size[0]))
@@ -163,6 +165,8 @@ class MenuMixin:
         self.screen = pygame.display.set_mode((w, h), pygame.RESIZABLE)
         self._center_window()
         self.layout.update(w, h)
+        if hasattr(self, "world") and hasattr(self.world, "rebuild_render_assets"):
+            self.world.rebuild_render_assets()
         self.camera.set_viewport(self._get_map_rect().size)
     def _center_window(self):
         if not hasattr(pygame.display, "set_window_position"):

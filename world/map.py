@@ -219,6 +219,19 @@ class MapWorld:
 
         self._generate()
 
+    def rebuild_render_assets(self):
+        self.surface = pygame.Surface((self.render_w, self.render_h)).convert()
+        self.base_surface = pygame.Surface((self.render_w, self.render_h)).convert()
+        self.border_surface = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
+        self._terrain_source_tiles = self._load_terrain_source_tiles()
+        self._biome_tile_samples = self._load_biome_tile_samples()
+        self._biome_render_tiles = self._load_biome_render_tiles()
+        self._realm_border_cache = {}
+        self._realm_border_points = None
+        self._render_base()
+        self._render_borders_and_coast()
+        self._render_labels_and_markers()
+
     def _assign_terrain_per_province(self):
         """Assign deterministic terrain per province so each province gets a matching tile background."""
         if not self.provinces:
@@ -905,9 +918,31 @@ class MapWorld:
         # Terrain visibility is forced fully on so province tiles always render solid and readable.
         self.visibility_by_prov = {p.id: 1.0 for p in self.provinces}
 
+    def _build_province_render_mask(self, prov):
+        bounds = prov.bounds_cells
+        if bounds.w <= 0 or bounds.h <= 0:
+            return None, None
+
+        cs = self.render_cell_scale
+        world_rect = pygame.Rect(bounds.x * cs, bounds.y * cs, bounds.w * cs, bounds.h * cs)
+        if world_rect.w <= 0 or world_rect.h <= 0:
+            return None, None
+
+        low_mask = pygame.Surface((bounds.w, bounds.h), pygame.SRCALPHA).convert_alpha()
+        low_mask.lock()
+        for gy in range(bounds.h):
+            py = bounds.y + gy
+            row = self.prov_id[py]
+            for gx in range(bounds.w):
+                px = bounds.x + gx
+                if row[px] == prov.id:
+                    low_mask.set_at((gx, gy), (255, 255, 255, 255))
+        low_mask.unlock()
+
+        return world_rect, pygame.transform.smoothscale(low_mask, world_rect.size).convert_alpha()
+
     def _render_base(self):
         w, h = self.gw, self.gh
-        cs = self.render_cell_scale
         sea_low = pygame.Surface((w, h)).convert()
         px = pygame.PixelArray(sea_low)
         ntex = _value_noise_2d(w, h, cell_w=7, cell_h=7, seed=self.seed + 999)
@@ -939,20 +974,16 @@ class MapWorld:
 
         for prov in self.provinces:
             biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
-            bounds = prov.bounds_cells
-            if bounds.w <= 0 or bounds.h <= 0:
-                continue
-
-            world_rect = pygame.Rect(bounds.x * cs, bounds.y * cs, bounds.w * cs, bounds.h * cs)
-            if world_rect.w <= 0 or world_rect.h <= 0:
+            world_rect, province_mask = self._build_province_render_mask(prov)
+            if world_rect is None or province_mask is None:
                 continue
 
             render_tile = self._terrain_source_tiles.get(biome_key)
             if render_tile is None:
                 render_tile = self._biome_render_tiles.get(biome_key)
 
-            province_tile = pygame.Surface(world_rect.size).convert()
-            province_tile.fill(get_terrain_color(biome_key))
+            province_tile = pygame.Surface(world_rect.size, pygame.SRCALPHA).convert_alpha()
+            province_tile.fill((*get_terrain_color(biome_key), 255))
 
             if render_tile is not None:
                 base_tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
@@ -964,18 +995,8 @@ class MapWorld:
                     for tile_x in range(start_x, province_tile.get_width(), tile_size):
                         province_tile.blit(tiled_pattern, (tile_x, tile_y))
 
-            for gy in range(bounds.h):
-                py = bounds.y + gy
-                row = self.prov_id[py]
-                for gx in range(bounds.w):
-                    px = bounds.x + gx
-                    if row[px] != prov.id:
-                        continue
-                    wx = px * cs
-                    wy = py * cs
-                    src_x = gx * cs
-                    src_y = gy * cs
-                    self.base_surface.blit(province_tile, (wx, wy), (src_x, src_y, cs, cs))
+            province_tile.blit(province_mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            self.base_surface.blit(province_tile, world_rect.topleft)
 
         self.render_version += 1
 
