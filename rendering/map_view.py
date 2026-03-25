@@ -237,6 +237,7 @@ class MapRenderer:
 
         world_rect = pygame.Rect(0, 0, self.world.world_w, self.world.world_h)
         inter = vrect.clip(world_rect)
+        render_scale = max(1, int(getattr(self.world, "render_scale", 1)))
 
         z = self.camera.zoom
         show_minimal = z >= 0.75
@@ -267,19 +268,29 @@ class MapRenderer:
         view.fill(SEA_DEEP)
 
         if inter.w > 0 and inter.h > 0:
-            subs = self.world.surface.subsurface(inter)
+            render_rect = pygame.Rect(
+                inter.x * render_scale,
+                inter.y * render_scale,
+                inter.w * render_scale,
+                inter.h * render_scale,
+            )
+            subs = self.world.surface.subsurface(render_rect)
 
             # Scale to screen portion
             scaled_w = max(1, int(round(inter.w * z)))
             scaled_h = max(1, int(round(inter.h * z)))
             dx = int(round((inter.left - vrect.left) * z))
             dy = int(round((inter.top - vrect.top) * z))
-            direct_blit = inter.size == map_rect.size and abs(z - 1.0) < 0.001
+            direct_blit = (
+                render_scale == 1
+                and inter.size == map_rect.size
+                and abs(z - 1.0) < 0.001
+            )
 
             if direct_blit:
                 view.blit(subs, (0, 0))
             else:
-                scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
+                scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                 view.blit(scaled, (dx, dy))
 
         # Keep terrain unobscured.
@@ -331,11 +342,11 @@ class MapRenderer:
             for layer in overlay_surfaces:
                 if layer is None:
                     continue
-                subs = layer.subsurface(inter)
+                subs = layer.subsurface(render_rect)
                 if direct_blit:
                     view.blit(subs, (0, 0))
                 else:
-                    scaled = pygame.transform.scale(subs, (scaled_w, scaled_h))
+                    scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                     view.blit(scaled, (dx, dy))
 
         # blit the final view

@@ -178,19 +178,23 @@ def hash2(x, y, seed):
 
 
 class MapWorld:
-    def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8):
+    def __init__(self, seed=7, world_size=(3200, 2200), cell_scale=8, render_scale=1):
         self.seed = seed
         self.rnd = random.Random(seed)
         self.world_w, self.world_h = world_size
         self.cell_scale = cell_scale
+        self.render_scale = max(1, int(render_scale))
+        self.render_w = self.world_w * self.render_scale
+        self.render_h = self.world_h * self.render_scale
+        self.render_cell_scale = self.cell_scale * self.render_scale
 
         # low-res grid resolution
         self.gw = self.world_w // self.cell_scale
         self.gh = self.world_h // self.cell_scale
 
-        self.surface = pygame.Surface((self.world_w, self.world_h)).convert()
-        self.base_surface = pygame.Surface((self.world_w, self.world_h)).convert()
-        self.border_surface = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        self.surface = pygame.Surface((self.render_w, self.render_h)).convert()
+        self.base_surface = pygame.Surface((self.render_w, self.render_h)).convert()
+        self.border_surface = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
 
         self.land = [[False for _ in range(self.gw)] for __ in range(self.gh)]
         self.height = [[0.0 for _ in range(self.gw)] for __ in range(self.gh)]
@@ -417,12 +421,12 @@ class MapWorld:
         for mask in low_masks.values():
             mask.unlock()
 
-        detail = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA).convert_alpha()
+        detail = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA).convert_alpha()
         for biome_key, low_mask in low_masks.items():
             if low_mask.get_bounding_rect().w <= 0 or low_mask.get_bounding_rect().h <= 0:
                 continue
-            mask = pygame.transform.smoothscale(low_mask, (self.world_w, self.world_h)).convert_alpha()
-            tiled = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA).convert_alpha()
+            mask = pygame.transform.smoothscale(low_mask, (self.render_w, self.render_h)).convert_alpha()
+            tiled = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA).convert_alpha()
             tile_fill(tiled, tiled.get_rect(), self._biome_render_tiles[biome_key])
             tiled.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
             detail.blit(tiled, (0, 0))
@@ -903,7 +907,7 @@ class MapWorld:
 
     def _render_base(self):
         w, h = self.gw, self.gh
-        cs = self.cell_scale
+        cs = self.render_cell_scale
         sea_low = pygame.Surface((w, h)).convert()
         px = pygame.PixelArray(sea_low)
         ntex = _value_noise_2d(w, h, cell_w=7, cell_h=7, seed=self.seed + 999)
@@ -931,7 +935,7 @@ class MapWorld:
 
         del px
 
-        self.base_surface = pygame.transform.smoothscale(sea_low, (self.world_w, self.world_h)).convert()
+        self.base_surface = pygame.transform.smoothscale(sea_low, (self.render_w, self.render_h)).convert()
 
         for prov in self.provinces:
             biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
@@ -951,7 +955,8 @@ class MapWorld:
             province_tile.fill(get_terrain_color(biome_key))
 
             if render_tile is not None:
-                tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
+                base_tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
+                tile_size = max(32, base_tile_size * self.render_scale)
                 tiled_pattern = pygame.transform.smoothscale(render_tile, (tile_size, tile_size))
                 start_x = -(world_rect.x % tile_size)
                 start_y = -(world_rect.y % tile_size)
@@ -982,7 +987,7 @@ class MapWorld:
             return
 
         w, h = self.gw, self.gh
-        cs = self.cell_scale
+        cs = self.render_cell_scale
 
         # Group land cells by biome key (single pass over the grid).
         cells_by_biome = {}
@@ -1005,7 +1010,7 @@ class MapWorld:
                 continue
 
             # Build a world-sized opaque surface tiled with this biome's texture.
-            tile_surf = pygame.Surface((self.world_w, self.world_h)).convert()
+            tile_surf = pygame.Surface((self.render_w, self.render_h)).convert()
             tile_surf.fill(get_terrain_color(bk))
             tile_fill(tile_surf, tile_surf.get_rect(), render_tile)
 
@@ -1093,28 +1098,28 @@ class MapWorld:
         mask_coast = make_mask(coast_thick2, alpha=150)
 
         # smooth scale masks to world resolution (anti-aliased look)
-        ms_thin = pygame.transform.smoothscale(mask_thin, (self.world_w, self.world_h))
-        ms_realm = pygame.transform.smoothscale(mask_realm, (self.world_w, self.world_h))
-        ms_coast = pygame.transform.smoothscale(mask_coast, (self.world_w, self.world_h))
+        ms_thin = pygame.transform.smoothscale(mask_thin, (self.render_w, self.render_h))
+        ms_realm = pygame.transform.smoothscale(mask_realm, (self.render_w, self.render_h))
+        ms_coast = pygame.transform.smoothscale(mask_coast, (self.render_w, self.render_h))
 
-        self.border_surface = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        self.border_surface = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
 
         # coastline foam (keep subtle)
-        foam = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        foam = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         foam.fill((*COAST_FOAM, 255))
         foam.blit(ms_coast, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         self.border_surface.blit(foam, (0, 0))
 
         # province borders: subtle ink
-        thick_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        thick_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         thick_ink.fill((*BORDER_INK_DARK, 255))
 
-        thin_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        thin_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         thin_ink.fill((*BORDER_INK, 255))
         thin_ink.blit(ms_thin, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
         # realm borders: slightly stronger ink
-        realm_ink = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        realm_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         realm_ink.fill((*BORDER_REALM_INK, 255))
         realm_ink.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
@@ -1200,8 +1205,8 @@ class MapWorld:
         for (x, y) in realm_thick2:
             mask.set_at((x, y), (255, 255, 255, 235))
 
-        ms_realm = pygame.transform.smoothscale(mask, (self.world_w, self.world_h))
-        overlay = pygame.Surface((self.world_w, self.world_h), pygame.SRCALPHA)
+        ms_realm = pygame.transform.smoothscale(mask, (self.render_w, self.render_h))
+        overlay = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         overlay.fill((*color, 255))
         overlay.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
@@ -1233,6 +1238,8 @@ class MapWorld:
         # IMPORTANT: only bake terrain + borders (no labels)
         self.surface = self.base_surface.copy()
         self.surface.blit(self.border_surface, (0, 0))
+        self.base_surface = None
+        self.border_surface = None
         self.render_version += 1
 
     def _generate(self):

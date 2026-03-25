@@ -51,19 +51,25 @@ class MapUIMixin:
         pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
 
     def _get_siege_stripe_base(self):
-        key = (self.world.world_w, self.world.world_h)
+        key = (self.world.render_w, self.world.render_h)
         if self._siege_stripe_base is not None and self._siege_stripe_base_key == key:
             return self._siege_stripe_base
 
-        tile_size = 24
-        stripe_gap = 6
+        tile_size = 24 * max(1, int(getattr(self.world, "render_scale", 1)))
+        stripe_gap = max(2, 6 * max(1, int(getattr(self.world, "render_scale", 1))))
         stripe = pygame.Surface((tile_size, tile_size), pygame.SRCALPHA)
         stripe.fill((0, 0, 0, 0))
         stripe_color = (235, 225, 205, 70)
         for x in range(-tile_size, tile_size * 2, stripe_gap):
-            pygame.draw.line(stripe, stripe_color, (x, 0), (x + tile_size, tile_size), 2)
+            pygame.draw.line(
+                stripe,
+                stripe_color,
+                (x, 0),
+                (x + tile_size, tile_size),
+                max(1, 2 * max(1, int(getattr(self.world, "render_scale", 1)))),
+            )
 
-        base = pygame.Surface((self.world.world_w, self.world.world_h), pygame.SRCALPHA)
+        base = pygame.Surface((self.world.render_w, self.world.render_h), pygame.SRCALPHA)
         tile_fill(base, base.get_rect(), stripe)
         self._siege_stripe_base = base
         self._siege_stripe_base_key = key
@@ -81,7 +87,7 @@ class MapUIMixin:
                 if pid >= 0 and pid in sieged_set:
                     mask.set_at((x, y), (255, 255, 255, 255))
 
-        mask_big = pygame.transform.scale(mask, (self.world.world_w, self.world.world_h))
+        mask_big = pygame.transform.smoothscale(mask, (self.world.render_w, self.world.render_h))
         overlay = self._get_siege_stripe_base().copy()
         overlay.blit(mask_big, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         return overlay

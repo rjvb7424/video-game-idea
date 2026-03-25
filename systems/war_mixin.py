@@ -202,7 +202,7 @@ class WarMixin:
         if targets == self._war_border_overlay_key and self._war_border_overlay is not None:
             return self._war_border_overlay, targets
 
-        overlay = pygame.Surface((self.world.world_w, self.world.world_h), pygame.SRCALPHA)
+        overlay = pygame.Surface((self.world.render_w, self.world.render_h), pygame.SRCALPHA)
         has_any = False
         for rid in targets:
             border = self.world.get_realm_border_surface(rid)
