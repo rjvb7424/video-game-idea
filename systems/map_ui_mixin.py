@@ -1,5 +1,3 @@
-import math
-
 import pygame
 
 from core.surfaces import tile_fill
@@ -36,19 +34,150 @@ class MapUIMixin:
                 return True
         return False
 
+    def _get_province_mask(self, prov):
+        """Low-res SRCALPHA mask (1 px per grid cell) for a province, cached."""
+        if not hasattr(self, '_prov_mask_cache'):
+            self._prov_mask_cache = {}
+        if prov.id in self._prov_mask_cache:
+            return self._prov_mask_cache[prov.id]
+        world = self.world
+        bounds = prov.bounds_cells
+        mask = pygame.Surface((max(1, bounds.w), max(1, bounds.h)), pygame.SRCALPHA)
+        mask.fill((0, 0, 0, 0))
+        pid = prov.id
+        grid = world.prov_id
+        for gy in range(bounds.h):
+            ry = bounds.y + gy
+            if ry < 0 or ry >= world.gh:
+                continue
+            row = grid[ry]
+            for gx in range(bounds.w):
+                rx = bounds.x + gx
+                if 0 <= rx < world.gw and row[rx] == pid:
+                    mask.set_at((gx, gy), (255, 255, 255, 255))
+        self._prov_mask_cache[prov.id] = mask
+        return mask
+
+    def _get_province_border_cells(self, prov):
+        """Cached list of (gx, gy, edges) where edges is a subset of 'TRBL'."""
+        if not hasattr(self, '_prov_border_cache'):
+            self._prov_border_cache = {}
+        if prov.id in self._prov_border_cache:
+            return self._prov_border_cache[prov.id]
+        world = self.world
+        bounds = prov.bounds_cells
+        grid = world.prov_id
+        pid = prov.id
+        result = []
+        for gy in range(bounds.y, bounds.y + bounds.h):
+            if gy < 0 or gy >= world.gh:
+                continue
+            row = grid[gy]
+            for gx in range(bounds.x, bounds.x + bounds.w):
+                if gx < 0 or gx >= world.gw or row[gx] != pid:
+                    continue
+                edges = ''
+                if gy - 1 < 0 or grid[gy - 1][gx] != pid:
+                    edges += 'T'
+                if gy + 1 >= world.gh or grid[gy + 1][gx] != pid:
+                    edges += 'B'
+                if gx - 1 < 0 or row[gx - 1] != pid:
+                    edges += 'L'
+                if gx + 1 >= world.gw or row[gx + 1] != pid:
+                    edges += 'R'
+                if edges:
+                    result.append((gx, gy, edges))
+        self._prov_border_cache[prov.id] = result
+        return result
+
+    def _draw_province_tint(self, surface, map_rect, prov, rgba):
+        """Additively brighten province cells using BLEND_ADD (no SRCALPHA needed)."""
+        world = self.world
+        cs = world.cell_scale
+        z = self.camera.zoom
+        bounds = prov.bounds_cells
+        vx = self.camera.view_rect(use_target=False)
+
+        sw = max(1, int(bounds.w * cs * z))
+        sh = max(1, int(bounds.h * cs * z))
+        sx = int((bounds.x * cs - vx.left) * z + map_rect.left)
+        sy = int((bounds.y * cs - vx.top) * z + map_rect.top)
+
+        # Brightness per channel: colour * alpha/255
+        r, g, b, a = rgba
+        add_color = (r * a // 255, g * a // 255, b * a // 255)
+
+        # Build (and cache) a tiny non-alpha surface: province=(add_color), non-province=(0,0,0)
+        if not hasattr(self, '_prov_add_cache'):
+            self._prov_add_cache = {}
+        cache_key = (prov.id, add_color)
+        if cache_key not in self._prov_add_cache:
+            small = pygame.Surface((max(1, bounds.w), max(1, bounds.h))).convert()
+            small.fill((0, 0, 0))
+            grid = world.prov_id
+            pid = prov.id
+            for gy in range(bounds.h):
+                ry = bounds.y + gy
+                if 0 <= ry < world.gh:
+                    row = grid[ry]
+                    for gx in range(bounds.w):
+                        rx = bounds.x + gx
+                        if 0 <= rx < world.gw and row[rx] == pid:
+                            small.set_at((gx, gy), add_color)
+            self._prov_add_cache[cache_key] = small
+
+        add_small = self._prov_add_cache[cache_key]
+        add_scaled = pygame.transform.smoothscale(add_small, (sw, sh))
+
+        dest = pygame.Rect(sx, sy, sw, sh)
+        clip = dest.clip(map_rect)
+        if clip.w > 0 and clip.h > 0:
+            src_rect = pygame.Rect(clip.x - sx, clip.y - sy, clip.w, clip.h)
+            surface.blit(add_scaled, clip.topleft, src_rect, special_flags=pygame.BLEND_ADD)
+
+    def _draw_province_border_outline(self, surface, map_rect, prov, color, width=2):
+        """Draw province-edge lines in screen space for the selected province."""
+        world = self.world
+        cs = world.cell_scale
+        z = self.camera.zoom
+        vx = self.camera.view_rect(use_target=False)
+        cell_px = max(1, int(cs * z))
+        cs_z = cs * z
+        off_x = -vx.left * z + map_rect.left
+        off_y = -vx.top * z + map_rect.top
+
+        border_cells = self._get_province_border_cells(prov)
+        surface.set_clip(map_rect)
+        for gx, gy, edges in border_cells:
+            sx = int(gx * cs_z + off_x)
+            sy = int(gy * cs_z + off_y)
+            ex = sx + cell_px
+            ey = sy + cell_px
+            if 'T' in edges:
+                pygame.draw.line(surface, color, (sx, sy), (ex, sy), width)
+            if 'B' in edges:
+                pygame.draw.line(surface, color, (sx, ey), (ex, ey), width)
+            if 'L' in edges:
+                pygame.draw.line(surface, color, (sx, sy), (sx, ey), width)
+            if 'R' in edges:
+                pygame.draw.line(surface, color, (ex, sy), (ex, ey), width)
+        surface.set_clip(None)
+
     def _draw_selected_province_highlight(self, surface, map_rect):
-        if self.selected_province is None:
-            return
-        sp = self.camera.world_to_screen(self.selected_province.center, map_rect, use_target=False)
-        x, y = int(sp.x), int(sp.y)
-        if not map_rect.collidepoint(x, y):
-            return
-        t = pygame.time.get_ticks() / 350.0
-        pulse = 0.5 + 0.5 * math.sin(t)
-        base = 14
-        ring = base + int(8 * pulse)
-        pygame.draw.circle(surface, (250, 220, 120), (x, y), ring, 3)
-        pygame.draw.circle(surface, (255, 245, 230), (x, y), base, 2)
+        # Hover tint: detect province under mouse
+        mx, my = pygame.mouse.get_pos()
+        hovered = None
+        if map_rect.collidepoint(mx, my) and not self._point_in_ui((mx, my)):
+            wp = self.camera.screen_to_world((mx, my), map_rect, use_target=False)
+            hovered = self.world.province_at_world(wp)
+
+        sel = self.selected_province
+
+        if hovered is not None and hovered is not sel:
+            self._draw_province_tint(surface, map_rect, hovered, (255, 255, 255, 45))
+
+        if sel is not None:
+            self._draw_province_border_outline(surface, map_rect, sel, (255, 255, 255), width=2)
 
     def _get_siege_stripe_base(self):
         key = (self.world.render_w, self.world.render_h)
