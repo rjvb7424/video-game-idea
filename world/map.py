@@ -1115,13 +1115,10 @@ class MapWorld:
             return s
 
         mask_thin = make_mask(thin2, alpha=190)
-        many_realms = len(self.realm_colors) > 20
-        mask_realm = make_mask(realm_thick2, alpha=110 if many_realms else 200)
         mask_coast = make_mask(coast_thick2, alpha=150)
 
         # smooth scale masks to world resolution (anti-aliased look)
         ms_thin = pygame.transform.smoothscale(mask_thin, (self.render_w, self.render_h))
-        ms_realm = pygame.transform.smoothscale(mask_realm, (self.render_w, self.render_h))
         ms_coast = pygame.transform.smoothscale(mask_coast, (self.render_w, self.render_h))
 
         self.border_surface = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
@@ -1132,20 +1129,27 @@ class MapWorld:
         foam.blit(ms_coast, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         self.border_surface.blit(foam, (0, 0))
 
-        # province borders: subtle ink
-        thick_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
-        thick_ink.fill((*BORDER_INK_DARK, 255))
-
+        # Province borders: subtle grey ink
         thin_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
         thin_ink.fill((*BORDER_INK, 255))
         thin_ink.blit(ms_thin, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
 
-        # realm borders: slightly stronger ink
-        realm_ink = pygame.Surface((self.render_w, self.render_h), pygame.SRCALPHA)
-        realm_ink.fill((*BORDER_REALM_INK, 255))
-        realm_ink.blit(ms_realm, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        # Realm borders: each realm drawn in its own color.
+        # Paint all realm border points at upscale resolution, smoothscale for AA.
+        colored_borders = pygame.Surface((w2, h2), pygame.SRCALPHA)
+        for rid, pts in realm_border_points.items():
+            if rid >= len(self.realm_colors):
+                continue
+            rc = self.realm_colors[rid]
+            for (x, y) in pts:
+                ox, oy = x * upscale, y * upscale
+                r = pygame.Rect(ox - 1, oy - 1, upscale + 2, upscale + 2)
+                r.clamp_ip(pygame.Rect(0, 0, w2, h2))
+                colored_borders.fill((*rc, 230), r)
 
-        self.border_surface.blit(realm_ink, (0, 0))
+        ms_realm_colored = pygame.transform.smoothscale(colored_borders, (self.render_w, self.render_h))
+
+        self.border_surface.blit(ms_realm_colored, (0, 0))
         self.border_surface.blit(thin_ink, (0, 0))
         self._realm_border_points = realm_border_points
 
