@@ -407,7 +407,20 @@ class MenuMixin:
             if 0 <= cap_pid < len(self.world.provinces):
                 cap = self.world.provinces[cap_pid]
                 sp = self.camera.world_to_screen(cap.center, map_rect, use_target=False)
-                pygame.draw.circle(surface, (240, 210, 120), (int(sp.x), int(sp.y)), 18, 3)
+                _name_h = FOOTER_FONT.render(cap.name, True, (0, 0, 0)).get_height() + 10
+                _flag_h = max(26, int(_name_h * 2.0))
+                _flag_w = max(18, int(_flag_h * 0.55))
+                _notch = max(6, int(_flag_h * 0.22))
+                _bx = int(sp.x) - _flag_w // 2
+                _by = int(sp.y) + 8 - _flag_h // 2
+                _pts = [
+                    (_bx, _by),
+                    (_bx + _flag_w, _by),
+                    (_bx + _flag_w, _by + _flag_h - _notch),
+                    (_bx + _flag_w // 2, _by + _flag_h),
+                    (_bx, _by + _flag_h - _notch),
+                ]
+                pygame.draw.polygon(surface, (220, 175, 60), _pts, 3)
 
         self._draw_selected_province_highlight(surface, map_rect)
 
