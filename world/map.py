@@ -356,8 +356,8 @@ class MapWorld:
             except pygame.error:
                 continue
 
-            resolved = pygame.Surface(src.get_size()).convert()
-            resolved.fill(get_terrain_color(terrain_key))
+            resolved = pygame.Surface(src.get_size(), pygame.SRCALPHA)
+            resolved.fill((*get_terrain_color(terrain_key), 255))
             resolved.blit(src, (0, 0))
             tiles[terrain_key] = resolved
         return tiles
@@ -391,8 +391,8 @@ class MapWorld:
             # Flatten alpha: composite onto opaque biome-color background so transparent
             # regions in the PNG don't produce invisible holes when tile-filled.
             # Use convert_alpha() so blitting onto SRCALPHA terrain_layer sets alpha=255.
-            resolved = pygame.Surface((tile_size, tile_size)).convert()
-            resolved.fill(get_terrain_color(biome_key))
+            resolved = pygame.Surface((tile_size, tile_size), pygame.SRCALPHA)
+            resolved.fill((*get_terrain_color(biome_key), 255))
             resolved.blit(scaled, (0, 0))
             tiles[biome_key] = resolved
         return tiles
@@ -948,7 +948,7 @@ class MapWorld:
 
         del px
 
-        self.base_surface = pygame.transform.smoothscale(sea_low, (self.render_w, self.render_h)).convert()
+        self.base_surface = pygame.transform.smoothscale(sea_low, (self.render_w, self.render_h)).convert_alpha()
 
         for prov in self.provinces:
             biome_key = normalize_terrain_key(getattr(prov, "terrain", prov.biome)) or DEFAULT_TERRAIN
@@ -964,8 +964,8 @@ class MapWorld:
             if render_tile is None:
                 render_tile = self._biome_render_tiles.get(biome_key)
 
-            province_tile = pygame.Surface(world_rect.size).convert()
-            province_tile.fill(get_terrain_color(biome_key))
+            province_tile = pygame.Surface(world_rect.size, pygame.SRCALPHA)
+            province_tile.fill((*get_terrain_color(biome_key), 255))
 
             if render_tile is not None:
                 base_tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
