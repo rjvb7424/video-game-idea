@@ -867,21 +867,23 @@ class MapWorld:
         # Generate MANY distinct-but-muted colors (deterministic)
         import colorsys
 
-        # Nordfolken-style: all realms are "kingdom-blue" variants (CK3-ish),
-        # still distinct via hue/sat/value jitter.
-        base_blue_h = 0.60
-        h_jitter = 0.05
-        s_min, s_max = 0.25, 0.42
-        v_min, v_max = 0.42, 0.62
+        # Spread hues evenly across the full wheel using golden-ratio steps so
+        # neighbouring realm indices land on maximally-different hues.
+        GOLDEN = 0.6180339887
+        rr0 = random.Random(self.seed * 10007 + 555)
+        base_h = rr0.random()  # random starting offset per seed
 
         self.realm_colors = []
         for i in range(realm_n):
             rr = random.Random(self.seed * 10007 + i * 97 + 555)
 
-            # keep hue within a blue band
-            h = clamp(base_blue_h + (rr.random() - 0.5) * 2.0 * h_jitter, 0.0, 1.0)
-            s = s_min + rr.random() * (s_max - s_min)
-            v = v_min + rr.random() * (v_max - v_min)
+            h = (base_h + i * GOLDEN) % 1.0
+            # Skip the yellow-green band (0.16-0.22) which looks muddy on maps
+            if 0.16 <= h <= 0.22:
+                h = (h + 0.08) % 1.0
+
+            s = 0.55 + rr.random() * 0.20   # 0.55-0.75: vivid enough to pop
+            v = 0.52 + rr.random() * 0.18   # 0.52-0.70: not too dark, not washed out
 
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             self.realm_colors.append((int(r * 255), int(g * 255), int(b * 255)))
@@ -968,14 +970,21 @@ class MapWorld:
             province_tile.fill((*get_terrain_color(biome_key), 255))
 
             if render_tile is not None:
-                base_tile_size = max(160, min(240, int(min(render_tile.get_width(), render_tile.get_height()) * 0.45)))
-                tile_size = max(32, base_tile_size * self.render_scale)
-                tiled_pattern = pygame.transform.smoothscale(render_tile, (tile_size, tile_size))
-                start_x = -(world_rect.x % tile_size)
-                start_y = -(world_rect.y % tile_size)
-                for tile_y in range(start_y, province_tile.get_height(), tile_size):
-                    for tile_x in range(start_x, province_tile.get_width(), tile_size):
-                        province_tile.blit(tiled_pattern, (tile_x, tile_y))
+                src_w, src_h = render_tile.get_size()
+                dst_w, dst_h = province_tile.get_size()
+                scale = max(dst_w / max(src_w, 1), dst_h / max(src_h, 1))
+                scaled_w = max(1, int(src_w * scale))
+                scaled_h = max(1, int(src_h * scale))
+                scaled_tile = pygame.transform.smoothscale(render_tile, (scaled_w, scaled_h))
+                ox = (dst_w - scaled_w) // 2
+                oy = (dst_h - scaled_h) // 2
+                province_tile.blit(scaled_tile, (ox, oy))
+
+            # Semi-transparent realm color overlay so provinces are easy to tell apart
+            realm_rgb = self.realm_colors[prov.realm_id] if prov.realm_id < len(self.realm_colors) else (128, 128, 128)
+            overlay = pygame.Surface(world_rect.size, pygame.SRCALPHA)
+            overlay.fill((*realm_rgb, 72))
+            province_tile.blit(overlay, (0, 0))
 
             for gy in range(bounds.h):
                 py = bounds.y + gy
