@@ -132,14 +132,6 @@ class MapRenderer:
         banner_surf.set_alpha(alpha)
         surf.blit(banner_surf, rect.topleft)
 
-        if realm_color is not None:
-            outline = self._banner_painter.shade_color(realm_color, -0.6)
-        else:
-            outline = (20, 20, 20)
-        outline_alpha = int(alpha * 0.85)
-        outline_pts = [(rect.left + x, rect.top + y) for x, y in pts]
-        pygame.draw.polygon(surf, (*outline, outline_alpha), outline_pts, 1)
-
     def _draw_nameplate(
         self,
         surf,

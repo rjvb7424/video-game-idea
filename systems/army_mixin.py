@@ -682,7 +682,17 @@ class ArmyMixin:
             self.army_step_from = self.army_prov_id
             self.army_step_to = self.army_route[0]
             self.army_step_progress = 0.0
-        if self.army_step_to is None:
+        if self.army_step_to is None or self.army_step_from is None:
+            return
+        if not (0 <= self.army_step_from < len(self.world.provinces)):
+            self.army_route = []
+            self.army_step_from = None
+            self.army_step_to = None
+            return
+        if not (0 <= self.army_step_to < len(self.world.provinces)):
+            self.army_route = []
+            self.army_step_from = None
+            self.army_step_to = None
             return
         start = self.world.provinces[self.army_step_from].center
         end = self.world.provinces[self.army_step_to].center

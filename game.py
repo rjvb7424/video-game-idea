@@ -1,3 +1,5 @@
+import traceback
+
 from systems.army_mixin import ArmyMixin
 from systems.bootstrap_mixin import BootstrapMixin
 from systems.economy_mixin import EconomyMixin
@@ -25,4 +27,11 @@ class GameApp(
 
 
 if __name__ == "__main__":
-    GameApp().run()
+    try:
+        GameApp().run()
+    except Exception:
+        tb = traceback.format_exc()
+        print(tb)
+        with open("crash.log", "w") as f:
+            f.write(tb)
+        input("Crash logged to crash.log — press Enter to exit")

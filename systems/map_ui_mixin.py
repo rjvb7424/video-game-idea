@@ -1,3 +1,5 @@
+import math
+
 import pygame
 
 from core.surfaces import tile_fill
@@ -279,7 +281,7 @@ class MapUIMixin:
         surface.blit(label, label_rect)
 
         if selected:
-            pygame.draw.rect(surface, (230, 210, 120), body_rect.inflate(6, 6), 2, border_radius=4)
+            pygame.draw.rect(surface, (255, 255, 255), body_rect.inflate(6, 6), 2, border_radius=4)
 
     def _draw_army_muster_marker(self, surface, map_rect):
         if self.army.get("raised", 0) <= 0 and not self.army_raising:
