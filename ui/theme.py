@@ -8,7 +8,7 @@ BG_COLOR = (24, 24, 24)
 
 # font constants
 COLOR = (255, 255, 255)
-FONT_PATH = pygame.font.match_font("arial")
+FONT_PATH = pygame.font.match_font("garamond,georgia,timesnewroman,palatino,arial") or pygame.font.match_font("arial")
 TITLE_FONT = pygame.font.Font(FONT_PATH, 24)
 HEADER_FONT = pygame.font.Font(FONT_PATH, 20)
 BODY_FONT = pygame.font.Font(FONT_PATH, 16)
