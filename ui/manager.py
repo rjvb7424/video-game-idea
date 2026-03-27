@@ -1,3 +1,4 @@
+import os
 import random
 import pygame
 
@@ -51,6 +52,15 @@ BANNER_TEMPLATES = (
     "canton",
     "cross",
 )
+
+SKILL_COLORS = {
+    "Diplomacy":   (100, 140, 220),
+    "Intrigue":    (160, 100, 220),
+    "Learning":    (235, 228, 210),
+    "Martial":     (210, 100, 100),
+    "Stewardship": (100, 190, 130),
+    "Prowess":     (214, 120, 50),
+}
 
 
 class BannerPainter:
@@ -241,6 +251,8 @@ class UIManager:
         self.biome_images = {}
         self._terrain_panel_tiles = {}
         self._load_biome_images()
+        self._skill_icons = {}
+        self._load_skill_icons()
         self._banner_painter = BannerPainter()
 
     def _load_biome_images(self):
@@ -252,6 +264,24 @@ class UIManager:
                 self.biome_images[biome_key] = pygame.image.load(path).convert_alpha()
             except pygame.error:
                 continue
+
+    def _load_skill_icons(self, icon_size=14):
+        _SKILL_ICON_FILES = {
+            "Diplomacy":   "diplomacy.png",
+            "Intrigue":    "intrigue.png",
+            "Learning":    "learning.png",
+            "Martial":     "marshall.png",
+            "Stewardship": "stewardship.png",
+            "Prowess":     "prowess.png",
+        }
+        base = os.path.join(os.path.dirname(__file__), "..", "assets", "skills")
+        for stat_key, filename in _SKILL_ICON_FILES.items():
+            path = os.path.join(base, filename)
+            try:
+                img = pygame.image.load(path).convert_alpha()
+                self._skill_icons[stat_key] = pygame.transform.smoothscale(img, (icon_size, icon_size))
+            except (pygame.error, FileNotFoundError):
+                pass
 
     @staticmethod
     def _terrain_key(terrain):
@@ -634,20 +664,27 @@ class UIManager:
                 y = draw_body_text(surface, f"• {trait_name(t)}", content.left, y, color=color)
         y += 6
 
-        # Attributes (CK-like columns)
+        # Attributes (CK-like columns) — 2-column grid
         y = draw_header_text(surface, "Attributes", content.left, y, color=(230, 224, 208))
         stats = character.get("stats", [])
         left_x = content.left
         mid_x = content.left + content.w // 2
-        for i, (k, v) in enumerate(stats):
-            tx = left_x if i % 2 == 0 else mid_x
-            if i % 2 == 0 and i > 0:
-                y += 2
-            yy = y if i % 2 == 0 else y - (BODY_FONT.get_height() + 4)
-            draw_body_text(surface, f"{k}: {v}", tx, yy, color=(220, 214, 198))
-            if i % 2 == 1:
-                y += BODY_FONT.get_height() + 6
-        y += 8
+        icon_size = 14
+        icon_gap = 4
+        row_h = BODY_FONT.get_height() + 6
+        for row in range(0, len(stats), 2):
+            for col, (k, v) in enumerate(stats[row:row + 2]):
+                tx = left_x if col == 0 else mid_x
+                color = SKILL_COLORS.get(k, (220, 214, 198))
+                icon = self._skill_icons.get(k)
+                if icon:
+                    icon_y = y + max(0, (BODY_FONT.get_height() - icon_size) // 2)
+                    surface.blit(icon, (tx, icon_y))
+                    draw_body_text(surface, f"{k}: {v}", tx + icon_size + icon_gap, y, color=color)
+                else:
+                    draw_body_text(surface, f"{k}: {v}", tx, y, color=color)
+            y += row_h
+        y += 4
 
         # Family
         y = draw_header_text(surface, "Family", content.left, y, color=(230, 224, 208))
@@ -713,6 +750,28 @@ class UIManager:
 
         # Keep identity first, then actions directly below it.
         y = self._draw_character_details(surface, content, y, c, identity_only=True)
+
+        # Skills (with icons and per-skill colours) — 2-column, 3-row grid
+        y = draw_header_text(surface, "Skills", content.left, y, color=(230, 224, 208))
+        stats = c.get("stats", [])
+        _icon_size = 14
+        _icon_gap = 4
+        _left_x = content.left
+        _mid_x = content.left + content.w // 2
+        _row_h = BODY_FONT.get_height() + 6
+        for _row in range(0, len(stats), 2):
+            for _col, (_k, _v) in enumerate(stats[_row:_row + 2]):
+                _tx = _left_x if _col == 0 else _mid_x
+                _color = SKILL_COLORS.get(_k, (220, 214, 198))
+                _icon = self._skill_icons.get(_k)
+                if _icon:
+                    _icon_y = y + max(0, (BODY_FONT.get_height() - _icon_size) // 2)
+                    surface.blit(_icon, (_tx, _icon_y))
+                    draw_body_text(surface, f"{_k}: {_v}", _tx + _icon_size + _icon_gap, y, color=_color)
+                else:
+                    draw_body_text(surface, f"{_k}: {_v}", _tx, y, color=_color)
+            y += _row_h
+        y += 4
 
         btn_h = 28
         btn_gap = 6
