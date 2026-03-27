@@ -253,6 +253,8 @@ class UIManager:
         self._load_biome_images()
         self._skill_icons = {}
         self._load_skill_icons()
+        self._resource_icons = {}
+        self._load_resource_icons()
         self._banner_painter = BannerPainter()
 
     def _load_biome_images(self):
@@ -280,6 +282,24 @@ class UIManager:
             try:
                 img = pygame.image.load(path).convert_alpha()
                 self._skill_icons[stat_key] = pygame.transform.smoothscale(img, (icon_size, icon_size))
+            except (pygame.error, FileNotFoundError):
+                pass
+
+    def _load_resource_icons(self, icon_size=22):
+        _RESOURCE_ICON_FILES = {
+            "Gold":       "gold.png",
+            "Piety":      "piety.png",
+            "Population": "population.png",
+            "Manpower":   "manpower.png",
+            "Food":       "food.png",
+            "Threat":     "threat.png",
+        }
+        base = os.path.join(os.path.dirname(__file__), "..", "assets", "resources")
+        for key, filename in _RESOURCE_ICON_FILES.items():
+            path = os.path.join(base, filename)
+            try:
+                img = pygame.image.load(path).convert_alpha()
+                self._resource_icons[key] = pygame.transform.smoothscale(img, (icon_size, icon_size))
             except (pygame.error, FileNotFoundError):
                 pass
 
@@ -443,7 +463,7 @@ class UIManager:
             army_text = f"{max_army:,}"
             army_w = max(190, BODY_FONT.size(f"Manpower: {army_text}")[0] + 36)
             army_rect = pygame.Rect(right_edge - army_w, y, army_w, bh)
-            self._draw_resource(surface, army_rect, "Manpower", army_text, rate=None, icon_color=(140, 150, 200))
+            self._draw_resource(surface, army_rect, "Manpower", army_text, rate=None, icon_color=(140, 150, 200), icon_size=28)
             right_edge = army_rect.left - gap
 
         # ---------- RIGHT SIDE: Population ----------
@@ -452,14 +472,14 @@ class UIManager:
             pop_text = self._format_population(pop_value)
             pop_w = max(190, BODY_FONT.size(f"Population: {pop_text}")[0] + 36)
             pop_rect = pygame.Rect(right_edge - pop_w, y, pop_w, bh)
-            self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120))
+            self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120), icon_size=28)
             right_edge = pop_rect.left - gap
 
         # ---------- RIGHT SIDE: Food / Threat bars ----------
         food = state.get("food")
         threat = state.get("threat")
         if food is not None:
-            bar_w = 160
+            bar_w = 190
             food_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
             food_color = (190, 140, 70)  # balanced (orange)
             if isinstance(food, (tuple, list)) and len(food) == 2:
@@ -476,7 +496,7 @@ class UIManager:
             self._draw_meter(surface, food_rect, "Food", food, fill_color=food_color)
             right_edge = food_rect.left - gap
         if threat is not None:
-            bar_w = 160
+            bar_w = 190
             threat_rect = pygame.Rect(right_edge - bar_w, y, bar_w, bh)
             self._draw_meter(surface, threat_rect, "Threat", threat, fill_color=(170, 90, 90))
             right_edge = threat_rect.left - gap
@@ -503,16 +523,23 @@ class UIManager:
 
         return btns
 
-    def _draw_resource(self, surface, rect, label, value, rate=None, icon_color=(200, 200, 200)):
+    def _draw_resource(self, surface, rect, label, value, rate=None, icon_color=(200, 200, 200), icon_size=22):
         pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
         # icon
-        icon_r = 7
-        icon_cx = rect.left + 18
-        icon_cy = rect.centery
-        pygame.draw.circle(surface, icon_color, (icon_cx, icon_cy), icon_r)
-        pygame.draw.circle(surface, (0, 0, 0), (icon_cx, icon_cy), icon_r, 1)
+        icon_x = rect.left + 8
+        icon_y = rect.centery - icon_size // 2
+        icon = self._resource_icons.get(label)
+        if icon:
+            scaled = pygame.transform.smoothscale(icon, (icon_size, icon_size)) if icon.get_width() != icon_size else icon
+            surface.blit(scaled, (icon_x, icon_y))
+        else:
+            icon_r = icon_size // 2 - 1
+            icon_cx = icon_x + icon_size // 2
+            icon_cy = rect.centery
+            pygame.draw.circle(surface, icon_color, (icon_cx, icon_cy), icon_r)
+            pygame.draw.circle(surface, (0, 0, 0), (icon_cx, icon_cy), icon_r, 1)
 
         main_text = f"{label}: {value}"
         main_surf = BODY_FONT.render(main_text, True, (235, 228, 210))
@@ -523,7 +550,7 @@ class UIManager:
             rate_text = f" ({rate:+d})"
             rate_surf = FOOTER_FONT.render(rate_text, True, (160, 155, 145))
 
-        text_x = icon_cx + 16
+        text_x = icon_x + icon_size + 8
 
         main_y = rect.centery - main_surf.get_height() // 2
         rate_y = rect.centery - (rate_surf.get_height() // 2 if rate_surf is not None else 0)
@@ -537,9 +564,6 @@ class UIManager:
             surface.blit(rate_surf, (text_x + main_surf.get_width(), rate_y))
 
     def _draw_meter(self, surface, rect, label, value, fill_color=(120, 160, 120)):
-        pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
-        pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
-
         if isinstance(value, (tuple, list)) and len(value) == 2:
             produced = max(0, int(round(value[0])))
             consumed = max(0, int(round(value[1])))
@@ -553,11 +577,25 @@ class UIManager:
         else:
             value = max(0, min(100, int(value)))
             label_text = f"{label}: {value}%"
+
+        # Background covers the full rect (icon will be inside)
+        pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
+        pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
+
+        icon_size = 22
+        icon = self._resource_icons.get(label)
+        content_x = rect.left + 10
+        if icon:
+            icon_y = rect.centery - icon_size // 2
+            surface.blit(icon, (rect.left + 8, icon_y))
+            content_x = rect.left + 8 + icon_size + 6
+
         label_surf = FOOTER_FONT.render(label_text, True, (235, 228, 210))
-        surface.blit(label_surf, (rect.left + 10, rect.top + 6))
+        label_y = rect.centery - label_surf.get_height() - 1
+        surface.blit(label_surf, (content_x, label_y))
 
         bar_h = 6
-        bar_rect = pygame.Rect(rect.left + 10, rect.bottom - 10 - bar_h, rect.w - 20, bar_h)
+        bar_rect = pygame.Rect(content_x, rect.centery + 2, rect.right - content_x - 8, bar_h)
         pygame.draw.rect(surface, (45, 45, 45), bar_rect, border_radius=4)
         fill_w = int(bar_rect.w * (value / 100.0))
         if fill_w > 0:
