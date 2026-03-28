@@ -467,10 +467,20 @@ class MenuMixin:
             mult = min(mult, max_mult)
         self.events.daily_chance = self.base_event_daily_chance * mult
     def _refresh_fog_visuals(self):
+        """Full refresh — re-renders terrain + borders + fog. Use when realm
+        ownership or terrain changes (war end, game start, province capture)."""
         if hasattr(self.world, "_render_base"):
             self.world._render_base()
         if hasattr(self.world, "_render_labels_and_markers"):
             self.world._render_labels_and_markers()
+        if hasattr(self.world, "_build_fog_surface"):
+            self.world._build_fog_surface()
+
+    def _refresh_fog_only(self):
+        """Fast path — only rebuilds the fog overlay and label visibility lists.
+        Skips the expensive terrain re-render. Use for army movement."""
+        if hasattr(self.world, "_update_label_visibility"):
+            self.world._update_label_visibility()
         if hasattr(self.world, "_build_fog_surface"):
             self.world._build_fog_surface()
     def _set_full_visibility(self):

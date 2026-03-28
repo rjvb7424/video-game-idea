@@ -1299,32 +1299,32 @@ class MapWorld:
         self._realm_border_cache[realm_id] = overlay
         return overlay
 
+    def _update_label_visibility(self):
+        """Refilter which province labels are visible based on current visibility_by_prov.
+        Does NOT re-render terrain — call this for cheap fog-only updates."""
+        capitals = set(getattr(self, "realm_capitals", []))
+        tower_pid = getattr(self, "tower_pid", -1)
+        self.capital_label_items = []
+        self.minimal_label_items = []
+        for prov in self.provinces:
+            vis = self.visibility_by_prov.get(prov.id, 0.0)
+            if vis < 0.78:
+                continue
+            pid = prov.id
+            if pid == tower_pid:
+                continue
+            if pid in capitals:
+                self.capital_label_items.append(pid)
+            elif prov.cell_count >= 320:
+                self.minimal_label_items.append(pid)
+
     def _render_labels_and_markers(self):
         if self.base_surface is None:
             self._render_base()
         if self.border_surface is None:
             self._render_borders_and_coast()
 
-        # Store draw items (rendered later in screen-space so no pixelation on zoom)
-        self.capital_label_items = []
-        self.minimal_label_items = []
-        capitals = set(getattr(self, "realm_capitals", []))
-
-        # Labels only for seen + border provinces (same fog rules as before)
-        for prov in self.provinces:
-            vis = self.visibility_by_prov.get(prov.id, 0.45)
-            if vis < 0.78:
-                continue
-
-            # Capitals always get the big label (even if a bit smaller)
-            if prov.id in capitals:
-                self.capital_label_items.append(prov.id)
-                continue
-
-            # Non-capitals: only show minimal labels for larger provinces (reduce clutter)
-            if prov.cell_count < 320:
-                continue
-            self.minimal_label_items.append(prov.id)
+        self._update_label_visibility()
 
         # IMPORTANT: only bake terrain + borders (no labels)
         self.surface = self.base_surface.copy()

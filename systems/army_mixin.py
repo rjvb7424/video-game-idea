@@ -762,4 +762,4 @@ class ArmyMixin:
         self.world.extra_visible_provs = extra
         if hasattr(self.world, "_compute_fog_of_war"):
             self.world._compute_fog_of_war()
-            self._refresh_fog_visuals()
+            self._refresh_fog_only()

@@ -350,13 +350,10 @@ class MapUIMixin:
         if len(points_world) < 2:
             return
 
-        points = [
-            (
-                int(self.camera.world_to_screen(p, map_rect, use_target=False).x),
-                int(self.camera.world_to_screen(p, map_rect, use_target=False).y),
-            )
-            for p in points_world
-        ]
+        points = []
+        for p in points_world:
+            sp = self.camera.world_to_screen(p, map_rect, use_target=False)
+            points.append((int(sp.x), int(sp.y)))
 
         pygame.draw.lines(surface, (230, 230, 230), False, points, 3)
         draw_arrow_head(points[-2], points[-1], (230, 230, 230), width=3)
