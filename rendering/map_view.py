@@ -1,3 +1,5 @@
+import math
+
 import pygame
 
 from core.geometry import shield_points
@@ -111,6 +113,7 @@ class MapRenderer:
         size,
         alpha=220,
     ):
+        """Capital banner: tall rectangle with swallowtail (two triangular tails) at the bottom."""
         banner = self._banner_painter.get_banner(dynasty_key, realm_color, size)
         if banner is None:
             fallback = pygame.Surface(size, pygame.SRCALPHA)
@@ -119,18 +122,38 @@ class MapRenderer:
 
         w, h = banner.get_size()
         rect = banner.get_rect(center=(int(center[0]), int(center[1])))
-        shadow = rect.move(2, 2)
-        pygame.draw.rect(surf, (0, 0, 0, int(alpha * 0.25)), shadow, border_radius=8)
 
+        split_y = int(h * 0.62)
+        notch_y = split_y + int((h - split_y) * 0.38)
+        l_tip_x = int(w * 0.22)
+        r_tip_x = int(w * 0.78)
+
+        # swallowtail shape in local coords
+        local_pts = [
+            (0, 0),
+            (w, 0),
+            (w, split_y),
+            (r_tip_x, h),
+            (w // 2, notch_y),
+            (l_tip_x, h),
+            (0, split_y),
+        ]
+
+        # drop shadow
+        shadow_pts = [(rect.x + x + 2, rect.y + y + 2) for x, y in local_pts]
+        pygame.draw.polygon(surf, (0, 0, 0, int(alpha * 0.28)), shadow_pts)
+
+        # mask banner texture into swallowtail
         banner_surf = banner.copy()
-        notch = max(6, int(h * 0.22))
         shape = pygame.Surface((w, h), pygame.SRCALPHA)
-        pts = [(0, 0), (w, 0), (w, h - notch), (w // 2, h), (0, h - notch)]
-        pygame.draw.polygon(shape, (255, 255, 255, 255), pts)
+        pygame.draw.polygon(shape, (255, 255, 255, 255), local_pts)
         banner_surf.blit(shape, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
         banner_surf.set_alpha(alpha)
         surf.blit(banner_surf, rect.topleft)
+
+        # outline
+        world_pts = [(rect.x + x, rect.y + y) for x, y in local_pts]
+        pygame.draw.polygon(surf, (20, 16, 10, int(alpha * 0.85)), world_pts, 1)
 
     def _draw_nameplate(
         self,
@@ -168,39 +191,63 @@ class MapRenderer:
         label = prov.name
         pad_x, pad_y = 12, 5
         text_surf = FOOTER_FONT.render(label, True, (0, 0, 0))
-        name_w = text_surf.get_width() + pad_x * 2
         name_h = text_surf.get_height() + pad_y * 2
 
-        flag_h = max(26, int(name_h * 2.0))
-        flag_w = max(18, int(flag_h * 0.55))
-        gap = 6
+        flag_h = max(40, int(name_h * 2.6))
+        flag_w = max(22, int(flag_h * 0.58))
+        gap = 5
 
-        flag_center = (center[0], center[1] + 8)
-        name_center = (center[0], flag_center[1] + flag_h // 2 + gap + name_h // 2)
+        flag_center = (center[0], center[1] + 4)
+        # bottom of banner = flag_center_y + flag_h/2, but swallowtail tips go to flag_h below rect top
+        banner_bottom = int(flag_center[1]) + flag_h // 2
+        name_center = (center[0], banner_bottom + gap + name_h // 2)
 
         self._draw_flag_banner(surf, flag_center, dynasty_key, base, (flag_w, flag_h), alpha=a)
         self._draw_nameplate(surf, name_center, label, alpha=a)
 
+    def _draw_minor_banner(self, surf, center, name, alpha=220):
+        """Minor landmark banner: square shape with a single small point at the bottom + white nameplate."""
+        cx, cy = int(center[0]), int(center[1])
+
+        bw, bh = 34, 34   # square
+        tip   = 10         # single small point at bottom
+
+        fill      = (195, 158, 55, alpha)
+        dark_line = (80, 58, 12, int(alpha * 0.9))
+        light     = (240, 225, 180, int(alpha * 0.88))
+
+        top_y = cy - bh // 2
+
+        # swallowtail-lite shape: square top, single small V at bottom
+        pts = [
+            (cx - bw // 2, top_y),
+            (cx + bw // 2, top_y),
+            (cx + bw // 2, top_y + bh),
+            (cx,           top_y + bh + tip),
+            (cx - bw // 2, top_y + bh),
+        ]
+
+        # shadow
+        shadow_pts = [(x + 2, y + 2) for x, y in pts]
+        pygame.draw.polygon(surf, (0, 0, 0, int(alpha * 0.25)), shadow_pts)
+
+        pygame.draw.polygon(surf, fill, pts)
+        pygame.draw.polygon(surf, dark_line, pts, 1)
+
+        # simple cross in centre
+        cross_cx, cross_cy = cx, top_y + bh // 2
+        arm = max(7, bw // 4)
+        pygame.draw.line(surf, light, (cross_cx - arm, cross_cy), (cross_cx + arm, cross_cy), 2)
+        pygame.draw.line(surf, light, (cross_cx, cross_cy - arm), (cross_cx, cross_cy + arm), 2)
+
+        # white nameplate below
+        name_h = FOOTER_FONT.get_height()
+        pad_y  = 5
+        name_center_y = top_y + bh + tip + pad_y + (name_h + pad_y * 2) // 2
+        self._draw_nameplate(surf, (cx, name_center_y), name, alpha=alpha)
+
     def _draw_tower_marker(self, surf, center, show_text=True):
-        x, y = int(center[0]), int(center[1])
-
-        # tower body
-        body = pygame.Rect(x - 6, y - 18, 12, 20)
-        pygame.draw.rect(surf, (210, 200, 180, 230), body, border_radius=2)
-        pygame.draw.rect(surf, (20, 18, 16, 220), body, 1, border_radius=2)
-
-        # spire
-        spire = [(x, y - 28), (x - 6, y - 18), (x + 6, y - 18)]
-        pygame.draw.polygon(surf, (225, 215, 195, 235), spire)
-        pygame.draw.polygon(surf, (20, 18, 16, 210), spire, 1)
-
-        if show_text:
-            label = "Tower of Heaven"
-            text = FOOTER_FONT.render(label, True, (240, 220, 150))
-            shadow = FOOTER_FONT.render(label, True, (0, 0, 0))
-            tr = text.get_rect(midtop=(x, y + 8))
-            surf.blit(shadow, (tr.x + 1, tr.y + 1))
-            surf.blit(text, tr)
+        self._draw_minor_banner(surf, center, "Tower of Heaven", alpha=225)
 
     def draw(self, surface, map_rect, overlay_surfaces=None, overlay_key=None):
         if self._cached_size != map_rect.size:
