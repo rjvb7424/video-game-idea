@@ -16,8 +16,8 @@ from world.biomes import (
 )
 
 # Map palette (subdued, CK1-ish)
-SEA_DEEP = (10, 22, 40)
-SEA_SHALLOWS = (18, 38, 64)
+SEA_DEEP = (18, 42, 80)
+SEA_SHALLOWS = (30, 62, 110)
 COAST_FOAM = (90, 110, 120)
 
 LAND_GREEN = (70, 86, 58)
@@ -960,7 +960,7 @@ class MapWorld:
 
         # One pixel per grid cell; start fully fogged.
         fog_low = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
-        fog_low.fill((*FOG_RGB, 228))
+        fog_low.fill((*FOG_RGB, 200))
 
         px = pygame.PixelArray(fog_low)
         for y in range(h):
