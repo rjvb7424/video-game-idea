@@ -285,7 +285,7 @@ class UIManager:
             except (pygame.error, FileNotFoundError):
                 pass
 
-    def _load_resource_icons(self, icon_size=22):
+    def _load_resource_icons(self, icon_size=26):
         _RESOURCE_ICON_FILES = {
             "Gold":       "gold.png",
             "Piety":      "piety.png",
@@ -463,7 +463,7 @@ class UIManager:
             army_text = f"{max_army:,}"
             army_w = max(190, BODY_FONT.size(f"Manpower: {army_text}")[0] + 36)
             army_rect = pygame.Rect(right_edge - army_w, y, army_w, bh)
-            self._draw_resource(surface, army_rect, "Manpower", army_text, rate=None, icon_color=(140, 150, 200), icon_size=28)
+            self._draw_resource(surface, army_rect, "Manpower", army_text, rate=None, icon_color=(140, 150, 200))
             right_edge = army_rect.left - gap
 
         # ---------- RIGHT SIDE: Population ----------
@@ -472,7 +472,7 @@ class UIManager:
             pop_text = self._format_population(pop_value)
             pop_w = max(190, BODY_FONT.size(f"Population: {pop_text}")[0] + 36)
             pop_rect = pygame.Rect(right_edge - pop_w, y, pop_w, bh)
-            self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120), icon_size=28)
+            self._draw_resource(surface, pop_rect, "Population", pop_text, rate=None, icon_color=(120, 160, 120))
             right_edge = pop_rect.left - gap
 
         # ---------- RIGHT SIDE: Food / Threat bars ----------
@@ -523,17 +523,17 @@ class UIManager:
 
         return btns
 
-    def _draw_resource(self, surface, rect, label, value, rate=None, icon_color=(200, 200, 200), icon_size=22):
+    def _draw_resource(self, surface, rect, label, value, rate=None, icon_color=(200, 200, 200)):
         pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
-        # icon
+        # icon — use pre-scaled image as-is (no draw-time rescaling)
+        icon = self._resource_icons.get(label)
+        icon_size = icon.get_width() if icon else 26
         icon_x = rect.left + 8
         icon_y = rect.centery - icon_size // 2
-        icon = self._resource_icons.get(label)
         if icon:
-            scaled = pygame.transform.smoothscale(icon, (icon_size, icon_size)) if icon.get_width() != icon_size else icon
-            surface.blit(scaled, (icon_x, icon_y))
+            surface.blit(icon, (icon_x, icon_y))
         else:
             icon_r = icon_size // 2 - 1
             icon_cx = icon_x + icon_size // 2
@@ -582,8 +582,8 @@ class UIManager:
         pygame.draw.rect(surface, (22, 22, 22), rect, border_radius=8)
         pygame.draw.rect(surface, (0, 0, 0), rect, 2, border_radius=8)
 
-        icon_size = 22
         icon = self._resource_icons.get(label)
+        icon_size = icon.get_width() if icon else 26
         content_x = rect.left + 10
         if icon:
             icon_y = rect.centery - icon_size // 2
