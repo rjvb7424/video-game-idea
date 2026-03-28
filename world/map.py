@@ -210,6 +210,8 @@ class MapWorld:
         self.tower_pid = -1
         self._realm_border_cache = {}
         self._realm_border_points = None
+        self.fog_surface = None
+        self._cached_adj = None
 
         # UI-ish textures / overlay noise
         self.paper_tile = make_noise_tile((64, 64), (24, 24, 24), variance=10, alpha=255, seed=seed + 555)
@@ -917,8 +919,66 @@ class MapWorld:
             self.player_capital_pid = near
 
     def _compute_fog_of_war(self):
-        # Terrain visibility is forced fully on so province tiles always render solid and readable.
-        self.visibility_by_prov = {p.id: 1.0 for p in self.provinces}
+        if not self.provinces:
+            self.visibility_by_prov = {}
+            return
+
+        # Cache adjacency — province topology never changes during a session.
+        if self._cached_adj is None:
+            self._cached_adj = self._build_province_adjacency()
+        adj = self._cached_adj
+
+        player_rid = self.player_realm_id
+        extra = getattr(self, "extra_visible_provs", set())
+
+        # Player-owned provinces
+        player_provs = {p.id for p in self.provinces if p.realm_id == player_rid}
+
+        # Visible = player territory + every province that directly borders it + army vision
+        visible = set(player_provs)
+        for pid in player_provs:
+            if pid < len(adj):
+                visible.update(adj[pid])
+        visible.update(extra)
+        for pid in list(extra):
+            if pid < len(adj):
+                visible.update(adj[pid])
+
+        vis = {}
+        for p in self.provinces:
+            vis[p.id] = 1.0 if p.id in visible else 0.0
+        self.visibility_by_prov = vis
+
+    def _build_fog_surface(self):
+        """Build a fog-of-war overlay at world resolution.
+
+        A low-res (cell-grid) alpha mask is smooth-scaled up to world pixel
+        resolution so province edges produce natural gradient fog borders.
+        """
+        FOG_RGB = (8, 10, 20)
+        w, h = self.gw, self.gh
+
+        # One pixel per grid cell; start fully fogged.
+        fog_low = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+        fog_low.fill((*FOG_RGB, 228))
+
+        px = pygame.PixelArray(fog_low)
+        for y in range(h):
+            for x in range(w):
+                pid = self.prov_id[y][x]
+                if pid < 0:
+                    continue  # water stays fogged
+                vis = self.visibility_by_prov.get(pid, 0.0)
+                if vis >= 0.999:
+                    px[x, y] = (0, 0, 0, 0)   # fully transparent — visible province
+        del px
+
+        # Smooth-scale to world pixel resolution: the upscale blurs cell edges
+        # into soft fog gradients without any extra blur pass.
+        self.fog_surface = pygame.transform.smoothscale(
+            fog_low, (self.world_w, self.world_h)
+        ).convert_alpha()
+        self.render_version += 1
 
     def _render_base(self):
         w, h = self.gw, self.gh
@@ -1288,6 +1348,7 @@ class MapWorld:
         self._render_base()
         self._render_borders_and_coast()
         self._render_labels_and_markers()
+        self._build_fog_surface()
 
     def province_at_world(self, world_pos):
         x, y = int(world_pos[0]), int(world_pos[1])

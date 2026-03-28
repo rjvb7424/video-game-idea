@@ -285,7 +285,18 @@ class MapRenderer:
                 scaled = pygame.transform.smoothscale(subs, (scaled_w, scaled_h))
                 view.blit(scaled, (dx, dy))
 
-        # Keep terrain unobscured.
+        # Fog of war overlay (world-space, blitted before screen labels)
+        fog_surf = getattr(self.world, "fog_surface", None)
+        if fog_surf is not None and inter.w > 0 and inter.h > 0:
+            # fog_surface is at world resolution (world_w × world_h), no render_scale factor
+            fog_rect = pygame.Rect(inter.x, inter.y, inter.w, inter.h).clip(fog_surf.get_rect())
+            if fog_rect.w > 0 and fog_rect.h > 0:
+                fog_sub = fog_surf.subsurface(fog_rect)
+                if direct_blit and fog_rect.size == map_rect.size:
+                    view.blit(fog_sub, (dx, dy))
+                else:
+                    scaled_fog = pygame.transform.smoothscale(fog_sub, (scaled_w, scaled_h))
+                    view.blit(scaled_fog, (dx, dy))
 
         # Screen-space overlays (crisp at any zoom)
         overlay = self._overlay_surface

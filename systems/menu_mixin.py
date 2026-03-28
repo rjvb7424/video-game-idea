@@ -471,6 +471,8 @@ class MenuMixin:
             self.world._render_base()
         if hasattr(self.world, "_render_labels_and_markers"):
             self.world._render_labels_and_markers()
+        if hasattr(self.world, "_build_fog_surface"):
+            self.world._build_fog_surface()
     def _set_full_visibility(self):
         self.world.visibility_by_prov = {p.id: 1.0 for p in self.world.provinces}
         self._refresh_fog_visuals()
