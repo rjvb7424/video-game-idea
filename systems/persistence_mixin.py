@@ -577,8 +577,6 @@ class PersistenceMixin:
                 "ai_state": str(entry.get("ai_state", "idle")),
             }
             self.enemy_armies.append(enemy)
-        if not self.enemy_armies:
-            self._init_enemy_armies()
 
         self.campaign_result = state.get("campaign_result")
         self._campaign_start_provinces = max(1, int(state.get("campaign_start_provinces", self._campaign_start_provinces)))

@@ -51,15 +51,14 @@ class ArmyMixin:
         if self._threat_activity_today:
             self._threat_activity_today = False
             return
-        self._threat_inactive_days = max(0, int(getattr(self, "_threat_inactive_days", 0))) + 1
+        self._threat_inactive_days += 1
         if self._threat_level <= float(self.baseline_threat):
             self._threat_level = float(self.baseline_threat)
             self.threat = int(self.baseline_threat)
             return
-        grace_days = max(0, int(getattr(self, "threat_decay_grace_days", 5)))
-        if self._threat_inactive_days <= grace_days:
+        if self._threat_inactive_days <= self.threat_decay_grace_days:
             return
-        decay = max(0.0, float(getattr(self, "threat_decay_per_day", 0.35)))
+        decay = self.threat_decay_per_day
         self._threat_level = max(float(self.baseline_threat), self._threat_level - decay)
         self.threat = int(clamp(round(self._threat_level), 0, 100))
 
@@ -85,41 +84,6 @@ class ArmyMixin:
 
     def _init_enemy_armies(self):
         self.enemy_armies = []
-        if not self.world.realm_names:
-            return
-        candidates = [rid for rid in range(len(self.world.realm_names)) if rid != self.player_realm_id]
-        if not candidates:
-            return
-        candidates.sort(key=lambda rid: self.world.total_population_for_realm(rid), reverse=True)
-        rid = candidates[0]
-
-        pid = None
-        if hasattr(self.world, "realm_capitals") and 0 <= rid < len(self.world.realm_capitals):
-            pid = self.world.realm_capitals[rid]
-        if pid is None or not (0 <= pid < len(self.world.provinces)):
-            for prov in self.world.provinces:
-                if prov.realm_id == rid:
-                    pid = prov.id
-                    break
-        if pid is None:
-            return
-
-        max_army = int(round(self.world.total_population_for_realm(rid) * self.army_pop_ratio))
-        max_army = max(1, max_army)
-        raised = max(1, int(round(max_army * 0.85)))
-
-        self.enemy_armies.append(
-            {
-                "realm_id": rid,
-                "prov_id": pid,
-                "pos": self.world.provinces[pid].center.copy(),
-                "army": {"raised": raised, "max": max_army, "morale": 70},
-                "raising": False,
-                "route": [],
-                "target_pid": None,
-                "ai_state": "idle",
-            }
-        )
 
     def _enemy_army_at(self, pid):
         for enemy in self.enemy_armies:

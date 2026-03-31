@@ -247,7 +247,7 @@ class MapUIMixin:
     def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False, marshal=None):
         if max_army <= 0:
             return
-        ratio = 0.0 if max_army <= 0 else max(0.0, min(1.0, raised / max_army))
+        ratio = max(0.0, min(1.0, raised / max_army))
         sp = self.camera.world_to_screen(pos, map_rect, use_target=False)
         x, y = int(sp.x), int(sp.y)
         if not map_rect.collidepoint(x, y):
