@@ -564,6 +564,7 @@ class GameLoopMixin:
                 left_state = dict(state)
                 left_state["character"] = left_character
                 left_state["character_realm_id"] = left_realm_id
+                left_state["player_character"] = self.character
                 npc_target = self._get_npc_target()
                 left_state["npc_target"] = npc_target
                 left_state["npc_actions_enabled"] = True

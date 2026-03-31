@@ -28,6 +28,9 @@ from ui.theme import (
     FOOTER_FONT,
     HEADER_FONT,
     INK,
+    LEFT_BODY_FONT,
+    LEFT_FOOTER_FONT,
+    LEFT_HEADER_FONT,
 )
 from world.biomes import BIOME_DEFS, get_terrain_color, get_terrain_label, get_terrain_tile_path, normalize_terrain_key
 
@@ -256,6 +259,39 @@ class UIManager:
         self._resource_icons = {}
         self._load_resource_icons()
         self._banner_painter = BannerPainter()
+        self._character_portraits = {"male": [], "female": []}
+        self._portrait_cache = {}
+        self._load_character_portraits()
+
+    def _load_character_portraits(self):
+        base = os.path.join(os.path.dirname(__file__), "..", "assets", "character_portraits")
+        for prefix, gender in [("male_nordfolken", "male"), ("female_nordfolken", "female")]:
+            for i in range(1, 20):
+                path = os.path.join(base, f"{prefix}_{i}.png")
+                if not os.path.exists(path):
+                    break
+                try:
+                    self._character_portraits[gender].append(pygame.image.load(path).convert_alpha())
+                except pygame.error:
+                    pass
+
+    def _get_character_portrait(self, character, size):
+        if not isinstance(character, dict):
+            return None
+        gender = str(character.get("gender", "male")).lower()
+        pool = self._character_portraits.get(gender if gender in ("male", "female") else "male", [])
+        if not pool:
+            pool = self._character_portraits.get("male", [])
+        if not pool:
+            return None
+        name = str(character.get("name", ""))
+        idx = abs(hash(name)) % len(pool)
+        cache_key = (gender, idx, size)
+        if cache_key in self._portrait_cache:
+            return self._portrait_cache[cache_key]
+        scaled = pygame.transform.smoothscale(pool[idx], size)
+        self._portrait_cache[cache_key] = scaled
+        return scaled
 
     def _load_biome_images(self):
         for biome_key in BIOME_DEFS:
@@ -631,36 +667,38 @@ class UIManager:
         return first
 
     def draw_left_panel_toggle(self, surface, rect, state):
-        character = state["character"]
+        # Always show the player's own character on the toggle, not a selected NPC
+        character = state.get("player_character", state["character"])
         label = self._ruler_short_name(character)
 
         pad = 10
-        max_w = max(160, rect.w - pad * 2)
-        banner_w = min(160, max_w)
-        banner_h = max(44, int(banner_w * 0.55))
+        portrait_w = min(140, rect.w - pad * 2)
+        portrait_h = portrait_w   # images are square; keep 1:1 for best quality
         bx = rect.left + pad
         by = rect.top + pad
-        banner_rect = pygame.Rect(bx, by, banner_w, banner_h)
+        portrait_area = pygame.Rect(bx, by, portrait_w, portrait_h)
 
-        text = self._ellipsize(label, BODY_FONT, banner_w)
+        text = self._ellipsize(label, BODY_FONT, portrait_w)
         text_surf = BODY_FONT.render(text, True, (235, 228, 210))
         label_pad_x = 10
         label_pad_y = 4
         label_rect = pygame.Rect(0, 0, text_surf.get_width() + label_pad_x * 2, text_surf.get_height() + label_pad_y * 2)
-        label_rect.midtop = (banner_rect.centerx, banner_rect.bottom + 6)
+        label_rect.midtop = (portrait_area.centerx, portrait_area.bottom + 6)
 
-        click_rect = banner_rect.union(label_rect)
+        click_rect = portrait_area.union(label_rect)
         mx, my = pygame.mouse.get_pos()
         hovered = click_rect.collidepoint(mx, my)
 
-        frame = banner_rect.inflate(8, 8)
+        frame = portrait_area.inflate(8, 8)
         pygame.draw.rect(surface, (12, 12, 12), frame, border_radius=8)
-        frame_color = (110, 100, 88) if hovered else (70, 64, 56)
+        frame_color = (120, 105, 88) if hovered else (72, 62, 50)
         pygame.draw.rect(surface, frame_color, frame, 2, border_radius=8)
 
-        realm_color = self._resolve_realm_color(state)
-        realm_id = state.get("character_realm_id", state.get("player_realm_id", 0))
-        self._draw_dynasty_banner(surface, banner_rect, character, realm_color, realm_id)
+        portrait = self._get_character_portrait(character, (portrait_w, portrait_h))
+        if portrait:
+            surface.blit(portrait, portrait_area.topleft)
+        else:
+            pygame.draw.rect(surface, (55, 44, 34), portrait_area)
 
         pygame.draw.rect(surface, (26, 26, 28), label_rect, border_radius=6)
         pygame.draw.rect(surface, (0, 0, 0), label_rect, 1, border_radius=6)
@@ -671,16 +709,16 @@ class UIManager:
 
     def _draw_character_details(self, surface, content, y, character, *, identity_only=False):
         # Identity
-        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208))
-        y = draw_body_text(surface, f"Title: {character.get('title','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Faith: {character.get('faith','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Culture: {character.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_header_text(surface, "Identity", content.left, y, color=(230, 224, 208), font=LEFT_HEADER_FONT)
+        y = draw_body_text(surface, f"Title: {character.get('title','—')}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Faith: {character.get('faith','—')}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Culture: {character.get('culture','—')}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
         gender_label = character.get("gender", "—")
         if isinstance(gender_label, str):
             gender_label = gender_label.title()
         age_label = character.get("age", "—")
-        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Gender: {gender_label}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Age: {age_label}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
         y += 8
         if identity_only:
             return y
@@ -786,28 +824,44 @@ class UIManager:
             b_close = draw_deny_button(surface, "X", close_rect.x, close_rect.y, close_rect.w, close_rect.h)
             btns.append((b_close, "left_panel_close"))
 
+        # Character portrait — same display size as the toggle button
+        portrait_w = 140
+        portrait_h = portrait_w
+        portrait_rect = pygame.Rect(0, 0, portrait_w, portrait_h)
+        portrait_rect.centerx = content.centerx
+        portrait_rect.top = y
+        portrait_img = self._get_character_portrait(c, (portrait_w, portrait_h))
+        frame_r = portrait_rect.inflate(6, 6)
+        pygame.draw.rect(surface, (18, 14, 10), frame_r, border_radius=8)
+        pygame.draw.rect(surface, (90, 72, 52), frame_r, 1, border_radius=8)
+        if portrait_img:
+            surface.blit(portrait_img, portrait_rect.topleft)
+        else:
+            pygame.draw.rect(surface, (55, 44, 34), portrait_rect, border_radius=6)
+        y = portrait_rect.bottom + 10
+
         # Keep identity first, then actions directly below it.
         y = self._draw_character_details(surface, content, y, c, identity_only=True)
 
         # Skills (with icons and per-skill colours) — 2-column, 3-row grid
-        y = draw_header_text(surface, "Skills", content.left, y, color=(230, 224, 208))
+        y = draw_header_text(surface, "Skills", content.left, y, color=(230, 224, 208), font=LEFT_HEADER_FONT)
         stats = c.get("stats", [])
-        _icon_size = 14
+        _icon_size = 16
         _icon_gap = 4
         _left_x = content.left
         _mid_x = content.left + content.w // 2
-        _row_h = BODY_FONT.get_height() + 6
+        _row_h = LEFT_BODY_FONT.get_height() + 6
         for _row in range(0, len(stats), 2):
             for _col, (_k, _v) in enumerate(stats[_row:_row + 2]):
                 _tx = _left_x if _col == 0 else _mid_x
                 _color = SKILL_COLORS.get(_k, (220, 214, 198))
                 _icon = self._skill_icons.get(_k)
                 if _icon:
-                    _icon_y = y + max(0, (BODY_FONT.get_height() - _icon_size) // 2)
+                    _icon_y = y + max(0, (LEFT_BODY_FONT.get_height() - _icon_size) // 2)
                     surface.blit(_icon, (_tx, _icon_y))
-                    draw_body_text(surface, f"{_k}: {_v}", _tx + _icon_size + _icon_gap, y, color=_color)
+                    draw_body_text(surface, f"{_k}: {_v}", _tx + _icon_size + _icon_gap, y, color=_color, font=LEFT_BODY_FONT)
                 else:
-                    draw_body_text(surface, f"{_k}: {_v}", _tx, y, color=_color)
+                    draw_body_text(surface, f"{_k}: {_v}", _tx, y, color=_color, font=LEFT_BODY_FONT)
             y += _row_h
         y += 4
 
@@ -815,7 +869,7 @@ class UIManager:
         btn_gap = 6
         if show_actions:
             y += 2
-            y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208))
+            y = draw_header_text(surface, "Actions", content.left, y, color=(230, 224, 208), font=LEFT_HEADER_FONT)
             action_rows = [
                 ("Declare War", "deny", "npc_declare_war"),
             ]
@@ -854,16 +908,16 @@ class UIManager:
                 "manpower_total": state.get("character_realm_manpower"),
             }
 
-        y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208))
+        y = draw_header_text(surface, "Selected Realm", content.left, y, color=(230, 224, 208), font=LEFT_HEADER_FONT)
         target_title = target_info.get("title", "—")
         target_realm = target_info.get("realm_name", "Realm")
-        y = draw_body_text(surface, f"Realm: {target_realm}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Faith: {target_info.get('faith','—')}", content.left, y, color=(220, 214, 198))
-        y = draw_body_text(surface, f"Culture: {target_info.get('culture','—')}", content.left, y, color=(220, 214, 198))
+        y = draw_body_text(surface, f"Realm: {target_realm}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Title: {target_title}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Faith: {target_info.get('faith','—')}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
+        y = draw_body_text(surface, f"Culture: {target_info.get('culture','—')}", content.left, y, color=(220, 214, 198), font=LEFT_BODY_FONT)
         manpower_total = target_info.get("manpower_total")
         if manpower_total is not None:
-            y = draw_body_text(surface, f"Manpower: {int(manpower_total):,}", content.left, y, color=(200, 194, 178))
+            y = draw_body_text(surface, f"Manpower: {int(manpower_total):,}", content.left, y, color=(200, 194, 178), font=LEFT_BODY_FONT)
 
         return btns
 

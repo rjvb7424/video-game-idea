@@ -14,6 +14,11 @@ HEADER_FONT = pygame.font.Font(FONT_PATH, 20)
 BODY_FONT = pygame.font.Font(FONT_PATH, 16)
 FOOTER_FONT = pygame.font.Font(FONT_PATH, 14)
 
+# Slightly larger variants used in the left character panel
+LEFT_HEADER_FONT = pygame.font.Font(FONT_PATH, 22)
+LEFT_BODY_FONT   = pygame.font.Font(FONT_PATH, 18)
+LEFT_FOOTER_FONT = pygame.font.Font(FONT_PATH, 16)
+
 # button constants
 BUTTON_BORDER_RADIUS = 4
 
@@ -45,7 +50,7 @@ DENY_BORDER_COLOR = (210, 140, 140)
 UI_GUTTER = 0
 TOP_BAR_H = 60
 BOTTOM_BAR_H = 70
-SIDE_W_L = 310
+SIDE_W_L = 340
 SIDE_W_R = 310
 
 # panel palette

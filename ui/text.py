@@ -11,16 +11,16 @@ def draw_title_text(surface, text, x, y, color=COLOR):
     return _draw_text(surface, text, x, y, TITLE_FONT, color)
 
 
-def draw_header_text(surface, text, x, y, color=COLOR):
-    return _draw_text(surface, text, x, y, HEADER_FONT, color)
+def draw_header_text(surface, text, x, y, color=COLOR, font=None):
+    return _draw_text(surface, text, x, y, font or HEADER_FONT, color)
 
 
-def draw_body_text(surface, text, x, y, color=COLOR):
-    return _draw_text(surface, text, x, y, BODY_FONT, color)
+def draw_body_text(surface, text, x, y, color=COLOR, font=None):
+    return _draw_text(surface, text, x, y, font or BODY_FONT, color)
 
 
-def draw_footer_text(surface, text, x, y, color=COLOR):
-    return _draw_text(surface, text, x, y, FOOTER_FONT, color)
+def draw_footer_text(surface, text, x, y, color=COLOR, font=None):
+    return _draw_text(surface, text, x, y, font or FOOTER_FONT, color)
 
 
 def wrap_text(text, font, max_width):
