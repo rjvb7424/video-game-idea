@@ -76,6 +76,11 @@ class GameLoopMixin:
         if action == "menu_settings":
             self._open_settings_modal()
             return
+        if action == "menu_quit":
+            import sys
+            pygame.quit()
+            sys.exit()
+            return
         if action == "storyteller_back":
             self.realm_candidate_id = None
             self.selected_province = None

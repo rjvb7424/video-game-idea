@@ -77,18 +77,22 @@ class BootstrapMixin:
         self._storyteller_portraits = self._load_storyteller_portraits()
         self._storyteller_portrait_cache = {}
 
-        self._menu_bg = self._load_menu_background()
+        self._font_cache = {}
+        self._menu_logo = None
+        self._menu_logo_cache = {}
+        self._menu_video_cap = None
+        self._menu_video_frame_surf = None
+        self._menu_video_fps = 30.0
+        self._menu_video_last_ms = 0
+        self._menu_bg = None
         self._menu_bg_cache = {}
+        self._load_menu_video()
+
         self.menu_title_font = pygame.font.Font(FONT_PATH, 72)
         self.menu_header_font = pygame.font.Font(FONT_PATH, 40)
         self.menu_subtitle_font = pygame.font.Font(FONT_PATH, 24)
         self.menu_button_font = pygame.font.Font(FONT_PATH, 22)
         self.menu_caption_font = pygame.font.Font(FONT_PATH, 18)
-
-        # Dedicated display fonts for the main menu hero section.
-        self.menu_main_title_font = pygame.font.Font(FONT_PATH, 90)
-        self.menu_main_subtitle_font = pygame.font.Font(FONT_PATH, 36)
-        self.menu_main_lore_font = pygame.font.Font(FONT_PATH, 22)
 
     def _init_ui_and_world(self):
         self.ui = UIManager(seed=11)

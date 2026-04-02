@@ -12,12 +12,98 @@ from ui.utils import clip_draw
 
 class MenuMixin:
     def _load_menu_background(self):
+        """Static image fallback for the menu background."""
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
         for filename in ("main_menu.png", "boreal_forest.png"):
             path = os.path.join(base_dir, filename)
             if os.path.exists(path):
                 return pygame.image.load(path).convert()
         return None
+
+    def _load_menu_video(self):
+        """Load main_menu.mp4 for animated background; fall back to static image."""
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets"))
+
+        logo_path = os.path.join(base_dir, "logo.png")
+        if os.path.exists(logo_path):
+            try:
+                self._menu_logo = pygame.image.load(logo_path).convert_alpha()
+            except Exception:
+                self._menu_logo = None
+
+        video_path = os.path.join(base_dir, "main_menu.mp4")
+        if os.path.exists(video_path):
+            try:
+                import cv2  # noqa: PLC0415
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    self._menu_video_cap = cap
+                    self._menu_video_fps = max(1.0, cap.get(cv2.CAP_PROP_FPS) or 30.0)
+                    self._menu_video_last_ms = pygame.time.get_ticks()
+                    return
+            except ImportError:
+                pass
+
+        self._menu_bg = self._load_menu_background()
+
+    def _get_menu_video_frame(self):
+        """Advance video to the correct frame and return it as a pygame Surface."""
+        if self._menu_video_cap is None:
+            return None
+        try:
+            import cv2  # noqa: PLC0415
+            now = pygame.time.get_ticks()
+            frame_ms = 1000.0 / self._menu_video_fps
+            elapsed = now - self._menu_video_last_ms
+            if elapsed >= frame_ms:
+                frames_to_advance = min(max(1, int(elapsed / frame_ms)), 8)
+                self._menu_video_last_ms = now
+                frame = None
+                for _ in range(frames_to_advance):
+                    ret, f = self._menu_video_cap.read()
+                    if not ret:
+                        self._menu_video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, f = self._menu_video_cap.read()
+                    if ret:
+                        frame = f
+                if frame is not None:
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    fh, fw = rgb.shape[:2]
+                    self._menu_video_frame_surf = (
+                        pygame.image.frombuffer(rgb.tobytes(), (fw, fh), "RGB").convert()
+                    )
+        except Exception:
+            pass
+        return self._menu_video_frame_surf
+
+    def _get_menu_logo_scaled(self, max_size):
+        """Return logo.png scaled to fit within max_size, cached by size."""
+        if self._menu_logo is None:
+            return None
+        sw, sh = int(max_size[0]), int(max_size[1])
+        key = (sw, sh)
+        cached = self._menu_logo_cache.get(key)
+        if cached is not None:
+            return cached
+        lw, lh = self._menu_logo.get_size()
+        if lw <= 0 or lh <= 0:
+            return None
+        scale = min(sw / lw, sh / lh)
+        new_w = max(1, int(lw * scale))
+        new_h = max(1, int(lh * scale))
+        scaled = pygame.transform.smoothscale(self._menu_logo, (new_w, new_h))
+        self._menu_logo_cache[key] = scaled
+        return scaled
+
+    def _get_scaled_font(self, base_size_720p):
+        """Return a font whose pixel size scales with the current screen height."""
+        from ui.theme import FONT_PATH as _FP  # noqa: PLC0415
+        h = self.screen.get_height()
+        size = max(10, int(base_size_720p * h / 720))
+        key = (_FP, size)
+        if key not in self._font_cache:
+            self._font_cache[key] = pygame.font.Font(_FP, size)
+        return self._font_cache[key]
     def _load_storyteller_portraits(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "storytellers"))
         portraits = {}
@@ -61,6 +147,19 @@ class MenuMixin:
         return cached
     def _draw_menu_background(self, surface):
         size = surface.get_size()
+        sw, sh = size
+
+        if self._menu_video_cap is not None:
+            frame = self._get_menu_video_frame()
+            if frame is not None:
+                fw, fh = frame.get_size()
+                scale = max(sw / fw, sh / fh)
+                new_w = max(1, int(fw * scale))
+                new_h = max(1, int(fh * scale))
+                scaled = pygame.transform.scale(frame, (new_w, new_h))
+                surface.blit(scaled, ((sw - new_w) // 2, (sh - new_h) // 2))
+                return
+
         if self._menu_bg is None:
             surface.fill(BG_COLOR)
             return
@@ -87,6 +186,8 @@ class MenuMixin:
             self._apply_window_size((1280, 720), remember=True)
         elif mode == "1600":
             self._apply_window_size((1600, 900), remember=True)
+        elif mode == "4k":
+            self._apply_window_size((3840, 2160), remember=True)
         self._open_settings_modal()
     def _set_autosave_interval(self, months):
         months = int(months)
@@ -110,12 +211,13 @@ class MenuMixin:
                 autosave_line,
             ],
             [
-                ("1280x720", "primary", lambda: self._set_window_preset("1280")),
-                ("1600x900", "secondary", lambda: self._set_window_preset("1600")),
-                ("Autosave 1M", "secondary", lambda: self._set_autosave_interval(1)),
-                ("Autosave 3M", "secondary", lambda: self._set_autosave_interval(3)),
+                ("1280x720",  "primary",   lambda: self._set_window_preset("1280")),
+                ("1600x900",  "secondary", lambda: self._set_window_preset("1600")),
+                ("3840x2160", "secondary", lambda: self._set_window_preset("4k")),
+                ("Autosave 1M",  "secondary", lambda: self._set_autosave_interval(1)),
+                ("Autosave 3M",  "secondary", lambda: self._set_autosave_interval(3)),
                 ("Autosave Off", "secondary", lambda: self._set_autosave_interval(0)),
-                ("Close", "secondary", lambda: self.modal.close()),
+                ("Close",        "secondary", lambda: self.modal.close()),
             ],
         )
     def _perform_return_to_main_menu(self):
@@ -179,17 +281,36 @@ class MenuMixin:
     def _draw_menu_button(self, surface, rect, text, enabled=True):
         mx, my = pygame.mouse.get_pos()
         hovered = enabled and rect.collidepoint(mx, my)
+
+        # Semi-transparent parchment-dark panel
+        btn_surf = pygame.Surface(rect.size, pygame.SRCALPHA)
         if enabled:
-            bg = (55, 55, 60) if not hovered else (80, 80, 90)
-            border = (10, 10, 10)
-            text_color = (235, 228, 210)
+            btn_surf.fill((48, 30, 8, 215) if hovered else (18, 12, 4, 190))
         else:
-            bg = (35, 35, 38)
-            border = (18, 18, 20)
-            text_color = (140, 135, 125)
-        pygame.draw.rect(surface, bg, rect, border_radius=6)
-        pygame.draw.rect(surface, border, rect, width=2, border_radius=6)
-        label = self.menu_button_font.render(text, True, text_color)
+            btn_surf.fill((12, 10, 5, 130))
+        surface.blit(btn_surf, rect.topleft)
+
+        # Gold border
+        if enabled:
+            border_col = (218, 170, 58) if hovered else (150, 118, 42)
+            border_w = 2 if hovered else 1
+        else:
+            border_col = (68, 54, 22)
+            border_w = 1
+        pygame.draw.rect(surface, border_col, rect, width=border_w, border_radius=3)
+
+        # Thin top-edge sheen when hovered
+        if hovered and enabled:
+            sheen = pygame.Surface((rect.width - 4, 1), pygame.SRCALPHA)
+            sheen.fill((255, 220, 100, 60))
+            surface.blit(sheen, (rect.left + 2, rect.top + 2))
+
+        # Text with 1-pixel drop shadow
+        font = self._get_scaled_font(20)
+        text_col = (255, 238, 185) if (enabled and hovered) else ((220, 202, 150) if enabled else (96, 86, 58))
+        shadow = font.render(text, True, (0, 0, 0))
+        surface.blit(shadow, shadow.get_rect(center=(rect.centerx + 1, rect.centery + 1)))
+        label = font.render(text, True, text_col)
         surface.blit(label, label.get_rect(center=rect.center))
         return rect
     @staticmethod
@@ -207,50 +328,60 @@ class MenuMixin:
     def _draw_main_menu(self, surface):
         self._draw_menu_background(surface)
 
+        # Cinematic vignette overlay
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 95))
+        overlay.fill((0, 0, 0, 72))
         surface.blit(overlay, (0, 0))
 
         w, h = surface.get_size()
-        title = "Tower of Heaven"
-        subtitle = "Rise of the Holy Dynasty"
-        lore = "Complete the Ark. Become the Holy Dynasty. Ascend into the sky."
 
-        title_font = getattr(self, "menu_main_title_font", self.menu_title_font)
-        subtitle_font = getattr(self, "menu_main_subtitle_font", self.menu_subtitle_font)
-        lore_font = getattr(self, "menu_main_lore_font", self.menu_caption_font)
+        # --- Logo / Title ---
+        logo = self._get_menu_logo_scaled((int(w * 0.48), int(h * 0.26)))
+        if logo is not None:
+            logo_rect = logo.get_rect(center=(w // 2, int(h * 0.17)))
+            surface.blit(logo, logo_rect)
+            below_logo = logo_rect.bottom + 2
+        else:
+            # Fallback: styled "Ascention" text
+            tf = self._get_scaled_font(80)
+            shadow_s = tf.render("Ascention", True, (0, 0, 0))
+            title_s = tf.render("Ascention", True, (240, 220, 155))
+            tr = title_s.get_rect(center=(w // 2, int(h * 0.17)))
+            surface.blit(shadow_s, (tr.x + 3, tr.y + 3))
+            surface.blit(title_s, tr)
+            below_logo = tr.bottom + 2
 
-        title_surf = title_font.render(title, True, (235, 228, 210))
-        subtitle_surf = subtitle_font.render(subtitle, True, (218, 206, 182))
+        # --- Subtitle ---
+        sf = self._get_scaled_font(32)
+        ss = sf.render("Rise of the Northern Lords", True, (195, 178, 132))
+        sr = ss.get_rect(center=(w // 2, below_logo + sf.get_height() // 2))
+        surface.blit(ss, sr)
 
-        title_rect = title_surf.get_rect(center=(w // 2, int(h * 0.16)))
-        subtitle_rect = subtitle_surf.get_rect(center=(w // 2, title_rect.bottom + 18))
+        # --- Decorative gold separator ---
+        sep_y = sr.bottom + 8
+        cx = w // 2
+        arm = int(w * 0.15)
+        gold_dim = (148, 116, 42)
+        gold_bright = (204, 166, 60)
+        pygame.draw.line(surface, gold_dim, (cx - arm, sep_y), (cx - 10, sep_y), 1)
+        pygame.draw.line(surface, gold_dim, (cx + 10, sep_y), (cx + arm, sep_y), 1)
+        diamond = [(cx, sep_y - 5), (cx + 5, sep_y), (cx, sep_y + 5), (cx - 5, sep_y)]
+        pygame.draw.polygon(surface, gold_bright, diamond)
 
-        shadow = title_font.render(title, True, (0, 0, 0))
-        surface.blit(shadow, (title_rect.x + 3, title_rect.y + 3))
-        surface.blit(title_surf, title_rect)
-        surface.blit(subtitle_surf, subtitle_rect)
-
-        lore_lines = wrap_text(lore, lore_font, min(int(w * 0.78), 900))
-        lore_y = subtitle_rect.bottom + 18
-        line_h = lore_font.get_height() + 3
-        for idx, line in enumerate(lore_lines[:3]):
-            lore_surf = lore_font.render(line, True, (210, 202, 188))
-            lore_rect = lore_surf.get_rect(center=(w // 2, lore_y + idx * line_h))
-            surface.blit(lore_surf, lore_rect)
-
-        btn_w = min(420, int(w * 0.55))
-        btn_h = 46
-        gap = 12
-        start_y = max(int(h * 0.45), lore_y + line_h * min(3, len(lore_lines)) + 20)
+        # --- Buttons ---
+        btn_w = min(int(w * 0.24), 460)
+        _bfont = self._get_scaled_font(20)
+        btn_h = max(46, min(68, _bfont.get_height() + 28))
+        gap = max(8, int(btn_h * 0.20))
+        start_y = sep_y + 55
         left = (w - btn_w) // 2
 
         labels = [
             ("Start Game", "menu_start"),
-            ("Load Game", "menu_load"),
-            ("Settings", "menu_settings"),
+            ("Load Game",  "menu_load"),
+            ("Settings",   "menu_settings"),
+            ("Quit",       "menu_quit"),
         ]
-
         clickables = []
         for i, (label, action) in enumerate(labels):
             rect = pygame.Rect(left, start_y + i * (btn_h + gap), btn_w, btn_h)
