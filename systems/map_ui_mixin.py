@@ -244,12 +244,12 @@ class MapUIMixin:
         self._siege_overlay_key = key
         return overlay, key
 
-    def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False, marshal=None):
+    def _draw_army_stack(self, surface, map_rect, pos, raised, max_army, friendly=True, selected=False, marshal=None, sx_offset=0):
         if max_army <= 0:
             return
         ratio = max(0.0, min(1.0, raised / max_army))
         sp = self.camera.world_to_screen(pos, map_rect, use_target=False)
-        x, y = int(sp.x), int(sp.y)
+        x, y = int(sp.x) + sx_offset, int(sp.y)
         if not map_rect.collidepoint(x, y):
             return
 
@@ -291,6 +291,10 @@ class MapUIMixin:
         max_army = int(self.army.get("max", 0))
         raised = int(self.army.get("raised", 0))
         marshal = self._realm_marshal_value(self.player_realm_id, default=8)
+        sx_offset = 0
+        if self._battle_state and self._battle_state.get("pid") == self.army_prov_id:
+            attacker_is_player = self._battle_state.get("attacker_is_player", True)
+            sx_offset = -22 if attacker_is_player else 22
         self._draw_army_stack(
             surface,
             map_rect,
@@ -300,6 +304,7 @@ class MapUIMixin:
             friendly=True,
             selected=self.army_selected,
             marshal=marshal,
+            sx_offset=sx_offset,
         )
 
     def _draw_enemy_armies(self, surface, map_rect):
@@ -320,6 +325,12 @@ class MapUIMixin:
             if pos is None:
                 pos = self.world.provinces[pid].center
             marshal = self._realm_marshal_value(enemy.get("realm_id"), default=8)
+            sx_offset = 0
+            if (self._battle_state
+                    and self._battle_state.get("pid") == pid
+                    and self._battle_state.get("enemy_realm_id") == enemy.get("realm_id")):
+                attacker_is_player = self._battle_state.get("attacker_is_player", True)
+                sx_offset = 22 if attacker_is_player else -22
             self._draw_army_stack(
                 surface,
                 map_rect,
@@ -329,6 +340,7 @@ class MapUIMixin:
                 friendly=False,
                 selected=False,
                 marshal=marshal,
+                sx_offset=sx_offset,
             )
 
     def _draw_army_route_arrow(self, surface, map_rect):
@@ -444,7 +456,7 @@ class MapUIMixin:
 
         w, h = 110, 34
         panel = pygame.Rect(0, 0, w, h)
-        panel.center = (x, y - 42)
+        panel.center = (x, y - 68)
 
         pygame.draw.rect(surface, (20, 18, 16), panel, border_radius=6)
         pygame.draw.rect(surface, (0, 0, 0), panel, 2, border_radius=6)

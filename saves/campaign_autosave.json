@@ -4,21 +4,19 @@
   "state": {
     "date": {
       "year": 1067,
-      "month": 10,
+      "month": 4,
       "day": 1
     },
-    "player_realm_id": 1,
+    "player_realm_id": 2,
     "resources": {
-      "gold": 133,
-      "piety": 1000
+      "gold": 188,
+      "piety": 1003
     },
     "realm_relations": {
-      "7": -18
+      "1": -18
     },
     "realm_claims": [],
-    "realm_truces": {
-      "7": 1770
-    },
+    "realm_truces": {},
     "claim_fabrication_cooldowns": {},
     "alliances": [],
     "subjugation_cooldown_days": 0,
@@ -45,88 +43,89 @@
     "raid_cooldown_days": 0,
     "ai_war_cooldown_days": 0,
     "non_human_attack_cooldown_days": 0,
-    "wars": [],
+    "wars": [
+      {
+        "id": 1,
+        "target_id": 1,
+        "war_type": "Conquest",
+        "goal_pid": 25,
+        "progress": 0.0,
+        "days": 70,
+        "ready_prompted": false,
+        "sieged": [],
+        "total_provs": 3,
+        "attacker": "player",
+        "attacker_broken_days": 0
+      }
+    ],
     "war_next_id": 2,
-    "war_focus_id": null,
+    "war_focus_id": 1,
     "army": {
-      "raised": 0,
-      "morale": 100.0,
+      "raised": 215,
+      "morale": 92.8688524590164,
       "raising": false,
-      "selected": false,
-      "prov_id": null,
+      "selected": true,
+      "prov_id": 33,
       "route": []
     },
     "enemy_armies": [
       {
-        "realm_id": 4,
-        "prov_id": 13,
+        "realm_id": 1,
+        "prov_id": 14,
         "army": {
-          "raised": 304,
-          "max": 358,
-          "morale": 100.0
+          "raised": 12,
+          "max": 238,
+          "morale": 6.0
         },
         "raising": false,
         "route": [],
-        "target_pid": null,
-        "ai_state": "idle"
-      },
-      {
-        "realm_id": 7,
-        "prov_id": 5,
-        "army": {
-          "raised": 2,
-          "max": 239,
-          "morale": 60.14285714285714
-        },
-        "raising": false,
-        "route": [],
-        "target_pid": null,
-        "ai_state": "engage"
+        "target_pid": 14,
+        "ai_state": "avoid"
       }
     ],
     "selected_province_id": null,
-    "campaign_start_provinces": 3,
+    "campaign_start_provinces": 5,
     "campaign_target_provinces": 14,
     "insolvency_days": 0,
     "famine_days": 0,
     "crisis_days": 0,
     "campaign_result": null,
     "campaign_over_day": null,
-    "last_played_realm_id": 1,
-    "baseline_population": 2682,
-    "threat_level": 58.736131917217286,
-    "threat_inactive_days": 20,
+    "last_played_realm_id": 2,
+    "baseline_population": 2980,
+    "threat_level": 69.36487915249826,
+    "threat_inactive_days": 4,
     "log": [
-      "Time speed set to 3.",
-      "June 22, 1067: Sieged Skalavik (3/4).",
-      "June 29, 1067: Army marching to Thoroborg.",
-      "July 1, 1067: Autosaved campaign.",
-      "July 3, 1067: Clash forming in Thoroborg.",
-      "July 6, 1067: Battle begins at Thoroborg.",
+      "February 16, 1067: Army marching to Haldoheim.",
       "Time paused.",
-      "July 7, 1067: You ignored the stray cat.",
-      "Time speed set to 3.",
-      "July 12, 1067: Battle at Thoroborg. Victory.",
-      "July 12, 1067: Begin siege preparations in Thoroborg.",
-      "July 12, 1067: Granary Massacre (Major). Lost 31 gold and 8 population.",
-      "July 18, 1067: Siege of Thoroborg begins.",
-      "August 8, 1067: Sieged Thoroborg (4/4).",
-      "August 8, 1067: Annexed Haldyheim.",
-      "August 8, 1067: Won war against Queen Helga.",
-      "August 29, 1067: Army marching to Haldyheim.",
-      "September 1, 1067: Roadside Hunts (Major). Lost 31 gold and 9 population.",
+      "February 17, 1067: An heir is born: Prince Rolf.",
+      "Time speed set to 2.",
+      "February 18, 1067: Begin siege preparations in Haldoheim.",
+      "February 21, 1067: Army marching to Bjornivik.",
+      "February 23, 1067: Begin siege preparations in Bjornivik.",
+      "Time speed set to 1.",
+      "February 27, 1067: Army marching to Skaleskar.",
+      "March 1, 1067: Clash forming in Skaleskar.",
       "Time paused.",
-      "Time speed set to 3.",
-      "September 2, 1067: Clash forming in Haldyheim.",
+      "March 2, 1067: You ignored the stray cat.",
+      "Time speed set to 1.",
+      "March 4, 1067: Battle begins at Skaleskar.",
+      "March 10, 1067: Battle at Skaleskar. Victory.",
+      "March 10, 1067: Begin siege preparations in Skaleskar.",
+      "March 11, 1067: Army marching to Haldoheim.",
+      "March 11, 1067: Army marching to Bjornivik.",
+      "March 12, 1067: Army marching to Haldoheim.",
+      "March 14, 1067: Begin siege preparations in Haldoheim.",
+      "March 14, 1067: Army marching to Skaleskar.",
+      "March 16, 1067: Begin siege preparations in Skaleskar.",
+      "March 17, 1067: Army marching to Haldoheim.",
+      "March 19, 1067: Clash forming in Haldoheim.",
+      "March 22, 1067: Battle begins at Haldoheim.",
       "Time paused.",
-      "September 5, 1067: Battle begins at Haldyheim.",
-      "September 5, 1067: You ignored the stray cat.",
-      "Time speed set to 3.",
-      "September 11, 1067: Battle at Haldyheim. Victory.",
-      "Time paused.",
-      "September 20, 1067: You ignored the stray cat.",
-      "Time speed set to 3.",
-      "You disband the army."
+      "March 25, 1067: You ignored the stray cat.",
+      "Time speed set to 1.",
+      "March 28, 1067: Battle at Haldoheim. Victory.",
+      "March 28, 1067: Begin siege preparations in Haldoheim."
     ]
   },
   "world": {
@@ -134,6 +133,8 @@
       {
         "id": 0,
         "realm_id": 6,
+        "terrain": "village",
+        "biome": "village",
         "population": 424,
         "buildings": [
           {
@@ -147,6 +148,8 @@
       {
         "id": 1,
         "realm_id": 8,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 475,
         "buildings": [
           null,
@@ -157,6 +160,8 @@
       {
         "id": 2,
         "realm_id": 0,
+        "terrain": "village",
+        "biome": "village",
         "population": 638,
         "buildings": [
           null,
@@ -167,6 +172,8 @@
       {
         "id": 3,
         "realm_id": 11,
+        "terrain": "village",
+        "biome": "village",
         "population": 404,
         "buildings": [
           {
@@ -180,6 +187,8 @@
       {
         "id": 4,
         "realm_id": 12,
+        "terrain": "village",
+        "biome": "village",
         "population": 322,
         "buildings": [
           null,
@@ -190,6 +199,8 @@
       {
         "id": 5,
         "realm_id": 7,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 477,
         "buildings": [
           null,
@@ -200,6 +211,8 @@
       {
         "id": 6,
         "realm_id": 6,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 617,
         "buildings": [
           {
@@ -213,6 +226,8 @@
       {
         "id": 7,
         "realm_id": 10,
+        "terrain": "village",
+        "biome": "village",
         "population": 560,
         "buildings": [
           null,
@@ -223,6 +238,8 @@
       {
         "id": 8,
         "realm_id": 14,
+        "terrain": "tundra",
+        "biome": "tundra",
         "population": 993,
         "buildings": [
           {
@@ -236,6 +253,8 @@
       {
         "id": 9,
         "realm_id": 2,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 758,
         "buildings": [
           {
@@ -249,7 +268,9 @@
       {
         "id": 10,
         "realm_id": 2,
-        "population": 589,
+        "terrain": "plains",
+        "biome": "plains",
+        "population": 590,
         "buildings": [
           {
             "id": "farm",
@@ -262,6 +283,8 @@
       {
         "id": 11,
         "realm_id": 0,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 416,
         "buildings": [
           {
@@ -275,6 +298,8 @@
       {
         "id": 12,
         "realm_id": 3,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 355,
         "buildings": [
           null,
@@ -285,6 +310,8 @@
       {
         "id": 13,
         "realm_id": 4,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 431,
         "buildings": [
           {
@@ -298,6 +325,8 @@
       {
         "id": 14,
         "realm_id": 1,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 756,
         "buildings": [
           {
@@ -311,6 +340,8 @@
       {
         "id": 15,
         "realm_id": 11,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 546,
         "buildings": [
           {
@@ -324,6 +355,8 @@
       {
         "id": 16,
         "realm_id": 3,
+        "terrain": "village",
+        "biome": "village",
         "population": 826,
         "buildings": [
           {
@@ -337,6 +370,8 @@
       {
         "id": 17,
         "realm_id": 9,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 346,
         "buildings": [
           null,
@@ -347,6 +382,8 @@
       {
         "id": 18,
         "realm_id": 5,
+        "terrain": "village",
+        "biome": "village",
         "population": 804,
         "buildings": [
           null,
@@ -357,6 +394,8 @@
       {
         "id": 19,
         "realm_id": 6,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 368,
         "buildings": [
           null,
@@ -367,6 +406,8 @@
       {
         "id": 20,
         "realm_id": 13,
+        "terrain": "village",
+        "biome": "village",
         "population": 993,
         "buildings": [
           {
@@ -380,6 +421,8 @@
       {
         "id": 21,
         "realm_id": 10,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 307,
         "buildings": [
           null,
@@ -390,6 +433,8 @@
       {
         "id": 22,
         "realm_id": 11,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 557,
         "buildings": [
           {
@@ -403,6 +448,8 @@
       {
         "id": 23,
         "realm_id": 10,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 485,
         "buildings": [
           {
@@ -416,7 +463,9 @@
       {
         "id": 24,
         "realm_id": 2,
-        "population": 606,
+        "terrain": "plains",
+        "biome": "plains",
+        "population": 607,
         "buildings": [
           null,
           null,
@@ -426,7 +475,9 @@
       {
         "id": 25,
         "realm_id": 1,
-        "population": 574,
+        "terrain": "mountain",
+        "biome": "mountain",
+        "population": 572,
         "buildings": [
           null,
           null,
@@ -436,6 +487,8 @@
       {
         "id": 26,
         "realm_id": 9,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 334,
         "buildings": [
           null,
@@ -446,6 +499,8 @@
       {
         "id": 27,
         "realm_id": 8,
+        "terrain": "tundra",
+        "biome": "tundra",
         "population": 525,
         "buildings": [
           {
@@ -459,6 +514,8 @@
       {
         "id": 28,
         "realm_id": 7,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 312,
         "buildings": [
           {
@@ -472,7 +529,9 @@
       {
         "id": 29,
         "realm_id": 2,
-        "population": 473,
+        "terrain": "mountain",
+        "biome": "mountain",
+        "population": 471,
         "buildings": [
           null,
           null,
@@ -482,6 +541,8 @@
       {
         "id": 30,
         "realm_id": 6,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 604,
         "buildings": [
           null,
@@ -492,6 +553,8 @@
       {
         "id": 31,
         "realm_id": 10,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 282,
         "buildings": [
           {
@@ -505,6 +568,8 @@
       {
         "id": 32,
         "realm_id": 4,
+        "terrain": "tundra",
+        "biome": "tundra",
         "population": 658,
         "buildings": [
           null,
@@ -515,7 +580,9 @@
       {
         "id": 33,
         "realm_id": 1,
-        "population": 660,
+        "terrain": "mountain",
+        "biome": "mountain",
+        "population": 659,
         "buildings": [
           {
             "id": "farm",
@@ -528,6 +595,8 @@
       {
         "id": 34,
         "realm_id": 3,
+        "terrain": "village",
+        "biome": "village",
         "population": 835,
         "buildings": [
           {
@@ -541,6 +610,8 @@
       {
         "id": 35,
         "realm_id": 5,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 619,
         "buildings": [
           {
@@ -554,6 +625,8 @@
       {
         "id": 36,
         "realm_id": 4,
+        "terrain": "cold_bog",
+        "biome": "cold_bog",
         "population": 796,
         "buildings": [
           null,
@@ -564,6 +637,8 @@
       {
         "id": 37,
         "realm_id": 12,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 671,
         "buildings": [
           {
@@ -577,6 +652,8 @@
       {
         "id": 38,
         "realm_id": 8,
+        "terrain": "village",
+        "biome": "village",
         "population": 668,
         "buildings": [
           null,
@@ -587,6 +664,8 @@
       {
         "id": 39,
         "realm_id": 11,
+        "terrain": "village",
+        "biome": "village",
         "population": 749,
         "buildings": [
           null,
@@ -597,6 +676,8 @@
       {
         "id": 40,
         "realm_id": 0,
+        "terrain": "tundra",
+        "biome": "tundra",
         "population": 513,
         "buildings": [
           null,
@@ -607,6 +688,8 @@
       {
         "id": 41,
         "realm_id": 8,
+        "terrain": "tundra",
+        "biome": "tundra",
         "population": 855,
         "buildings": [
           {
@@ -620,6 +703,8 @@
       {
         "id": 42,
         "realm_id": 0,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 419,
         "buildings": [
           {
@@ -632,8 +717,10 @@
       },
       {
         "id": 43,
-        "realm_id": 1,
-        "population": 687,
+        "realm_id": 7,
+        "terrain": "mountain",
+        "biome": "mountain",
+        "population": 688,
         "buildings": [
           {
             "id": "farm",
@@ -646,6 +733,8 @@
       {
         "id": 44,
         "realm_id": 9,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 644,
         "buildings": [
           {
@@ -659,6 +748,8 @@
       {
         "id": 45,
         "realm_id": 6,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 356,
         "buildings": [
           {
@@ -672,6 +763,8 @@
       {
         "id": 46,
         "realm_id": 7,
+        "terrain": "cold_bog",
+        "biome": "cold_bog",
         "population": 511,
         "buildings": [
           null,
@@ -682,6 +775,8 @@
       {
         "id": 47,
         "realm_id": 4,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 318,
         "buildings": [
           {
@@ -695,6 +790,8 @@
       {
         "id": 48,
         "realm_id": 10,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 754,
         "buildings": [
           {
@@ -708,6 +805,8 @@
       {
         "id": 49,
         "realm_id": 5,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 590,
         "buildings": [
           {
@@ -721,6 +820,8 @@
       {
         "id": 50,
         "realm_id": 8,
+        "terrain": "cold_bog",
+        "biome": "cold_bog",
         "population": 457,
         "buildings": [
           {
@@ -734,6 +835,8 @@
       {
         "id": 51,
         "realm_id": 4,
+        "terrain": "village",
+        "biome": "village",
         "population": 778,
         "buildings": [
           {
@@ -747,6 +850,8 @@
       {
         "id": 52,
         "realm_id": 3,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 455,
         "buildings": [
           {
@@ -760,6 +865,8 @@
       {
         "id": 53,
         "realm_id": 3,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 508,
         "buildings": [
           null,
@@ -770,7 +877,9 @@
       {
         "id": 54,
         "realm_id": 2,
-        "population": 554,
+        "terrain": "mountain",
+        "biome": "mountain",
+        "population": 555,
         "buildings": [
           {
             "id": "farm",
@@ -783,6 +892,8 @@
       {
         "id": 55,
         "realm_id": 10,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 592,
         "buildings": [
           null,
@@ -793,6 +904,8 @@
       {
         "id": 56,
         "realm_id": 11,
+        "terrain": "village",
+        "biome": "village",
         "population": 724,
         "buildings": [
           null,
@@ -803,6 +916,8 @@
       {
         "id": 57,
         "realm_id": 9,
+        "terrain": "mountain",
+        "biome": "mountain",
         "population": 663,
         "buildings": [
           {
@@ -816,6 +931,8 @@
       {
         "id": 58,
         "realm_id": 5,
+        "terrain": "forest",
+        "biome": "forest",
         "population": 308,
         "buildings": [
           null,
@@ -826,6 +943,8 @@
       {
         "id": 59,
         "realm_id": 5,
+        "terrain": "cold_bog",
+        "biome": "cold_bog",
         "population": 659,
         "buildings": [
           {
@@ -839,6 +958,8 @@
       {
         "id": 60,
         "realm_id": 6,
+        "terrain": "plains",
+        "biome": "plains",
         "population": 612,
         "buildings": [
           null,
@@ -968,15 +1089,6 @@
           "Intrigue": 6,
           "Learning": 10,
           "Prowess": 9
-        },
-        "heir": {
-          "name": "Prince Rolf",
-          "title": "Prince of Vikeholm",
-          "house": "House Ragnvaldsson",
-          "culture": "Nordfolken",
-          "faith": "Nordfolken Mythology",
-          "gender": "male",
-          "age": 16
         }
       },
       {
@@ -1034,6 +1146,15 @@
           "Intrigue": 14,
           "Learning": 7,
           "Prowess": 9
+        },
+        "heir": {
+          "name": "Prince Rolf",
+          "title": "Prince of Fjallauholt",
+          "house": "House Lodbrok",
+          "culture": "Nordfolken",
+          "faith": "Nordfolken Mythology",
+          "gender": "male",
+          "age": 16
         }
       },
       {
@@ -1750,13 +1871,13 @@
     ],
     "realm_sizes": [
       4,
-      4,
+      3,
       5,
       5,
       5,
       5,
       6,
-      3,
+      4,
       5,
       4,
       6,
